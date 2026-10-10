@@ -140,6 +140,25 @@ fn moves_the_dial(msg: &ClientMsg) -> bool {
     )
 }
 
+/// The most receive audio one poll hands the speaker: 250 ms at 48 kHz, the
+/// same ceiling the browser's playback worklet keeps its own queue under.
+const RX_PLAYOUT_MAX: usize = 12_000;
+
+/// The part of a poll's receive audio worth playing: all of it normally, only
+/// its newest [`RX_PLAYOUT_MAX`] samples when more arrived than that.
+///
+/// A browser stops drawing a tab that is hidden or minimised, and this client
+/// only drains its socket when it draws, so every block the server sends in
+/// the meantime waits in the socket's queue. Ten minutes in the background is
+/// thirty thousand blocks, and they all come out on the first frame back. Sent
+/// to the worklet one message each, they reached it faster than its message
+/// queue could take them, so the operator heard the old audio first, seconds
+/// behind the waterfall, and only a reload cleared it. Played as one tail, the
+/// worklet gets a quarter of a second of the newest audio and nothing stale.
+fn fresh_tail(pcm: &[f32]) -> &[f32] {
+    &pcm[pcm.len().saturating_sub(RX_PLAYOUT_MAX)..]
+}
+
 pub struct RemoteController {
     sender: WsSender,
     receiver: WsReceiver,
@@ -153,6 +172,9 @@ pub struct RemoteController {
     /// the UI to put a dialog up against.
     auth: AuthPhase,
     audio: Option<Box<dyn AudioBridge>>,
+    /// Receive audio decoded in this poll, played in one go at its end — see
+    /// [`fresh_tail`].
+    rx_pcm: Vec<f32>,
     pending: VecDeque<RadioEvent>,
     tx_codec: Option<AudioCodec>,
     /// When the current over started, and how many microphone samples have
@@ -293,6 +315,7 @@ impl RemoteController {
             outbox: Outbox::default(),
             auth: AuthPhase::Open,
             audio,
+            rx_pcm: Vec::new(),
             pending: VecDeque::new(),
             tx_codec: None,
             mic_over_started: None,
@@ -398,14 +421,14 @@ impl RemoteController {
             // constraints in `assets/audio_bridge.js`.
             ServerMsg::RxAudio { .. } if self.transmitting => {}
             ServerMsg::RxAudio { payload, .. } => {
-                if let Some(bridge) = self.audio.as_mut() {
+                if self.audio.is_some() {
                     // Only the PCM16 downlink is decoded client-side; an
                     // Opus-capable bridge would advertise it in Hello.
-                    let pcm: Vec<f32> = payload
-                        .chunks_exact(2)
-                        .map(|c| i16::from_le_bytes([c[0], c[1]]) as f32 / 32768.0)
-                        .collect();
-                    bridge.play(&pcm);
+                    self.rx_pcm.extend(
+                        payload
+                            .chunks_exact(2)
+                            .map(|c| i16::from_le_bytes([c[0], c[1]]) as f32 / 32768.0),
+                    );
                 }
             }
             ServerMsg::Pong(_) => {}
@@ -714,6 +737,13 @@ impl RadioController for RemoteController {
                 }
             }
         }
+        if !self.rx_pcm.is_empty() {
+            let pcm = fresh_tail(&self.rx_pcm);
+            if let Some(bridge) = self.audio.as_mut() {
+                bridge.play(pcm);
+            }
+            self.rx_pcm.clear();
+        }
         self.pump_mic();
         self.flush_radio_config(false);
         self.flush_center();
@@ -975,6 +1005,21 @@ mod tests {
         assert!(window_elapsed(1001.0, 1000.0, 0.1));
         // Behind what was stamped — an NTP correction — is sent, not stranded.
         assert!(window_elapsed(999.0, 1000.0, 0.1));
+    }
+
+    /// Back from ten minutes in a hidden tab, only the newest audio reaches the
+    /// speaker; the stale backlog is what put the sound seconds behind the
+    /// waterfall.
+    #[test]
+    fn a_backlog_of_receive_audio_plays_only_its_newest_quarter_second() {
+        // Ten minutes in a hidden tab: 30 000 blocks of 960, drained at once.
+        let backlog: Vec<f32> = (0..30_000 * 960).map(|i| i as f32).collect();
+        let played = fresh_tail(&backlog);
+        assert_eq!(played.len(), RX_PLAYOUT_MAX, "the stale backlog reached the speaker");
+        assert_eq!(*played.last().unwrap(), *backlog.last().unwrap(), "not the newest audio");
+        // An ordinary poll carries a block or two and plays all of it.
+        let one = vec![0.5f32; 960];
+        assert_eq!(fresh_tail(&one), &one[..]);
     }
 
     /// A transmitter that modulates nothing at all is the one fault neither end
