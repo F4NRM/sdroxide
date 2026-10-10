@@ -1643,6 +1643,33 @@ pub fn chip_link(ui: &mut Ui, selected: bool, size: egui::Vec2) -> Response {
     resp
 }
 
+/// The anti-touch padlock chip, at an exact size: closed and lit cyan while the
+/// screen is locked, open on the plain ground while it is not. `progress` is
+/// the unlock hold under way (a ring filling round the mark), `flash` the
+/// brief lit moment that confirms an unlock. Painted rather than typed for the
+/// reason [`chip_link`] gives. The behaviour is [`crate::touch_lock::padlock`].
+pub fn chip_padlock(
+    ui: &mut Ui,
+    locked: bool,
+    progress: Option<f32>,
+    flash: bool,
+    size: egui::Vec2,
+) -> Response {
+    let lit = locked || flash;
+    let resp = chip_impl(ui, lit, RichText::new(""), None, crate::touch_lock::sense(), Some(size));
+    if ui.is_rect_visible(resp.rect) {
+        let v = ui.style().interact_selectable(&resp, lit);
+        let ink = if lit { theme::INK_ON_CYAN() } else { v.fg_stroke.color };
+        let p = ui.painter();
+        let hole = if lit { theme::CYAN() } else { theme::BG_DEEP() };
+        crate::touch_lock::paint_padlock(p, resp.rect, locked, ink, hole);
+        if let Some(progress) = progress {
+            crate::touch_lock::paint_ring(p, resp.rect, progress, ink);
+        }
+    }
+    resp
+}
+
 /// A chip carrying an anticlockwise arrow — "put it back" — instead of a label,
 /// at an exact size. Painted rather than typed for the reason [`chip_link`]
 /// gives, and inked the same way.

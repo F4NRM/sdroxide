@@ -2743,6 +2743,8 @@ impl SdroxideApp {
 }
 
 #[cfg(test)]
+mod touch_lock_tests;
+#[cfg(test)]
 mod tests {
     use super::*;
     use eframe::App;

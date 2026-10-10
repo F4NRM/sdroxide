@@ -95,6 +95,27 @@
 > the workflow are in "The standing queue and how to check it" below. A tag or a
 > nightly runs the full gate before it is cut — see "Cutting a release".
 
+## The anti-touch lock (phone and tablet, 2026-10-10)
+
+A **padlock chip** after SYS on the tablet strips (after ☰ on the phone) locks
+the screen against stray fingers: a tap locks, a **3 s hold** unlocks, with a
+ring filling round the padlock. It works on the **input**, not on the widgets:
+`touch_lock::filter` runs from `raw_input_hook` (both `MultiApp` and
+`SdroxideApp`) and drops every press, touch, wheel, pinch and key except a
+press on the padlock — so the waterfall, which reads the pointer itself, is
+covered too. Session-only, shared by every tab; it lets go by itself if the
+padlock stops being drawn (window turned desktop-sized), so the screen can never
+be locked with no way out. Desktop tier: no padlock. Guard:
+`app::touch_lock_tests` (verified failing with the filter removed: `+ tuned
+through the lock`).
+
+Its partner is **Wake lock** (Settings → UI, under Simple UI,
+`UiSettings::keep_screen_on`, off by default, not in `ClientScreen` — it is per
+device): the browser's Screen Wake Lock, re-asked every frame it is wanted and
+missing because the browser drops it whenever the page is hidden
+(`wake_lock::keep_awake`). Needs https; the row says when it is unavailable,
+refused, or (installed program) browser-only. Not driven in a real browser here.
+
 ## Session 2026-10-08, later: PRs merged, DAB to the radio tab, eQSL QTH, release resilience
 
 **The open PRs are merged and the worktrees are gone.** #22 (SSTV KEEP DIAL),

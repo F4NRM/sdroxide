@@ -556,6 +556,12 @@ struct PanadapterInputs {
 }
 
 impl eframe::App for SdroxideApp {
+    /// The anti-touch lock works on the input itself, before any widget reads
+    /// it — see [`crate::touch_lock`].
+    fn raw_input_hook(&mut self, ctx: &egui::Context, raw_input: &mut egui::RawInput) {
+        crate::touch_lock::filter(ctx, raw_input);
+    }
+
     fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
         let now = ctx.input(|i| i.time);
@@ -572,6 +578,9 @@ impl eframe::App for SdroxideApp {
         // Which radio the ids minted below belong to. Split view draws several
         // apps per frame; each declares itself before it draws anything.
         crate::layout::set_radio_salt(&ctx, self.radio_id);
+        // The screen wake lock is re-asked for every frame it is wanted and
+        // missing: the browser takes it back whenever the page is hidden.
+        crate::wake_lock::keep_awake(self.ui_settings.keep_screen_on, now);
         // Settle the layout for this frame before anything draws. It is a
         // property of the viewport plus the operator's override, and the
         // override lives in settings the context cannot see — so it is decided

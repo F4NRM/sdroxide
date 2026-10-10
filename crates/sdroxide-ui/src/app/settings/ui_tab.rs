@@ -338,6 +338,36 @@ pub(in crate::app) fn settings_ui_tab(
         crate::chrome::checkbox(ui, &mut cfg.simple_ui, "hide advanced chips");
         ui.end_row();
 
+        ui.label("Wake lock").on_hover_text(
+            "Keep the screen on while this page is in front, so a phone or \
+             tablet left on the waterfall does not dim and lock itself after a \
+             minute without a touch. Reception, audio and decoding do not need \
+             it — they carry on either way — it is so the screen stays \
+             readable.\n\n\
+             Pairs with the padlock on the phone and tablet strips: lock the \
+             screen against stray fingers, and keep it lit.\n\n\
+             The browser takes the lock back whenever the page is hidden — \
+             another tab, or the phone's own power button — and it is asked for \
+             again as soon as the page is back. It needs a browser that has it \
+             and a secure page (https, or localhost); the line beside the box \
+             says when it is not available or was refused. It costs battery, so \
+             it is off until you ask. The installed program on a computer \
+             follows the system's own power settings instead.",
+        );
+        ui.horizontal(|ui| {
+            crate::chrome::checkbox(ui, &mut cfg.keep_screen_on, "keep the screen on");
+            let status = crate::wake_lock::status(cfg.keep_screen_on);
+            if !status.label().is_empty() {
+                let ink = if status.is_problem() {
+                    crate::theme::YELLOW()
+                } else {
+                    ui.visuals().weak_text_color()
+                };
+                ui.label(egui::RichText::new(status.label()).small().color(ink));
+            }
+        });
+        ui.end_row();
+
 
         ui.end_row();
 

@@ -954,6 +954,12 @@ pub struct UiSettings {
     /// parts of it missing until they ask.
     #[serde(default)]
     pub simple_ui: bool,
+    /// Keep the screen on: ask the browser for a Screen Wake Lock so a phone
+    /// or tablet left on the waterfall does not dim and lock itself. A
+    /// property of this screen, like the theme; off by default, because it
+    /// costs battery. The installed program has no equivalent and says so.
+    #[serde(default)]
+    pub keep_screen_on: bool,
     /// Where the solar-system 3D window last was — see [`Solar3dWindow`].
     ///
     /// Here rather than in the operator's view state because window geometry is
@@ -1224,6 +1230,7 @@ impl Default for UiSettings {
             oob_tx_dismissed: false,
             cb_tx_warning_ack: false,
             simple_ui: false,
+            keep_screen_on: false,
             start_swl: false,
             solar3d_window: None,
             client_share_bindings: false,

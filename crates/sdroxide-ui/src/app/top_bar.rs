@@ -336,6 +336,12 @@ fn plan_short_strip(
     ShortStrip { digit, box_w, box_h, grid_w, cell1_w: cell(c.row1), cell2_w: cell(c.row2) }
 }
 
+/// What the padlock chip is measured as. It carries a painted mark, not a
+/// label, and is sized as the widest of its neighbours — DISP — so it sits in
+/// the row at their proportions, and is a fair target for a thumb that has to
+/// stay on it for three seconds.
+const LOCK_LABEL: &str = "DISP";
+
 /// Which menu a chip on a compact strip opens. One list drives both the
 /// measuring and the drawing of the row (see [`SdroxideApp::menu_chips`]), so
 /// the two cannot come to disagree about what is on it — a chip counted but
@@ -351,6 +357,9 @@ enum MenuChip {
     Disp,
     Sys,
     Menu,
+    /// The anti-touch padlock ([`crate::touch_lock`]). Measured as its label
+    /// and drawn as a painted mark.
+    Lock,
 }
 
 impl MenuChip {
@@ -365,6 +374,7 @@ impl MenuChip {
             Self::Disp => "DISP",
             Self::Sys => "SYS",
             Self::Menu => "☰",
+            Self::Lock => LOCK_LABEL,
         }
     }
 }
@@ -850,7 +860,7 @@ impl SdroxideApp {
     /// sees the row the phone actually draws.
     fn menu_chips(&self, tx_capable: bool, tier: crate::layout::Tier) -> Vec<MenuChip> {
         if tier == crate::layout::Tier::Phone {
-            return vec![MenuChip::Rx, MenuChip::Disp, MenuChip::Menu];
+            return vec![MenuChip::Rx, MenuChip::Disp, MenuChip::Menu, MenuChip::Lock];
         }
         let mut chips = vec![MenuChip::Rx, MenuChip::Vfo];
         // Both of these appear only while what they drive is running: the chip
@@ -869,7 +879,9 @@ impl SdroxideApp {
         if tx_capable {
             chips.push(MenuChip::Tx);
         }
-        chips.extend([MenuChip::Disp, MenuChip::Sys]);
+        // The padlock last, after SYS: the one chip that must stay reachable
+        // when every other one has stopped answering.
+        chips.extend([MenuChip::Disp, MenuChip::Sys, MenuChip::Lock]);
         chips
     }
 
@@ -892,6 +904,8 @@ impl SdroxideApp {
             MenuChip::Rig | MenuChip::Rx | MenuChip::Disp | MenuChip::Sys => false,
             // Lit while the nested menu is open.
             MenuChip::Menu => false,
+            // Drawn by [`crate::touch_lock::padlock`], which reads its own state.
+            MenuChip::Lock => false,
         }
     }
 
@@ -986,9 +1000,9 @@ impl SdroxideApp {
                 (r1.len(), widest(&r1))
             },
             row2: if tx_capable {
-                (3, widest(&["TX", "DISP", "SYS"]))
+                (4, widest(&["TX", "DISP", "SYS", LOCK_LABEL]))
             } else {
-                (2, widest(&["DISP", "SYS"]))
+                (3, widest(&["DISP", "SYS", LOCK_LABEL]))
             },
         };
         let plan = plan_short_strip(ui.available_width(), &fit, &chips, gap, gap);
@@ -1095,6 +1109,7 @@ impl SdroxideApp {
                     self.disp_menu(ui, btn, cmds);
                     let btn = crate::chrome::chip_sized(ui, false, "SYS", cell2);
                     self.sys_menu(ui, btn, cmds);
+                    crate::touch_lock::padlock(ui, cell2);
                 });
             },
         );
@@ -1234,6 +1249,17 @@ impl SdroxideApp {
         fit: ChipFit,
     ) {
         for &chip in chips {
+            if chip == MenuChip::Lock {
+                let size = match fit {
+                    ChipFit::Hug => egui::vec2(
+                        crate::chrome::chip_width(ui, LOCK_LABEL, None),
+                        crate::chrome::chip_height(ui, None),
+                    ),
+                    ChipFit::Cell(size, _) => size,
+                };
+                crate::touch_lock::padlock(ui, size);
+                continue;
+            }
             let lit = self.menu_chip_lit(chip);
             let btn = match fit {
                 ChipFit::Hug => crate::chrome::chip(ui, lit, chip.label()),
@@ -1261,6 +1287,7 @@ impl SdroxideApp {
                 // Only the phone strip puts one on the row; the other tiers
                 // keep every chip of their own.
                 MenuChip::Menu => self.phone_menu(ui, btn, cmds),
+                MenuChip::Lock => unreachable!("drawn above"),
             }
         }
     }
