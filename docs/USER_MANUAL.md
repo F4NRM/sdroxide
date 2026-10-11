@@ -15010,15 +15010,11 @@ the middle of the screen:
 
 **This message does not mean the session has failed.** The connection is up,
 the waterfall runs and the radio is working; only the sound is waiting for you.
-**Click, tap or press a key anywhere on the page** — the waterfall, an empty
-area, any control — and the sound starts and the message goes away. You do not
-need to touch the volume.
-
-- **Tap the message itself** and the sound starts and the message closes —
-  nothing else happens. It sits over the waterfall, and a tap there must not
-  retune a receiver you are coming back to.
-- **Tap anywhere else** and the sound starts and the message closes too, and
-  the tap does what it always does there (a tap on the waterfall tunes).
+**Click or tap anywhere on the page** and the sound starts and the message
+goes away. You do not need to touch the volume. That first click or tap does
+nothing else, wherever it lands: it does not tune, press a button or move the
+waterfall, so a receiver you are coming back to keeps its frequency. From the
+next click on, the page works as usual.
 
 This is the browser's autoplay rule, not a fault, and an installed web app
 follows it too. The message can come back on its own after the app has been in

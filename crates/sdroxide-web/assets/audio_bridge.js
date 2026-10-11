@@ -59,12 +59,13 @@
     // failure it exists to prevent. It comes back if the browser stops the
     // context later.
     //
-    // A tap ON the hint starts the sound and does nothing else. It sits over
-    // the waterfall, where a tap tunes, and an operator coming back to a
-    // running receiver must not lose the frequency to the tap that brings the
-    // sound back. The window's capture listener sees the gesture first (that
-    // is what starts the context); the hint then keeps the events from the
-    // page. A tap anywhere else reaches the page as usual.
+    // While the hint is up, a click or a tap ANYWHERE starts the sound and
+    // does nothing else: the hint is a transparent layer over the whole page
+    // with the message in its middle. An operator coming back to a running
+    // receiver must not lose the frequency to the tap that brings the sound
+    // back, and the waterfall, where a tap tunes, is most of the screen. The
+    // window's capture listener sees the gesture first (that is what starts
+    // the context); the layer then keeps the events from the page.
     let hint = null;
     // A press that began on the hint: its release and click must not reach
     // the page either, so the hint outlives the gesture that removed it.
@@ -98,22 +99,27 @@
             if (hint) return;
             hint = document.createElement("div");
             hint.style.cssText =
-                "position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);" +
-                "z-index:9998;padding:24px 32px;border-radius:12px;" +
+                "position:fixed;inset:0;z-index:9998;background:transparent;" +
+                "cursor:pointer;touch-action:none";
+            const box = document.createElement("div");
+            box.style.cssText =
+                "position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);" +
+                "padding:24px 32px;border-radius:12px;" +
                 "font:bold clamp(22px,5vw,44px)/1.3 system-ui,sans-serif;" +
                 "background:rgba(74,48,0,0.92);color:#ffd479;" +
-                "border:2px solid #7a5000;cursor:pointer;box-sizing:border-box;" +
+                "border:2px solid #7a5000;box-sizing:border-box;" +
                 "width:max-content;max-width:min(90vw,22em);" +
                 "text-align:center;box-shadow:0 4px 24px rgba(0,0,0,0.6)";
-            hint.textContent = "\u{1F507} Tap, click or press a key anywhere to start the sound";
+            box.textContent = "\u{1F507} Tap, click or press a key anywhere to start the sound";
+            hint.appendChild(box);
             const opts = { passive: false };
             for (const ev of ["pointerdown", "touchstart", "mousedown"]) {
                 hint.addEventListener(ev, hintPress, opts);
             }
-            for (const ev of ["pointerup", "touchend", "mouseup"]) {
+            for (const ev of ["pointerup", "touchend", "mouseup", "pointercancel", "touchcancel"]) {
                 hint.addEventListener(ev, hintRelease, opts);
             }
-            for (const ev of ["click", "dblclick", "contextmenu", "wheel", "pointercancel", "touchcancel"]) {
+            for (const ev of ["click", "dblclick", "contextmenu", "wheel"]) {
                 hint.addEventListener(ev, swallow, opts);
             }
             document.body.appendChild(hint);
