@@ -6151,6 +6151,17 @@ impl SdroxideApp {
         {
             self.view.waterfall_flip = !self.view.waterfall_flip;
         }
+        if crate::chrome::chip(ui, self.view.flatten, DISPLAY_FLATTEN_CHIP)
+            .on_hover_text(
+                "Level the noise floor across the band: a stretch quieter than its neighbours is \
+                 raised towards their floor, so a weak signal shows on a busy band. It only ever \
+                 raises — a carrier is never pushed down — and never by more than 20 dB. \
+                 The spectrum trace above is left exactly as measured.",
+            )
+            .clicked()
+        {
+            self.view.flatten = !self.view.flatten;
+        }
     }
 
     /// The first five window chips — the condensed System box's top row.
@@ -6592,6 +6603,13 @@ const DISPLAY_TOOL_CHIPS: [&str; 4] = ["FIT", "CTR", "SKIM", "FFT"];
 /// name an operator looking to flip the picture never clicks. The popup keeps
 /// that name, but the flip is one of the things it plainly holds.
 const DISPLAY_FLIP_CHIP: &str = "FLIP";
+
+/// Flattening the noise floor across the band, a chip in the same row.
+///
+/// Beside FLIP rather than on the Display box's own tool row, which is at its
+/// four chips in every tier and would need re-pricing at every width to make
+/// room for a fifth.
+const DISPLAY_FLATTEN_CHIP: &str = "FLATTEN";
 
 /// The keying chips' shared size: PTT and TUNE drawn to the wider of the two
 /// labels, so the chips match and the level blocks beside them start on the

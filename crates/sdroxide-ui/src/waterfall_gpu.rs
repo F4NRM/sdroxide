@@ -148,6 +148,152 @@ const MAX_APPEND_ROWS: u32 = 64;
 /// already bounded by the engine's own batch cap.
 const MAX_FALLBACK_ROWS: u32 = 32;
 
+/// Columns averaged together to estimate one column's noise floor.
+///
+/// Not a free parameter: a row is one FFT, so **one column is one bin** and a
+/// floor estimated from a single bin is that bin. Averaging ~16 of them is the
+/// smallest span that reads as a floor rather than as signal, and it is also
+/// why the correction is interpolated between segment centres below instead of
+/// being stepped per column — a per-column estimate would flatten the picture
+/// into mush.
+const FLATTEN_SEGMENTS: usize = 128;
+
+/// The most any column may be lifted, in dB.
+///
+/// Without it, a stretch of spectrum below the receiver's own noise gets
+/// pumped up to look like signal, which is the one thing a display must never
+/// do. Twenty decibels is enough to reach across a normal spread of floor
+/// across an HF band and small enough that nothing dead is drawn as though it
+/// were alive.
+pub const FLATTEN_MAX_LIFT_DB: f32 = 20.0;
+
+/// How much of the remaining distance to the target one row takes.
+///
+/// The smoothing is the part MSHV's version does not have and the part that
+/// decides whether this reads as a floor or as noise. A target taken from one
+/// row alone jumps every time a neighbour keys and unkeys, and the waterfall
+/// breathes; stepped over a dozen rows the eye reads one slowly-rising floor.
+pub const FLATTEN_ALPHA: f32 = 0.08;
+
+/// Per-column lift for one row, in the row's own `u8` units, smoothed from
+/// `prev`.
+///
+/// Two decisions are load-bearing and are stated here because they are both
+/// easy to "simplify" away:
+///
+/// 1. **The lift is never negative.** A column quieter than the baseline is
+///    raised to it; a column louder than the baseline is left exactly as it
+///    came in. Flattening a real carrier downward destroys signal, and no
+///    amount of floor-flattening is worth that — which is why this is one-sided
+///    and not a symmetric correction. (MSHV's `ADLE`, at `display_ms.cpp:1770`,
+///    refuses every negative offset at `display_ms.cpp:1773` for the same reason.)
+/// 2. **The baseline is the row's own mean**, not a constant. Most columns are
+///    floor, so the mean sits on the floor and only strong carriers pull it up;
+///    a uniform row's means are all equal to it and the whole correction is
+///    zero, which is the only proof it is not simply always-on gain.
+///
+/// The lift is added to the row afterwards as [`apply_offsets`]. `prev` is the
+/// previous row's offsets, as fractions of a ramp step; an empty or short one
+/// reads as zero, which is what fades a fresh radio in over the first dozen
+/// rows instead of snapping.
+pub fn flatten_offsets(
+    row: &[u8],
+    prev: &[f32],
+    db_floor: f32,
+    db_ceil: f32,
+    alpha: f32,
+) -> Vec<f32> {
+    let n = row.len();
+    if n == 0 {
+        return Vec::new();
+    }
+    let baseline = row.iter().map(|&v| v as f32).sum::<f32>() / n as f32;
+    // The clamp is in dB and the arithmetic is in ramp steps, because the ramp
+    // is what the row is in: one `u8` step is `(ceil - floor) / 255` dB, and the
+    // window moves with the level slider and with auto-fit.
+    let per_step = (db_ceil - db_floor).abs().max(1e-6) / 255.0;
+    let max_lift = (FLATTEN_MAX_LIFT_DB / per_step).clamp(0.0, 255.0);
+
+    let seg = (n / FLATTEN_SEGMENTS).max(1);
+    let segs = n.div_ceil(seg);
+    let mut means = vec![0f32; segs];
+    for (s, m) in means.iter_mut().enumerate() {
+        let lo = s * seg;
+        let hi = ((s + 1) * seg).min(n);
+        *m = row[lo..hi].iter().map(|&v| v as f32).sum::<f32>() / (hi - lo).max(1) as f32;
+    }
+    // Ramp between segment centres, held flat outside the first and last, so
+    // the correction is continuous everywhere — the difference between a floor
+    // and a set of stripes.
+    let at = |x: f32| -> f32 {
+        let t = x / seg as f32 - 0.5;
+        let s0 = t.floor();
+        let f = t - s0;
+        let (i0, i1) = (s0 as isize, s0 as isize + 1);
+        let get = |s: isize| -> f32 {
+            if s < 0 {
+                means[0]
+            } else if s as usize >= segs {
+                means[segs - 1]
+            } else {
+                means[s as usize]
+            }
+        };
+        get(i0) + (get(i1) - get(i0)) * f
+    };
+
+    let mut out = vec![0.0f32; n];
+    for (i, o) in out.iter_mut().enumerate() {
+        let target = (baseline - at(i as f32)).clamp(0.0, max_lift);
+        let have = prev.get(i).copied().unwrap_or(0.0);
+        // Held as a fraction and rounded only where it lands on a row.
+        //
+        // An offset kept as an integer does not converge: any step smaller than
+        // half a unit disappears into whatever the cast does — truncating and
+        // both of the two roundings all leave fixed points a few steps short of
+        // the target, and a lift that stalls at 45 of the 51 steps its target
+        // asks for is a floor 17.6 dB up where it should be 20, forever. Both
+        // were measured here before the state was made a float.
+        *o = (have + (target - have) * alpha).clamp(0.0, max_lift);
+    }
+    out
+}
+
+/// Add a per-column lift to a row, saturating at the top of the ramp.
+///
+/// Saturating is the point: a column already at the top of the ramp stays there
+/// rather than wrapping, so a strong signal is not turned into a hole.
+pub fn apply_offsets(row: &mut [u8], offsets: &[f32]) {
+    for (v, &o) in row.iter_mut().zip(offsets) {
+        *v = (*v as f32 + o).clamp(0.0, 255.0).round() as u8;
+    }
+}
+
+/// Resample a per-column array through a history move, so a correction stays
+/// attached to the columns it was measured on.
+///
+/// `scale` and `shift` are the column-domain form of what the remap shader is
+/// given: destination column `x` took its value from source column
+/// `x * scale + shift`. A `Shift` is the integral case — `scale` is 1 and
+/// `shift` a whole number of columns, which is exactly why the history survives
+/// a pan unblurred and why this can be a rotate.
+///
+/// Without this the lift drifts out of alignment with the spectrum on every pan
+/// and zoom — the signature being a flattening that slides a little each time
+/// the window does, which reads as a rendering quirk rather than as a bug.
+fn move_offsets(offsets: &[f32], scale: f64, shift: f64) -> Vec<f32> {
+    let n = offsets.len();
+    if n == 0 {
+        return Vec::new();
+    }
+    let mut out = vec![0.0f32; n];
+    for (i, o) in out.iter_mut().enumerate() {
+        let j = (i as f64 * scale + shift).round();
+        *o = if j >= 0.0 && j < n as f64 { offsets[j as usize] } else { 0.0 };
+    }
+    out
+}
+
 /// What a machine may be asked to draw, cut down to the facts that decide it.
 ///
 /// Plain numbers rather than the wgpu handles they came from, for the reason
@@ -314,6 +460,14 @@ struct WaterfallResources {
     current_lut: Option<usize>,
     last_center: f64,
     last_span: f64,
+    /// Per-column lift, in ramp steps, carried from row to row.
+    ///
+    /// One entry per texture column, in the same column space as the history
+    /// it corrects — so it moves with a history move like anything else drawn
+    /// on that axis, or the correction slides off the spectrum it belongs to.
+    /// Fractions, not bytes: see `flatten_offsets` on why an integer lift does
+    /// not converge.
+    flatten: Vec<f32>,
 }
 
 /// The one value registered in `CallbackResources`.
@@ -673,6 +827,7 @@ impl WaterfallResources {
             current_lut: None,
             last_center: 0.0,
             last_span: 0.0,
+            flatten: Vec::new(),
         }
     }
 }
@@ -706,6 +861,9 @@ pub struct WaterfallCallback {
     /// rebuilt every time that happened would throw the scrollback away on
     /// every zoom. Narrow frames are resampled up into this instead.
     pub tex_w: u32,
+    /// Raise columns sitting below their neighbours' floor — see
+    /// [`ViewState::flatten`](crate::view::ViewState::flatten).
+    pub flatten: bool,
 }
 
 impl CallbackTrait for WaterfallCallback {
@@ -815,6 +973,16 @@ impl CallbackTrait for WaterfallCallback {
                         pass.draw(0..3, 0..1);
                     }
                     r.active = dst;
+                    // The lift is drawn on this axis, so it has to be carried to
+                    // the new one by the same move the history just made. Left
+                    // behind it is the quiet failure this was written to avoid:
+                    // a flattening that slides a little further off the spectrum
+                    // every time the window moves, which reads as a rendering
+                    // quirk rather than as a bug and so survives indefinitely.
+                    if !r.flatten.is_empty() {
+                        r.flatten =
+                            move_offsets(&r.flatten, f64::from(scale), f64::from(offset) * cols);
+                    }
                 } else {
                     // First frame on this history: nothing to remap, just start
                     // clean. A clear pass rather than uploading a texture's
@@ -903,6 +1071,30 @@ impl CallbackTrait for WaterfallCallback {
                     }
                 };
                 let mut block = vec![0u8; w * n as usize];
+                // The lift is measured once per batch off the newest row and
+                // applied to all of them: a batch is a few rows of the same
+                // instant, and computing it per row would put a seam between
+                // them for no reason.
+                if self.flatten {
+                    let newest = if carried == 0 {
+                        &frame.bins[..]
+                    } else {
+                        &frame.rows[(n as usize - 1) * cols..]
+                    };
+                    r.flatten = flatten_offsets(
+                        newest,
+                        &r.flatten,
+                        frame.db_floor,
+                        frame.db_ceil,
+                        FLATTEN_ALPHA,
+                    );
+                } else {
+                    // Dropped rather than eased, and nothing snaps: the rows
+                    // already on screen carry the lift they were written with
+                    // and cannot be recalled, so the picture re-levels as it
+                    // scrolls exactly as it does when the level slider moves.
+                    r.flatten.clear();
+                }
                 for i in 0..n as usize {
                     // The fallback repeats the current spectrum; a clocking
                     // lane has a row of its own for each.
@@ -912,6 +1104,9 @@ impl CallbackTrait for WaterfallCallback {
                         &frame.rows[i * cols..(i + 1) * cols]
                     };
                     widen(src, &mut block[i * w..(i + 1) * w]);
+                    if self.flatten {
+                        apply_offsets(&mut block[i * w..(i + 1) * w], &r.flatten);
+                    }
                 }
                 queue.write_buffer(&r.row_buf, 0, &block);
                 // Recorded on the encoder, so it runs after the remap pass
@@ -1211,5 +1406,183 @@ mod row_append_tests {
         assert_eq!(rows_to_append(false, 9, 3), 3);
         // And a hitch cannot dump a backlog into the texture at once.
         assert_eq!(rows_to_append(false, 0, 5_000), MAX_FALLBACK_ROWS);
+    }
+}
+
+#[cfg(test)]
+mod flatten_tests {
+    use super::{FLATTEN_ALPHA, FLATTEN_MAX_LIFT_DB, apply_offsets, flatten_offsets, move_offsets};
+
+    /// A level window the way the engine hands it over: a 100 dB range across
+    /// 255 steps, so a step is about 0.39 dB.
+    const FLOOR: f32 = -130.0;
+    const CEIL: f32 = -30.0;
+
+    fn step_db() -> f32 {
+        (CEIL - FLOOR) / 255.0
+    }
+
+    fn db_to_u8(db: f32) -> u8 {
+        (((db - FLOOR) / (CEIL - FLOOR)) * 255.0).round().clamp(0.0, 255.0) as u8
+    }
+
+    fn max_lift_steps() -> f32 {
+        FLATTEN_MAX_LIFT_DB / step_db()
+    }
+
+    /// Run the correction to rest, the way a stationary radio settles.
+    fn settled(row: &[u8]) -> Vec<f32> {
+        let mut off: Vec<f32> = Vec::new();
+        for _ in 0..400 {
+            off = flatten_offsets(row, &off, FLOOR, CEIL, FLATTEN_ALPHA);
+        }
+        off
+    }
+
+    /// The one that decides whether this is anything at all: on a band whose
+    /// noise floor is the same everywhere, every column *is* the baseline, so
+    /// the correction is zero and the waterfall is drawn exactly as it was.
+    ///
+    /// A version that lifted unconditionally passes the other four tests and
+    /// fails this one, which is why it is here.
+    #[test]
+    fn a_flat_floor_is_left_exactly_alone() {
+        let row = vec![db_to_u8(-100.0); 2048];
+        let off = settled(&row);
+        assert!(off.iter().all(|&o| o == 0.0), "a uniform row asked to be lifted");
+        let mut applied = row.clone();
+        apply_offsets(&mut applied, &off);
+        assert_eq!(applied, row, "the waterfall changed with nothing to flatten");
+    }
+
+    /// The safety property, and the reason the correction is one-sided: a quiet
+    /// stretch of band comes up to the ceiling, and the carrier standing in the
+    /// middle of it comes through **byte for byte**.
+    ///
+    /// A symmetric "flatten toward the mean" would pull the carrier down, and
+    /// destroying signal is the one thing a display must not do to be prettier.
+    #[test]
+    fn a_quiet_band_is_raised_and_the_carrier_beside_it_is_not_touched() {
+        let mut row = vec![db_to_u8(-60.0); 2048];
+        row[512..1536].fill(db_to_u8(-115.0)); // a third of the band, 55 dB down
+        let off = settled(&row);
+        let mut applied = row.clone();
+        apply_offsets(&mut applied, &off);
+
+        assert!(off[768] > 0.0, "the quiet stretch was not lifted at all");
+        assert_eq!(off[1792], 0.0, "a column above the baseline was pushed down");
+        assert_eq!(applied[1792], row[1792], "the carrier's own column changed");
+
+        // It really is a floor now. A 55 dB hole under a row whose mean is the
+        // loud half's own level wants more than the ceiling allows, so this
+        // settles *at* the ceiling — and settling at it exactly is the
+        // convergence the integer version of this got wrong.
+        let want = max_lift_steps();
+        assert!(
+            (off[768] - want).abs() < 0.5,
+            "settled at {} of the {want} steps its target asks for",
+            off[768],
+        );
+        let quiet_db = (applied[768] as i32 - row[768] as i32) as f32 * step_db();
+        assert!(
+            (quiet_db - FLATTEN_MAX_LIFT_DB).abs() < step_db(),
+            "the band came up {quiet_db} dB, not {FLATTEN_MAX_LIFT_DB}",
+        );
+    }
+
+    /// The clamp, which is the difference between flattening and inventing.
+    /// A region *below* the receiver's own noise would otherwise be pumped up
+    /// until dead spectrum looked like signal.
+    #[test]
+    fn nothing_is_lifted_further_than_the_ceiling() {
+        let mut row = vec![db_to_u8(-40.0); 2048];
+        row[256..1792].fill(db_to_u8(-125.0)); // 85 dB down — far past the clamp
+        let off = settled(&row);
+        let worst = off[768] * step_db();
+        assert!(
+            worst <= FLATTEN_MAX_LIFT_DB + 1e-3,
+            "lifted {worst} dB, over the {FLATTEN_MAX_LIFT_DB} dB ceiling",
+        );
+        assert!(worst > FLATTEN_MAX_LIFT_DB - step_db(), "the ceiling was never reached");
+    }
+
+    /// Continuity. A per-segment estimate stepped at its own boundary draws
+    /// stripes; interpolated, it draws a floor. This walks the whole row and
+    /// fails on any jump a segment edge could have made.
+    #[test]
+    fn the_correction_has_no_steps_at_a_segment_boundary() {
+        // A gentle ramp across the row: every segment genuinely differs, so a
+        // stepped correction would show and an interpolated one would not.
+        let row: Vec<u8> =
+            (0..2048).map(|i| db_to_u8(-110.0 + 20.0 * (i as f32 / 2048.0))).collect();
+        let off = settled(&row);
+        // The correction spans 20 dB over the row, so a correct one moves about
+        // 2.5 steps per segment and a tenth of that per column. A stepped one
+        // jumps the whole difference between adjacent segments in one column.
+        let biggest = off.windows(2).map(|w| (w[1] - w[0]).abs()).fold(0.0f32, f32::max);
+        assert!(biggest < 1.0, "a step of {biggest} steps at a segment boundary");
+    }
+
+    /// The smoothing is what keeps the waterfall from breathing, and it is the
+    /// part a reader is most likely to delete as "just an easing". A band that
+    /// steps 20 dB must ramp, not snap.
+    #[test]
+    fn a_step_in_the_band_becomes_a_ramp_not_a_jump() {
+        let mut quiet = vec![db_to_u8(-60.0); 2048];
+        quiet[512..1536].fill(db_to_u8(-115.0));
+        let before = settled(&quiet);
+        assert!(before[768] > 0.0, "nothing was being lifted to begin with");
+
+        // The same band with the hole filled in: the target collapses to zero,
+        // so the first row after the change undoes one alpha's worth of it.
+        let filled = vec![db_to_u8(-60.0); 2048];
+        let after = flatten_offsets(&filled, &before, FLOOR, CEIL, FLATTEN_ALPHA);
+        let undone = before[768] - after[768];
+        let expect = before[768] * FLATTEN_ALPHA;
+        assert!((undone - expect).abs() < 0.5, "undid {undone} steps at once, expected {expect}",);
+        assert!(after[768] > before[768] / 2.0, "the lift was dropped rather than eased off");
+    }
+
+    /// The offsets live in texture-column space, so a history move has to take
+    /// them with it or the correction slides off the spectrum it belongs to.
+    #[test]
+    fn a_pan_carries_the_correction_with_it() {
+        let mut off = vec![0.0f32; 512];
+        off[100..200].iter_mut().for_each(|o| *o = 50.0); // a flattened patch
+        // A whole-column shift towards higher frequencies: destination column x
+        // took its value from source x + 4 before, so the patch arrives at 96
+        // and leaves at 196.
+        let moved = move_offsets(&off, 1.0, 4.0);
+        assert_eq!(moved[96], 50.0, "the patch did not move with the history");
+        assert_eq!((moved[95], moved[196]), (0.0, 0.0), "and it was left behind as well");
+        assert_eq!(moved.len(), off.len(), "the width may not change");
+    }
+
+    /// A zoom rescales, and columns outside the old axis have nothing to carry
+    /// — which is what makes a far zoom start from a clean correction rather
+    /// than from the wrong one.
+    #[test]
+    fn a_zoom_rescales_the_correction_and_drops_what_is_gone() {
+        let off = vec![30.0f32; 512];
+        // Doubling the span puts every column's source two along, so only the
+        // near half has one: the rest is spectrum the old axis never covered,
+        // and a correction invented there would be flattening nothing.
+        let out = move_offsets(&off, 2.0, 0.0);
+        assert!(out[..256].iter().all(|&v| v == 30.0), "the covered half must keep its correction");
+        assert!(out[256..].iter().all(|&v| v == 0.0), "the uncovered half must start clean");
+        // A move entirely off the old axis leaves nothing to carry.
+        let out = move_offsets(&off, 2.0, 1_000.0);
+        assert!(out.iter().all(|&v| v == 0.0), "nothing survives a move off the old axis");
+    }
+
+    /// The other half of never destroying signal: a lift cannot wrap the ramp
+    /// either. A column already at the top stays there rather than becoming a
+    /// hole at the bottom.
+    #[test]
+    fn a_lift_cannot_wrap_the_top_of_the_ramp() {
+        let mut row = vec![250u8; 16];
+        let off = vec![40.0f32; 16];
+        apply_offsets(&mut row, &off);
+        assert!(row.iter().all(|&v| v == 255), "the lift wrapped: {row:?}");
     }
 }

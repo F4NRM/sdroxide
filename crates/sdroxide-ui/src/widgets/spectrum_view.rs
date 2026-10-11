@@ -2336,6 +2336,7 @@ pub fn show_ext(
             smooth: wf.smooth,
             wf_id: wf.wf_id,
             tex_w: wf.tex_w,
+            flatten: view.flatten,
         },
     ));
 

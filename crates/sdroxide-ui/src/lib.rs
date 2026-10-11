@@ -16,7 +16,7 @@ mod aprs_map;
 /// sampled on the CPU, plus the border and river geometry and the city table.
 mod basemap;
 pub mod chrome;
-mod colormap;
+pub mod colormap;
 mod digi_map;
 mod download;
 /// Running eframe on our own winit loop, so a Wayland session does not spin.

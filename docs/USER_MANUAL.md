@@ -1190,6 +1190,19 @@ them all at once.
   boxes, the cluster-spot boxes and the band-plan strip all follow the flip, so
   the fresh decodes stay next to the fresh signals and nothing covers the newest
   lines. The setting is remembered between sessions.
+- **FLATTEN** — level the noise floor across the band. A radio's own noise is
+  rarely the same everywhere, and the **FIT** chip sets one floor for the whole
+  picture, so a quiet stretch of band goes black under a level that was fitted
+  to the loud half. FLATTEN raises those quiet stretches towards the floor their
+  neighbours sit at, and a weak signal on a busy band becomes visible again.
+  Two things it deliberately does **not** do, both on the chip's hover:
+  it only ever **raises**, so a carrier is never pushed down toward the floor
+  and signal is never flattened away to make a picture prettier; and it never
+  raises by more than **20 dB**, so a stretch of spectrum genuinely below your
+  radio's own noise is not pumped up until it looks like signal. The spectrum
+  trace above the waterfall is left exactly as measured, and the lift eases in
+  over about a second rather than snapping, so it does not flicker with a
+  neighbour keying. **On by default**; click it off for the bare measurement.
 
 The **waterfall colour scheme** and the **spectrum background gradient** are set
 on the **UI** tab of the Settings window (see

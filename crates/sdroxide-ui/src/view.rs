@@ -43,6 +43,26 @@ pub struct ViewState {
     /// them switches it off, which is also what the FIT chip now shows.
     #[serde(default = "auto_fit_default")]
     pub auto_fit: bool,
+    /// Raise each column of the waterfall that sits below its neighbours' noise
+    /// floor, so a quiet stretch of band is as readable as a loud one instead of
+    /// going black under a picture whose floor was fitted to the whole span.
+    ///
+    /// The lift is **one-sided**: a column is raised to the floor, never pushed
+    /// down to it, so a carrier is never flattened away — and capped at
+    /// 20 dB, so spectrum below the receiver's own noise is not pumped up into
+    /// looking like signal.
+    ///
+    /// On by default, and the bench verdict is what put it there: a wideband
+    /// SDR and a demod-audio rig both read as the better picture, not as a
+    /// different one. An operator who wants the bare measurement switches it
+    /// off with the chip.
+    ///
+    /// One thing an upgrade will show: rows already on screen were written
+    /// without the lift and cannot be recalled, so the scrollback picks the
+    /// correction up as it scrolls through, exactly as it does when the level
+    /// slider moves.
+    #[serde(default = "flatten_default")]
+    pub flatten: bool,
     pub fft_size: u32,
     /// Fraction of the panadapter height used by the spectrum line (rest = waterfall).
     pub spectrum_fraction: f32,
@@ -570,6 +590,7 @@ impl Default for ViewState {
             db_floor: -120.0,
             db_ceil: -20.0,
             auto_fit: auto_fit_default(),
+            flatten: flatten_default(),
             fft_size: 4096,
             spectrum_fraction: 0.35,
             peak_hold: false,
@@ -732,6 +753,11 @@ fn spectrum_3d_solid_default() -> bool {
     true
 }
 
+/// Default for [`ViewState::flatten`] — see the field.
+fn flatten_default() -> bool {
+    true
+}
+
 /// Default for [`ViewState::auto_fit`] — on, so the waterfall reads on the
 /// first band it is pointed at without anyone having to click FIT.
 fn auto_fit_default() -> bool {
@@ -880,6 +906,7 @@ mod tests {
         assert!(v.wide_waterfall, "the full-band strip stays on offer after an upgrade");
         assert_eq!(v.spot_kinds_shown, [true; SPOT_KINDS], "no spot kind is hidden by upgrading");
         assert!(v.auto_fit, "auto-fit is on for everyone, not only for fresh installs");
+        assert!(v.flatten, "upgrading should leave the flattening on, as a fresh install has it");
         // The layer the SPEC popup added: a blob from before it must come back
         // with the waterfall shown, not hidden.
         assert!(v.waterfall_visible(), "upgrading hid the waterfall");
