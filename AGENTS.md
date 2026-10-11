@@ -202,6 +202,40 @@ the detector had no positive control, so that proves nothing either way. The
 open question, asked and unanswered: **dial or click?** If he means clicking,
 this may not be his report at all.
 
+### The off-screen offset hint, and a release cut twice
+
+The RTTY entry above left one thing on the table, and it mattered more than
+the fix. **Every panadapter marker was drawn inside `if in_view(hz)`** — the
+cyan audio-offset cursor and RTTY's amber mark/space pair both — so an offset
+that left the window stopped being drawn at all. At 1 kHz of span RTTY showed
+a cleanly centred signal and **no trace of an offset**, indistinguishable from
+a mode that has none.
+
+That silence is the defect, and it is the one a reporter cannot name.
+*"Lijkt nog moeilijker te remmen"* is a judgement about a working
+configuration whose only fault is that the program stopped explaining itself.
+`offset_edge_hint` pins `◀ tones 1710 Hz` to the edge the offset lies beyond,
+with the distance to the **nearer** edge — the smallest honest number, and the
+one that says where to zoom out to. Bench verdict on the hint: **"like a
+charm"**.
+
+**Drawn with `painter.text`, not `layout_no_wrap` + `galley`.** The first
+version drew the rule and silently dropped the words. The panadapter's own
+labels, 150 lines away in the same function, use `painter.text`. Reach for
+the call that already works next door, not the one that looks better.
+
+**One reporter, three modes — and that is why the visibility work went in
+before his answer, not after.** The anchor change widened behaviour for every
+SDR user, RTTY and NAVTEX and DSC, off a single report. That is defensible
+only because the fault was *proven* and not inferred, and it is the reason
+legibility was worth doing on its own: it removes the class rather than the
+instance, and it stands whether or not his report turns out to be this.
+
+**2.0.8 shipped; 2.0.9 was cancelled on a stale lock; 2.0.9.1 carries it.**
+The `--locked` trap and the point-tag recovery are written up under
+**"Cutting a release"** — read that before the next tag, because it is the
+check that is seconds to run and was skipped.
+
 ## DAB status, 2026-10-11: confirmed on the air (Kevin, 2.0.7.3)
 
 **DAB+ is working end to end on a PlutoSDR at 2.5 Msps: "fort et clair", no
@@ -4565,6 +4599,29 @@ note and were rendered from a separate HTML source; leave them alone.)
    same version rather than an upgrade. **The Windows `UpgradeCode` is
    fixed** (see "The Windows installer is its own product"), so a new version
    is what an upgrade keys on — re-tagging the same version does not.
+
+   **⚠️ "Let cargo refresh the lock" is not advice — the workflow builds with
+   `--locked`, and a stale lock is a hard failure on every platform.** Bumping
+   `Cargo.toml` and committing in one step, with `Cargo.lock` still naming the
+   old version for its 59 members, is exactly the mistake made on 2026-10-11:
+   `v2.0.9_brown` could not build anywhere, and the wasm job had already gone
+   green before anyone looked. Locally it reads
+
+       error: cannot update the lock file … because --locked was passed
+
+   **Run `cargo check --locked -p <a touched crate>` against the tag's own
+   lock before pushing the tag.** Seconds, and it is the only check that sees
+   this. A plain `cargo check` quietly rewrites the lock and says nothing.
+
+   **Recovery, when it happens anyway.** The tag is **not** re-cut. **Cancel
+   the run first** — `create release` is deliberately tolerant of failed build
+   jobs and will otherwise publish a partial release out of whichever
+   platforms did build — then commit the corrected lock and cut a
+   **fourth-point tag** (`v2.0.9.1_brown`) on the same feature set and the same
+   crate version. That is the case the point tag exists for; `v2.0.7.1_brown`
+   was the earlier one. A tag whose run was cancelled keeps no changelog
+   heading — there is no release for it to sit above — so the heading moves to
+   the point tag that will publish, since `release.yml` matches on the tag.
 **The entry's shape: `### Fixed` / `### Added` / `### Changed` / `### Not
 proven`.** **Keep it SHORT — one line per change.** The operator's standing
 order (2026-10-09): *"use the short release-notes style … I hate those long reads
