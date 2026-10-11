@@ -557,6 +557,15 @@ impl Phy {
         }
     }
 
+    /// The receive gain the AD9361 is applying now, in dB.
+    ///
+    /// In `manual` that is the gain last written; in every other mode the part
+    /// picks it itself and moves it as the signal changes, and this read is
+    /// the only way to know it.
+    pub fn read_rx_gain(&self, conn: &mut Connection, chain: u8) -> Result<Option<f64>> {
+        Ok(parse_gain_db(&conn.read_attr(&self.phy_id, Some(rx_chan(chain)), "hardwaregain")?))
+    }
+
     fn write_rx_gain(&self, conn: &mut Connection, chain: u8, db: f64) -> Result<()> {
         conn.write_attr(&self.phy_id, Some(rx_chan(chain)), "hardwaregain", &format!("{db:.6}"))
     }
@@ -1181,6 +1190,12 @@ fn read_range(
     Ok(parse_range(&text))
 }
 
+/// The receive `hardwaregain` attribute, which the driver prints with its unit:
+/// `71.000000 dB`.
+pub(crate) fn parse_gain_db(s: &str) -> Option<f64> {
+    s.split_whitespace().next()?.parse().ok().filter(|db: &f64| db.is_finite())
+}
+
 /// A space-separated list attribute (`gain_control_mode_available`,
 /// `rf_port_select_available`), or empty when absent.
 fn read_list(
@@ -1364,6 +1379,15 @@ mod tests {
         assert_eq!(parse_range("slow_attack fast_attack"), None);
         // A backwards range is a firmware bug, not a limit to obey.
         assert_eq!(parse_range("[100 1 10]"), None);
+    }
+
+    #[test]
+    fn the_receive_gain_reads_with_or_without_its_unit() {
+        assert_eq!(parse_gain_db("71.000000 dB"), Some(71.0));
+        assert_eq!(parse_gain_db("-3.5 dB\n"), Some(-3.5));
+        assert_eq!(parse_gain_db("40"), Some(40.0));
+        assert_eq!(parse_gain_db(""), None);
+        assert_eq!(parse_gain_db("dB"), None);
     }
 
     #[test]

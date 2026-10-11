@@ -198,6 +198,16 @@ impl IqSource for PlutoSource {
         self.lo_offset
     }
 
+    /// The gain the AD9361 is applying, read back from the part, so the
+    /// S-meter can refer its dBFS to the antenna.
+    ///
+    /// The Pluto's default AGC is `slow_attack`, where the part sets the gain
+    /// itself; without this the meter reported the AGC working rather than
+    /// the signal, and in manual it read more gain as more signal.
+    fn rx_gain_db(&self) -> Option<f32> {
+        self.rx.as_ref()?.applied_rx_gain_db().map(|db| db as f32)
+    }
+
     /// LO moves a sibling stream commanded arrive here as centre changes, for
     /// the engine to adopt — the chains share the one synthesiser, so this
     /// source's span moved whether its operator asked or not.
