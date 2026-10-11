@@ -8,6 +8,7 @@ use std::time::{Duration, Instant};
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{Sample, SampleFormat};
+use sdroxide_types::AudioRouting;
 use tracing::{debug, info, warn};
 
 /// The device a caller asked for was not the one it got.
@@ -425,6 +426,7 @@ fn spawn_output(
     config: &cpal::StreamConfig,
     fmt: SampleFormat,
     mut consumer: rtrb::Consumer<f32>,
+    routing: AudioRouting,
     underruns: Arc<AtomicU64>,
     what: &'static str,
     label: String,
@@ -443,7 +445,7 @@ fn spawn_output(
                     let mut short = false;
                     for frame in data.chunks_mut(channels) {
                         let (l, r) = match (consumer.pop(), consumer.pop()) {
-                            (Ok(l), Ok(r)) => (l, r),
+                            (Ok(l), Ok(r)) => routing.apply(l, r),
                             _ => {
                                 short = true;
                                 (0.0f32, 0.0f32)
@@ -1293,6 +1295,7 @@ pub fn start_input_stereo(
 pub fn start_output(
     device_name: Option<&str>,
     preferred_rate: u32,
+    routing: AudioRouting,
 ) -> Result<(AudioOutput, rtrb::Producer<f32>), AudioError> {
     let host = cpal::default_host();
     let (device, label, swap) = pick_device(&host, device_name, true)?;
@@ -1313,6 +1316,7 @@ pub fn start_output(
             &config,
             fmt,
             consumer,
+            routing,
             underruns.clone(),
             "audio output",
             label.clone(),

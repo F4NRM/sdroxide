@@ -263,7 +263,7 @@ fn run(paths: Vec<PathBuf>, setup: KeySetup, shared: &Shared, stop: &AtomicBool)
     // The sidetone is optional: a caller that keys a transmitter already hears
     // its own tone.
     let audio = if setup.monitor {
-        match start_output(None, 48_000) {
+        match start_output(None, 48_000, sdroxide_types::AudioRouting::Both) {
             Ok(v) => Some(v),
             Err(e) => {
                 set_error(shared, format!("no audio output for the sidetone: {e}"));

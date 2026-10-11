@@ -468,6 +468,8 @@ pub struct AudioDevices {
     pub inputs: Vec<String>,
     pub selected_output: Option<String>,
     pub selected_input: Option<String>,
+    /// Which speaker channel(s) the received audio reaches (#654).
+    pub routing: crate::AudioRouting,
 }
 
 /// The seam that lets the same UI run against an in-process radio engine
@@ -582,6 +584,12 @@ pub trait RadioController {
     /// switchable audio.
     fn set_audio_device(&mut self, output: bool, name: Option<String>) {
         let _ = (output, name);
+    }
+
+    /// Which speaker channel(s) the received audio reaches (#654). Defaulted to
+    /// nothing: a platform without switchable audio has one output.
+    fn set_audio_routing(&mut self, routing: crate::AudioRouting) {
+        let _ = routing;
     }
 
     /// Ask the machine the radio is attached to about its devices.

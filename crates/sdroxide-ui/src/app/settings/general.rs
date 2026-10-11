@@ -679,6 +679,7 @@ impl SdroxideApp {
         &self,
         ui: &mut egui::Ui,
         audio_pick: &mut Option<(bool, Option<String>)>,
+        routing_pick: &mut Option<sdroxide_types::AudioRouting>,
     ) {
         let Some(devs) = &self.audio_devices else {
             return;
@@ -694,6 +695,27 @@ impl SdroxideApp {
             device_combo(ui, "u-in", &devs.inputs, &devs.selected_input, |n| {
                 *audio_pick = Some((false, n))
             });
+            ui.end_row();
+            // Which channel(s) the received audio reaches (#654). Applied live,
+            // so an operator hearing on one side only is a pick, not a restart.
+            ui.label("Channels");
+            let mut selected = devs.routing;
+            ComboBox::from_id_salt("u-routing")
+                .width(200.0)
+                .selected_text(selected.label())
+                .show_styled(ui, |ui| {
+                    for r in sdroxide_types::AudioRouting::ALL {
+                        ui.selectable_value(&mut selected, r, r.label());
+                    }
+                })
+                .response
+                .on_hover_text(
+                    "Which speaker channel(s) the received audio reaches. Left or right \
+                     silences the other, for hearing on one side only.",
+                );
+            if selected != devs.routing {
+                *routing_pick = Some(selected);
+            }
             ui.end_row();
         });
     }

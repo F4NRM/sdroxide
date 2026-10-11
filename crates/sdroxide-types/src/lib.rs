@@ -11,6 +11,7 @@ mod alert;
 mod aprs;
 mod atchat;
 pub mod atsmini;
+mod audio;
 pub mod auto;
 mod awards;
 mod band;
@@ -27,8 +28,8 @@ mod chirp;
 mod command;
 mod contacts;
 mod contest;
-mod dab;
 mod controller;
+mod dab;
 mod digi;
 mod drm;
 mod dsc;
@@ -43,6 +44,7 @@ mod ibp;
 mod input;
 mod ism;
 mod js8;
+mod jtty;
 mod limerfe;
 mod memory;
 mod meters;
@@ -84,7 +86,6 @@ mod tciserver;
 pub mod text;
 mod tone;
 mod ui;
-mod jtty;
 mod uvpacket;
 mod vdl2;
 mod voice;
@@ -106,6 +107,7 @@ pub use ais::{
     AisChannelStatus, AisKind, AisSettings, AisStatus, AisVessel, MMSI_MID_MAX, MMSI_MID_MIN,
     aid_type_label, mmsi_is_identity, nav_status_label, ship_type_hazard, ship_type_label,
 };
+pub use ale::{ALE_WORD_MAX, AleMessage, AleStatus};
 pub use alert::{AlertEvent, AlertEvents, AlertReply, AlertRule, AlertSettings, AlertSound};
 pub use aprs::{
     APRS_MESSAGE_MAX, APRS_MSG_RETRIES, APRS_STATION_MAX, APRS_TRACK_MAX, APRS_TRAFFIC_MAX,
@@ -113,6 +115,7 @@ pub use aprs::{
     AprsSymbolKind, AprsTraffic, AprsWeather,
 };
 pub use atchat::{AtChatChatLine, AtChatFile, AtChatRosterEntry, AtChatStatus, AtChatTransfer};
+pub use audio::AudioRouting;
 pub use awards::{
     Awards, Coverage, EntitySlot, Highlight, LogIndex, Novelty, Status as AwardStatus, US_STATES,
     compute_awards, counts, coverage_counts, entity_coverage, entity_name,
@@ -123,9 +126,9 @@ pub use band_segments::{
     APRS_DIALS, DigiChannel, DigiPreset, FSQ_DIALS, FT2_DIALS, FT4_DIALS, FT8_DIALS,
     FT8_DXPED_DIALS, FT8_VHF_DIALS, JS8_DIALS, OLIVIA_DIALS, PSK_DIALS, PSK_RANGES_R1,
     PSK_RANGES_R23, RIFP_CALLING, RTTY_DIALS, RTTY_RANGES_R1, RTTY_RANGES_R23, SEGMENTS_R1,
-    SEGMENTS_R2, SEGMENTS_R3, SSTV_DIALS, Segment, SegmentKind, WSPR_DIALS, aprs_dial, aprs_dial_in,
-    digi_channels, digi_channels_for, digi_channels_in, digi_channels_in_region, digi_presets,
-    is_aprs_channel, is_auto_digi, is_cw_segment, is_digi_segment, is_psk_segment,
+    SEGMENTS_R2, SEGMENTS_R3, SSTV_DIALS, Segment, SegmentKind, WSPR_DIALS, aprs_dial,
+    aprs_dial_in, digi_channels, digi_channels_for, digi_channels_in, digi_channels_in_region,
+    digi_presets, is_aprs_channel, is_auto_digi, is_cw_segment, is_digi_segment, is_psk_segment,
     is_psk_segment_in, is_rtty_segment, is_rtty_segment_in, psk_ranges, psk_ranges_in, rtty_ranges,
     rtty_ranges_in, segment_kind_at, segment_kind_at_in, segments, segments_in, set_digi_presets,
     span_within_segment, span_within_segment_in, sstv_dials_in,
@@ -136,8 +139,8 @@ pub use callsign::{CallsignInfo, LoginTarget, LoginTestResult, UploadResult, Upl
 pub use caps::{DeviceCaps, DeviceSetting, Direction, GainElement, GainUnit, SettingKind};
 pub use cb::{CbPlan, cb_plan, cb_tx_allowed, set_cb_plan, set_cb_tx_allowed};
 pub use cb_callsign::{
-    is_cb_callsign, is_cb_callsign_wide, is_cb_callsign_with, looks_like_cb_call,
-    cb_call_length_problem, CB_CALL_MAX_LEN,
+    CB_CALL_MAX_LEN, cb_call_length_problem, is_cb_callsign, is_cb_callsign_wide,
+    is_cb_callsign_with, looks_like_cb_call,
 };
 /// The first WSJT-CB-shaped callsign in a decoded message, for the spot
 /// reporters (see [`cb_country::cb_callsign_in`]).
@@ -145,15 +148,15 @@ pub use cb_country::cb_callsign_in;
 pub use chirp::{chirp_csv_to_memories, memories_to_chirp_csv};
 pub use command::{Command, KNOWN_CALLS_REPLY_MAX, KnownCallsReply};
 pub use contacts::FsqContact;
-pub use dab::{
-    DAB_BAND_III, DAB_BANDWIDTH_HZ, DAB_GOOD_RATE_HZ, DAB_SAMPLE_RATE, DabService, DabSettings,
-    DabStatus, dab_channel_at, dab_widening_helps, dab_window_rate, ddc_rate_for,
-};
 pub use contest::{
     ContestId, ContestScore, ContestSession, ContestSpec, Exchange, Multiplier, cabrillo_contest,
     cabrillo_mode, rate, score, to_cabrillo, wpx_prefix,
 };
 pub use controller::{AudioDevices, PeerRadio, RadioController, RadioEvent};
+pub use dab::{
+    DAB_BAND_III, DAB_BANDWIDTH_HZ, DAB_GOOD_RATE_HZ, DAB_SAMPLE_RATE, DabService, DabSettings,
+    DabStatus, dab_channel_at, dab_widening_helps, dab_window_rate, ddc_rate_for,
+};
 pub use digi::{
     ACARS_MESSAGE_MAX, AcarsMessage, AcarsStatus, CONTEST_SERIAL_MAX, ClockHealth, ContestMode,
     CwKeyMode, CwKeySource, CwMacro, CwStatus, DSC_MESSAGE_MAX, DSC_TONE_HZ, Decode, DecodeSort,
@@ -163,10 +166,11 @@ pub use digi::{
     PACKET_TERM_MAX, PacketBaud, PacketHeard, PacketLink, PacketLinkOwner, PacketStatus,
     PacketTermKind, PacketTermLine, QsoLive, QsoRecord, QsoStep, QueuedCall, RTTY_CENTER_HZ,
     RadeStatus, SstvStyle, TX_AUDIO_LEVEL_MIN, TX_AUDIO_LEVEL_MIN_DB, ThorMode, TranscriptLine,
-    WsprRadio, adif_band, adif_records, adif_to_qso_log, adif_to_qso_log_counting_swl, clock_health,
-    cq_is_for_us, digi_decode_to_adif_record, digi_decodes_to_adif, digi_decodes_to_csv, eu_vhf_rs,
-    fmt_report, next_contest_serial, qso_log_to_adif, qso_log_to_text, qso_to_adif_record,
-    tx_level_db, tx_level_from_db, utc_ymd_hms, worked_before, ymd_hms_to_unix,
+    WsprRadio, adif_band, adif_records, adif_to_qso_log, adif_to_qso_log_counting_swl,
+    clock_health, cq_is_for_us, digi_decode_to_adif_record, digi_decodes_to_adif,
+    digi_decodes_to_csv, eu_vhf_rs, fmt_report, next_contest_serial, qso_log_to_adif,
+    qso_log_to_text, qso_to_adif_record, tx_level_db, tx_level_from_db, utc_ymd_hms, worked_before,
+    ymd_hms_to_unix,
 };
 pub use drm::{
     DrmChannel, DrmCodec, DrmConstellation, DrmRobustness, DrmService, DrmStatus, DrmSync, DrmTime,
@@ -212,6 +216,7 @@ pub use js8::{
     HB_BAND_HI_HZ, HB_BAND_LO_HZ, HB_SLOT_HZ, Js8FrameInfo, Js8FrameKind, Js8Heard, Js8Msg,
     Js8Speed, Js8Status,
 };
+pub use jtty::{JTTY_MESSAGE_MAX, JttyMessage, JttyStatus};
 pub use limerfe::{
     LimeRfeConfig, RFE_ATTEN_MAX_STEPS, RFE_ATTEN_STEP_DB, RFE_BAUD, RFE_BUFFER_SIZE,
     RFE_I2C_ADDRESS, RfeChannel, RfeLink, RfeMode, RfeModeControl, RfePort, channel_for,
@@ -230,6 +235,9 @@ pub use pictures::{
     IMAGE_NAME_MAX, IMAGE_PAGE_MAX, IMAGE_SLOT_THUMB_EDGE, IMAGE_SLOTS, IMAGE_SOURCE_MAX_EDGE,
     IMAGE_THUMB_EDGE, IMAGE_UPLOAD_MAX, ImageEntry, ImageKind, ImageListing, ImagePresets,
     ImageSlotInfo, received_at, safe_name,
+};
+pub use playback::{
+    PlaybackCommand, PlaybackStatus, RecordingFile, RecordingListing, RecordingStamp,
 };
 pub use probe::{DeviceProbe, ProbeAnswer, ProbeTest, ReportKind, TestKind};
 pub use profile::{ModeProfile, ModeProfiles};
@@ -264,17 +272,13 @@ pub use radio::{
     SdrPlayModel, SerialConfig, SmartSdrConfig, SmartSdrDevice, SoapyConfig, SoapyDeviceInfo,
     SoundFormat, SpyServerConfig, SpyServerFormat, StopBits, TRUSDX_NG_RX_RATE_CW_HZ,
     TRUSDX_NG_TX_RATE_HZ, TRUSDX_NG_TX_START_BYTE, TRUSDX_RX_RATE_HZ, TRUSDX_TX_ESCAPE_TO,
-    TRUSDX_TX_RATE_HZ, TciConfig,
-    TrUsdxAudio, TrUsdxNgAgc, Transverter, cat_iq_offset_max_hz, converter_preset_name,
-    diversity_cost_note, elad_cat_baud, format_freq_ranges, hackrf_serial_matches, hpsdr_alex_oc,
-    hpsdr_n2adr_oc, parse_freq_ranges,
+    TRUSDX_TX_RATE_HZ, TciConfig, TrUsdxAudio, TrUsdxNgAgc, Transverter, cat_iq_offset_max_hz,
+    converter_preset_name, diversity_cost_note, elad_cat_baud, format_freq_ranges,
+    hackrf_serial_matches, hpsdr_alex_oc, hpsdr_n2adr_oc, parse_freq_ranges,
 };
 pub use rds::{
     RdsClock, RdsData, RdsGroupLog, RdsStandard, RdsStats, RtPlus, af_code_hz, pi_callsign,
     pty_name, rt_plus_class,
-};
-pub use playback::{
-    PlaybackCommand, PlaybackStatus, RecordingFile, RecordingListing, RecordingStamp,
 };
 pub use recording::{JobAction, RecordingJob, RecordingKind};
 pub use region::{Region, region, set_region};
@@ -325,18 +329,17 @@ pub use state::{
 };
 pub use station::StationConfig;
 pub use swl::{
-    SignalReport, Sinpo, Sio, SwlEntry, SwlReportPrefs, swl_entry_to_adif_record, swl_log_to_adif, swl_log_to_csv,
+    SignalReport, Sinpo, Sio, SwlEntry, SwlReportPrefs, swl_entry_to_adif_record, swl_log_to_adif,
+    swl_log_to_csv,
 };
 pub use tciserver::TciServerConfig;
 pub use tone::{CTCSS_TONES, SubTone};
 pub use ui::{
-    BandplanKind, ChromeStyle, DetachableModule, DetachedState, DetachedWindow, FontSize, LayoutMode,
-    SmeterStyle, Solar3dWindow, SpectrumDetail, Speed, UiSettings, UiTheme, ClientAcks, ClientScreen, Workspace,
-    WORKSPACE_MAX,
+    BandplanKind, ChromeStyle, ClientAcks, ClientScreen, DetachableModule, DetachedState,
+    DetachedWindow, FontSize, LayoutMode, SmeterStyle, Solar3dWindow, SpectrumDetail, Speed,
+    UiSettings, UiTheme, WORKSPACE_MAX, Workspace,
 };
 pub use ui::{force_swl, set_force_swl};
-pub use jtty::{JTTY_MESSAGE_MAX, JttyMessage, JttyStatus};
-pub use ale::{ALE_WORD_MAX, AleMessage, AleStatus};
 pub use uvpacket::{
     UVPACKET_AUDIO_CENTRE_HZ, UVPACKET_FRAME_MAX, UvPacketFrame, UvPacketMode, UvPacketStatus,
 };

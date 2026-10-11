@@ -190,9 +190,10 @@ impl SpeechSink for SpeechEngine {
         // A send that finds the queue full or the channel closed (the engine is
         // shutting down) must not leave the announcer waiting on a `busy` that
         // never clears.
-        let queued = self.tx.as_ref().is_some_and(|tx| {
-            tx.try_send(Job::Speak { text: text.to_string(), seq }).is_ok()
-        });
+        let queued = self
+            .tx
+            .as_ref()
+            .is_some_and(|tx| tx.try_send(Job::Speak { text: text.to_string(), seq }).is_ok());
         if !queued {
             self.shared.busy.store(false, Ordering::SeqCst);
             self.shared.done_seq.store(seq, Ordering::SeqCst);
@@ -280,8 +281,9 @@ fn build(
     let path = find_voice(dirs, voice)?;
     let synth = Synth::load(Voice::load(path)?)?;
     let g2p = Phonemes::new()?;
-    let (out, ring) = sdroxide_audio::start_output(device, 48_000)
-        .map_err(|e| SynthError::Inference(format!("opening the speech output: {e}")))?;
+    let (out, ring) =
+        sdroxide_audio::start_output(device, 48_000, sdroxide_types::AudioRouting::Both)
+            .map_err(|e| SynthError::Inference(format!("opening the speech output: {e}")))?;
 
     let model_rate = synth.sample_rate() as f64;
     let resampler = MonoResampler::new(model_rate, out.sample_rate);

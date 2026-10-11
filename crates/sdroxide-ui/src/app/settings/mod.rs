@@ -174,6 +174,9 @@ pub(in crate::app) struct SettingsIo<'a> {
     /// `SdroxideApp::rx_site_edit`.
     rx_site: &'a mut Option<sdroxide_types::RxSite>,
     audio_pick: &'a mut Option<(bool, Option<String>)>,
+    /// Which speaker channel(s) the received audio reaches, buffered until the
+    /// window closes (#654).
+    routing_pick: &'a mut Option<sdroxide_types::AudioRouting>,
     /// What a reception report carries, buffered until Apply — see
     /// `SdroxideApp::swl_report`.
     swl_report: &'a mut sdroxide_types::SwlReportPrefs,
@@ -1087,6 +1090,7 @@ impl SdroxideApp {
         // Edits collected here and applied after the window closure, which
         // borrows `&self` and so can't touch `&mut self.ctrl`.
         let mut audio_pick: Option<(bool, Option<String>)> = None;
+        let mut routing_pick: Option<sdroxide_types::AudioRouting> = None;
         let mut profile_name = std::mem::take(&mut self.profile_name_edit);
         let mut digi_reseed = false;
         let mut speech_edit = self.speech.settings().clone();
@@ -1282,6 +1286,7 @@ impl SdroxideApp {
                                 ranges: &mut ranges,
                                 rx_site: &mut rx_site,
                                 audio_pick: &mut audio_pick,
+                                routing_pick: &mut routing_pick,
                                 swl_report: &mut swl_report,
                                 swl_report_pick: &me.swl_report_pick,
                                 hpsdr_discover: &mut hpsdr_discover,
@@ -1502,6 +1507,10 @@ impl SdroxideApp {
         }
         if let Some((output, name)) = audio_pick {
             self.ctrl.set_audio_device(output, name);
+            self.audio_devices_queried = false;
+        }
+        if let Some(routing) = routing_pick {
+            self.ctrl.set_audio_routing(routing);
             self.audio_devices_queried = false;
         }
         // Every device question below is asked after the window closure, which
@@ -2231,7 +2240,7 @@ impl SdroxideApp {
                 // running two rigs at once runs two interfaces at once, and one
                 // pair of pickers on a shared page could only describe one of
                 // them (issue #474).
-                self.settings_user_audio(ui, io.audio_pick);
+                self.settings_user_audio(ui, io.audio_pick, io.routing_pick);
 
                 // Which station this client is signed in to, and the way out of
                 // it. Above the server-side blocks below, because those are drawn

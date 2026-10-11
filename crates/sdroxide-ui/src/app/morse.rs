@@ -326,7 +326,7 @@ impl Drop for MorseSink {
 
 #[cfg(not(target_arch = "wasm32"))]
 fn worker(rx: Receiver<Job>, stop: &AtomicBool, error: &std::sync::Mutex<Option<String>>) {
-    let (out, mut ring) = match start_output(None, 48_000) {
+    let (out, mut ring) = match start_output(None, 48_000, sdroxide_types::AudioRouting::Both) {
         Ok(v) => v,
         Err(e) => {
             *error.lock().unwrap() = Some(format!("no audio output: {e}"));
