@@ -2752,7 +2752,7 @@ mod touch_lock_tests;
 mod tests {
     use super::*;
     use eframe::App;
-    use sdroxide_types::{Command, RadioEvent};
+    use sdroxide_types::{Command, RadioEvent, Spot, SpotKind};
 
     /// Press a chip drawn inside a `Ui` that is enabled or not, and report
     /// whether the press reached it. Two passes: the first tells egui where the
@@ -2781,6 +2781,56 @@ mod tests {
             ctx.run_ui(input, |ui| clicked |= draw(ui).clicked()).drop_without_applying_deltas();
         }
         clicked
+    }
+
+    /// A CW spot is tuned the **operator's own** sidetone pitch below its
+    /// signal, so it lands on the CW cursor — not the mode's 700 Hz default.
+    ///
+    /// Thieu (VERON, contest op), 2.0.9.x: *"when I select a CW spot the tuning
+    /// is 600 Hz (my pitch) off; in the upper WIDE window it is right"*. The
+    /// SPOTS list used the default while the skimmer overlay used his cursor.
+    #[test]
+    fn a_cw_spot_is_tuned_on_the_operators_own_pitch() {
+        let _guard = crate::multi::frame_test_lock();
+        let dir = std::env::temp_dir().join(format!("sdroxide-cwspot-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        unsafe { std::env::set_var("SDROXIDE_CONFIG_DIR", &dir) };
+
+        let controller: Box<dyn RadioController> = Box::new(RecordingController::default());
+        let ctx = egui::Context::default();
+        let mut app = SdroxideApp::new_tab(&ctx, None, None, controller, 0, true);
+        // The operator copies at 600 Hz, not the mode's 700 Hz default, and the
+        // engine has not reported a cursor yet.
+        app.digi_status = None;
+        app.digi_cfg_edit.cw_pitch_hz = 600.0;
+
+        let spot = Spot {
+            id: 1,
+            kind: SpotKind::DxCluster,
+            freq_hz: 14_050_000.0,
+            call: "DL1ABC".into(),
+            spotter: String::new(),
+            mode: "CW".into(),
+            comment: String::new(),
+            reference: None,
+            grid: None,
+            loc: None,
+            when_utc: 0,
+            snr_db: None,
+        };
+        let mut cmds = Vec::new();
+        app.select_spot(&spot, &mut cmds);
+        let dial = cmds.iter().find_map(|c| match c {
+            Command::SetVfo { hz, .. } => Some(*hz),
+            _ => None,
+        });
+        assert_eq!(
+            dial,
+            Some(14_050_000.0 - 600.0),
+            "a CW spot goes the operator's own pitch (600 Hz) below the signal, \
+             not the 700 Hz mode default"
+        );
     }
 
     /// Every transmit control greyed out for a receive-only radio is greyed the
