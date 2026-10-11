@@ -54,14 +54,45 @@
 
     // Until the first gesture there is no context at all, so the page is
     // silent and nothing on screen said why: operators found the cure by
-    // accident, on the volume slider. Name it instead. The hint takes no
-    // pointer events, so the tap that starts the sound lands on whatever is
-    // under it, and it comes back if the browser stops the context later. It sits in the
-    // middle of the screen in large type: a beginner reading the page as
-    // broken is the failure it exists to prevent.
+    // accident, on the volume slider. Name it instead, in the middle of the
+    // screen in large type: a beginner reading the page as broken is the
+    // failure it exists to prevent. It comes back if the browser stops the
+    // context later.
+    //
+    // A tap ON the hint starts the sound and does nothing else. It sits over
+    // the waterfall, where a tap tunes, and an operator coming back to a
+    // running receiver must not lose the frequency to the tap that brings the
+    // sound back. The window's capture listener sees the gesture first (that
+    // is what starts the context); the hint then keeps the events from the
+    // page. A tap anywhere else reaches the page as usual.
     let hint = null;
+    // A press that began on the hint: its release and click must not reach
+    // the page either, so the hint outlives the gesture that removed it.
+    let hintBusy = false;
+    let hintHidePending = false;
+
+    function swallow(ev) {
+        ev.stopPropagation();
+        if (ev.cancelable) ev.preventDefault();
+    }
+
+    function hintPress(ev) {
+        hintBusy = true;
+        swallow(ev);
+    }
+
+    function hintRelease(ev) {
+        swallow(ev);
+        // The click (and a touch's compatibility mouse events) follow the
+        // release; let them land on the hint before it goes.
+        setTimeout(() => {
+            hintBusy = false;
+            if (hintHidePending) hideHint();
+        }, 400);
+    }
 
     function showHint() {
+        hintHidePending = false;
         if (hint || location.search.includes("view=solar")) return;
         const put = () => {
             if (hint) return;
@@ -71,10 +102,20 @@
                 "z-index:9998;padding:24px 32px;border-radius:12px;" +
                 "font:bold clamp(22px,5vw,44px)/1.3 system-ui,sans-serif;" +
                 "background:rgba(74,48,0,0.92);color:#ffd479;" +
-                "border:2px solid #7a5000;pointer-events:none;box-sizing:border-box;" +
+                "border:2px solid #7a5000;cursor:pointer;box-sizing:border-box;" +
                 "width:max-content;max-width:min(90vw,22em);" +
                 "text-align:center;box-shadow:0 4px 24px rgba(0,0,0,0.6)";
             hint.textContent = "\u{1F507} Tap, click or press a key anywhere to start the sound";
+            const opts = { passive: false };
+            for (const ev of ["pointerdown", "touchstart", "mousedown"]) {
+                hint.addEventListener(ev, hintPress, opts);
+            }
+            for (const ev of ["pointerup", "touchend", "mouseup"]) {
+                hint.addEventListener(ev, hintRelease, opts);
+            }
+            for (const ev of ["click", "dblclick", "contextmenu", "wheel", "pointercancel", "touchcancel"]) {
+                hint.addEventListener(ev, swallow, opts);
+            }
             document.body.appendChild(hint);
         };
         if (document.body) put();
@@ -82,6 +123,11 @@
     }
 
     function hideHint() {
+        if (hintBusy) {
+            hintHidePending = true;
+            return;
+        }
+        hintHidePending = false;
         if (hint) {
             hint.remove();
             hint = null;
@@ -204,7 +250,11 @@
         }
     }
 
-    function onGesture() {
+    function onGesture(ev) {
+        // Mark a press on the hint before init() runs: a context that starts
+        // at once removes the hint synchronously, and the release and click
+        // of this same tap would then fall through to the waterfall.
+        if (hint && ev && hint.contains(ev.target)) hintBusy = true;
         init();
         resumeCtx();
         if (micWanted) startMic();
