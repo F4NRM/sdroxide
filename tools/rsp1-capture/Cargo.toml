@@ -3,8 +3,15 @@ name = "rspcap"
 version = "0.1.0"
 edition = "2021"
 
+# A standalone build, not a member of the root workspace. Without this, cargo
+# walks up from here, finds the root manifest and refuses to build the tool at
+# all — the fix is to copy the crate somewhere else, which loses it every time.
+# `members = ["crates/*"]` does not reach `tools/`, so this table is what makes
+# `cargo build --release` work in this directory.
+[workspace]
+
 [dependencies]
-soapysdr = { path = "/home/druid/sdroxide/vendor/soapysdr" }
+soapysdr = { path = "../../vendor/soapysdr" }
 num-complex = "0.4"
 
 [profile.release]

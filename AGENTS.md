@@ -5574,15 +5574,22 @@ Two things worth keeping:
   reads back. It needs `soapysdr` as a direct dependency, which the root crate
   does not carry, so it lives outside the tree (a scratch crate that
   path-depends on `vendor/soapysdr`).
-- **`tools/rsp1-capture` cannot be built where it sits.** Cargo walks up,
-  finds the workspace root and refuses. Copy `src/` + `Cargo.toml` to a
-  scratch dir and append an empty `[workspace]` table to the copy.
-- **`rspcap` silently ignores the sample rate you give it.** On 2026-10-11 it
+- **`tools/rsp1-capture` builds in place now** (2026-10-11). An empty
+  `[workspace]` table in its `Cargo.toml` stops cargo walking up to the root
+  manifest and refusing the tool, and its `soapysdr` path-dep is relative
+  rather than absolute, so the copy-to-scratch dance is over. It is still its
+  own workspace, so `--workspace` at the root never builds it and a mistake
+  in it cannot fail a release.
+- **`rspcap` silently ignored the sample rate you gave it.** On 2026-10-11 it
   printed *"invalid sample rate. Sample rate unchanged."*, kept the radio's own
   rate, and then wrote `rate × seconds` samples regardless — so every
   frequency in the file was wrong while the file size looked exactly right. It
-  worked at 2.048 Msps and failed at 48 kHz. **Read `sample_rate()` back after
-  setting it and use that for the frequency axis.** Not yet fixed in the tool.
+  worked at 2.048 Msps and failed at 48 kHz. **Fixed**: it reads
+  `sample_rate()` back, captures at what the radio is *actually* doing,
+  reports asked-vs-got and the ratio the frequency axis would have been wrong
+  by, and warns on a mistune the same way. **Not yet run** — the RSP1 was held
+  open by a running sdroxide when it was built, so it is verified to compile
+  and nothing more.
 - **Some channels are simply dead.** 2187.5 kHz (MF DSC) was flat noise over a
   3-minute watch here, and 8414.5 kHz had no burst in a 20 s capture; 40 m was
   busy at the same time. A missing signal is not a broken decoder — check a
