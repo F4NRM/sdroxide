@@ -7733,14 +7733,13 @@ const OLIVIA_UNCONFIRMED: &str = "OLIVIA — receive works, transmit untested ag
 /// 1.536 MHz, and that is the *floor*: at it the front end — the SDRplay in
 /// particular — sits on its ADC floor and drops samples, and an OFDM decode
 /// needs a continuous stream, so one splice stops sync and there is no audio at
-/// all. `sdroxide_dab::DAB_GOOD_RATE_HZ` (3.072 Msps) is where it stops being
-/// marginal. Said here rather than in a manual, because this is where an
+/// all. `sdroxide_dab::DAB_GOOD_RATE_HZ` (2.5 Msps, confirmed on a Pluto) is
+/// the reference. Said here rather than in a manual, because this is where an
 /// operator chooses the mode and this is the first thing that will go wrong.
-const DAB_EXPERIMENTAL: &str = "DAB / DAB+ — experimental. It needs about 3 Msps of bandwidth \
-     at the front end before there is any audio: at the 1.536 MHz an ensemble occupies the \
-     receiver is at its ADC floor and drops samples, and a DAB decode needs a continuous \
-     stream, so the ensemble never locks and you hear nothing. Open the radio's sample rate to \
-     3 Msps or more first — and not 3.2 on an SDRplay, which snaps to 2 and is the floor again.";
+const DAB_EXPERIMENTAL: &str = "DAB / DAB+. It needs 2.5 Msps of bandwidth at the front end \
+     before there is any audio: at the 1.536 MHz an ensemble occupies the receiver is at its \
+     ADC floor and drops samples, and a DAB decode needs a continuous stream, so the ensemble \
+     never locks and you hear nothing. Set the radio's sample rate to 2.500 Msps first.";
 
 fn mode_band_chip(
     ui: &mut egui::Ui,

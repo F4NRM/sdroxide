@@ -70,14 +70,17 @@ pub const DAB_SAMPLE_RATE: u32 = 2_048_000;
 /// occupied spectrum, so a front end opened narrower loses the outer carriers.
 pub const DAB_BANDWIDTH_HZ: f64 = 1_536_000.0;
 
-/// A rate the lane is comfortable at.
+/// The reference rate for a DAB lane: **2.5 Msps**.
 ///
 /// At the bare [`DAB_BANDWIDTH_HZ`] the front end is right at its ADC floor,
 /// where the SDRplay API in particular drops samples — and a DAB decode needs a
-/// *continuous* OFDM stream, so a splice stops sync. Twice the occupied width
-/// leaves the margin to deliver it cleanly. Not a refusal below this: a
-/// narrower-but-clean stream still decodes.
-pub const DAB_GOOD_RATE_HZ: f64 = 3_072_000.0;
+/// *continuous* OFDM stream, so a splice stops sync. 2.5 Msps is the rate DAB+
+/// was confirmed decoding cleanly at, end to end, on a PlutoSDR (Kevin,
+/// 2.0.7.3, 2026-10-11: no dropouts). It replaced the earlier 3.072 Msps
+/// "twice the occupied width", which was a guess made before anybody had
+/// decoded on the air and which no front end's ladder could reach. Not a
+/// refusal below this: a narrower-but-clean stream still decodes.
+pub const DAB_GOOD_RATE_HZ: f64 = 2_500_000.0;
 
 /// The channel whose centre is nearest `hz`, as `(name, centre)`.
 pub fn dab_channel_at(hz: f64) -> Option<(&'static str, f64)> {
@@ -213,29 +216,43 @@ pub fn dab_window_rate(device_rate: f64) -> f64 {
 
 /// Would raising the receiver's rate give the DAB lane the margin it wants?
 ///
-/// [`ddc_rate_for`] picks the rung *nearest* the target and the target is
-/// capped, so on a front end whose ladder never reaches [`DAB_GOOD_RATE_HZ`]
-/// the answer is **no at every setting** — the case that made the old warning
-/// tell an operator to widen after they already had. Asked rather than assumed,
-/// so the advice can say the ceiling is the receiver's where it is.
+/// Asks what the lane would land on at each trial rate rather than assuming:
+/// [`ddc_rate_for`] picks the rung *nearest* the target, so a wider rate does
+/// not always widen the lane (8 Msps lands it on 2.0). 2.5 and 5 Msps reach
+/// the [`DAB_GOOD_RATE_HZ`] reference; a receiver already there gets `false`.
 pub fn dab_widening_helps(device_rate: f64) -> bool {
-    const TRIALS: &[f64] = &[4_000_000.0, 6_000_000.0, 8_000_000.0, 10_000_000.0, 16_000_000.0];
-    let target = f64::from(DAB_SAMPLE_RATE).min(device_rate);
-    TRIALS.iter().any(|c| ddc_rate_for(*c, target) >= DAB_GOOD_RATE_HZ)
+    const TRIALS: &[f64] = &[
+        2_500_000.0,
+        4_000_000.0,
+        5_000_000.0,
+        6_000_000.0,
+        8_000_000.0,
+        10_000_000.0,
+        16_000_000.0,
+    ];
+    dab_window_rate(device_rate) < DAB_GOOD_RATE_HZ
+        && TRIALS.iter().any(|&c| dab_window_rate(c) >= DAB_GOOD_RATE_HZ)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// The report on the fork's #18: 5 Msps on an SDRplay lands the lane at
-    /// 2.5, and no setting widens it — the ladder is capped by the target.
+    /// 2.5 Msps is the reference (confirmed on a Pluto), and it is reachable:
+    /// a 2.5 or 5 Msps receiver lands the lane on it, so nothing is advised.
+    /// A receiver opened narrower is told widening helps, because it does.
     #[test]
-    fn the_dab_lane_follows_the_ladder_not_the_device_rate() {
-        assert_eq!(dab_window_rate(5_000_000.0), 2_500_000.0, "the window the report saw");
-        for rate in [1_000_000.0, 2_048_000.0, 2_400_000.0, 5_000_000.0, 16_000_000.0] {
-            assert!(!dab_widening_helps(rate), "{rate:.0} sps: claimed widening would help");
-            assert!(dab_window_rate(rate) < DAB_GOOD_RATE_HZ, "{rate:.0} sps: margin reachable");
+    fn two_and_a_half_msps_is_the_dab_reference() {
+        assert_eq!(DAB_GOOD_RATE_HZ, 2_500_000.0);
+        for rate in [2_500_000.0, 5_000_000.0] {
+            assert!(
+                dab_window_rate(rate) >= DAB_GOOD_RATE_HZ,
+                "{rate:.0} sps: below the reference"
+            );
+        }
+        for rate in [1_000_000.0, 2_000_000.0, 2_048_000.0] {
+            assert!(dab_window_rate(rate) < DAB_GOOD_RATE_HZ, "{rate:.0} sps");
+            assert!(dab_widening_helps(rate), "{rate:.0} sps: 2.5 Msps would widen it");
         }
     }
 

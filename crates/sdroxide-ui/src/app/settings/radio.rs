@@ -3430,6 +3430,11 @@ fn pluto_rx_label(rx: u8) -> String {
 /// runs is the first thing a two-chain board asks for.
 const PLUTO_CHOOSE_RECEIVER: &str = "Please choose your receiver";
 
+/// Shown beside the Pluto sample rate, always: 2.5 Msps is the rate DAB /
+/// DAB+ was confirmed decoding at on a Pluto (Kevin, 2.0.7.3), and it is the
+/// reference [`sdroxide_types::DAB_GOOD_RATE_HZ`] now holds.
+const PLUTO_DAB_RATE_HINT: &str = "Choose 2.500 Msps if you want to decode DAB/DAB+";
+
 /// How to hear both chains, in the receiver's tooltip.
 const PLUTO_BOTH_CHAINS_HINT: &str = "To listen on both antennas: add a second radio on the same \
      address and set it to RX2. Both radios share the same frequency.";
@@ -3549,19 +3554,22 @@ pub(in crate::app) fn settings_pluto_tab(
              Msps instead and says so when it connects. Takes effect on Apply.",
         );
         let shown = format!("{:.3} Msps", cfg.pluto.sample_rate_hz / 1e6);
-        ComboBox::from_id_salt("pluto_rate").selected_text(shown).show_styled(ui, |ui| {
-            for &r in &PlutoConfig::SAMPLE_RATES {
-                let sel = (cfg.pluto.sample_rate_hz - r).abs() < 1.0;
-                let mut label = format!("{:.3} Msps", r / 1e6);
-                if r >= 3_840_000.0 {
-                    label.push_str("  (more than USB 2 will carry)");
-                } else if r < PlutoConfig::NO_FIR_FLOOR_HZ {
-                    label.push_str("  (a stock Pluto runs at 2.084)");
+        ui.horizontal(|ui| {
+            ComboBox::from_id_salt("pluto_rate").selected_text(shown).show_styled(ui, |ui| {
+                for &r in &PlutoConfig::SAMPLE_RATES {
+                    let sel = (cfg.pluto.sample_rate_hz - r).abs() < 1.0;
+                    let mut label = format!("{:.3} Msps", r / 1e6);
+                    if r >= 3_840_000.0 {
+                        label.push_str("  (more than USB 2 will carry)");
+                    } else if r < PlutoConfig::NO_FIR_FLOOR_HZ {
+                        label.push_str("  (a stock Pluto runs at 2.084)");
+                    }
+                    if ui.selectable_label(sel, label).clicked() {
+                        cfg.pluto.sample_rate_hz = r;
+                    }
                 }
-                if ui.selectable_label(sel, label).clicked() {
-                    cfg.pluto.sample_rate_hz = r;
-                }
-            }
+            });
+            ui.label(RichText::new(PLUTO_DAB_RATE_HINT).color(crate::theme::YELLOW()));
         });
         ui.end_row();
 
@@ -3829,14 +3837,6 @@ pub(in crate::app) fn settings_pluto_tab(
              once. No SoapySDR and no libiio needed.",
         )
         .weak(),
-    );
-    ui.label(
-        RichText::new(
-            "Not yet verified against real hardware. If it misbehaves, please send the \
-             diagnostic report — it contains every command exchanged with the radio, \
-             and the first bytes of the sample stream.",
-        )
-        .color(crate::theme::YELLOW()),
     );
 }
 
@@ -8758,5 +8758,14 @@ mod tests {
         let rx2 = pluto_tab_text(1);
         assert!(rx2.lines().any(|l| l == "RX2 only"), "{rx2}");
         assert!(rx2.lines().any(|l| l == PLUTO_CHOOSE_RECEIVER), "{rx2}");
+    }
+
+    /// The DAB rate hint sits beside the sample rate, and the old "not yet
+    /// verified" caveat is gone: the Pluto is confirmed on the air.
+    #[test]
+    fn the_pluto_sample_rate_names_the_dab_rate() {
+        let text = pluto_tab_text(0);
+        assert!(text.lines().any(|l| l == PLUTO_DAB_RATE_HINT), "{text}");
+        assert!(!text.contains("Not yet verified"), "{text}");
     }
 }
