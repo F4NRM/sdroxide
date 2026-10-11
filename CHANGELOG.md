@@ -23,6 +23,16 @@ and the [README](https://github.com/madmedicnl/sdroxide-brown#readme).
 
 ## [Unreleased]
 
+### Fixed
+- **SSTV decodes weak pictures** — a faint picture a phone could copy stayed on
+  "no SSTV header yet". The header and sync pulses are now found by tone energy
+  instead of one noisy frequency reading: header read down to about −3 dB SNR
+  (was +10 dB), lock without a header the same, no false starts on noise.
+
+### Not proven
+- The weak-SSTV fix is measured on synthetic noise, not yet on an off-air
+  recording.
+
 ## [2.0.8_brown] - 2026-10-11
 
 ### Added
