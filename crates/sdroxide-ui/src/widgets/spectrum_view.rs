@@ -355,6 +355,64 @@ fn center_on_dial(
     if over.abs() >= column { over } else { 0.0 }
 }
 
+/// A centre CTR asked the front end for, and the view it left centred on the
+/// dial while the answer was on its way.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct CtrAsk {
+    center: f64,
+    view_lo: f64,
+    view_hi: f64,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum CtrSettle {
+    /// The front end has not answered yet: the hold still shows what was asked.
+    Waiting,
+    /// Nothing more to wait for. `refitted` when the view had to be narrowed.
+    Done { refitted: bool },
+}
+
+/// Keep the dial centred once the front end has answered CTR's request with a
+/// centre of its own.
+///
+/// A zero-IF front end (a Pluto, a HackRF) will not put its LO on the dial —
+/// the engine's `guarded_center` keeps it a guard away, so the DC spike stays
+/// out of the channel. So CTR asks for the dial, the screen centres on that
+/// optimistically, and a moment later the real centre lands a guard above it.
+/// Fully zoomed out the view *is* the window, so the end-of-frame clamp then
+/// slides the whole picture with it and the dial drifts left while CTR is still
+/// lit — a control promising something it no longer does.
+///
+/// The window cannot hold a view of that width centred on the dial, so the view
+/// is narrowed, symmetrically about the dial, to the widest one it can hold.
+/// Nothing is retuned and the guard stays where the engine put it.
+///
+/// Only for the view CTR itself left: if the operator has panned or zoomed in
+/// the meantime, that gesture is theirs and is not undone.
+fn ctr_settle(
+    view: &mut ViewState,
+    vfo: f64,
+    ask: CtrAsk,
+    dev_center: f64,
+    win_center: f64,
+    win_span: f64,
+) -> CtrSettle {
+    if (view.view_lo_hz - ask.view_lo).abs() > 1.0 || (view.view_hi_hz - ask.view_hi).abs() > 1.0 {
+        return CtrSettle::Done { refitted: false };
+    }
+    if (dev_center - ask.center).abs() < 0.5 {
+        return CtrSettle::Waiting;
+    }
+    let (lo, hi) = (win_center - win_span / 2.0, win_center + win_span / 2.0);
+    let half = (vfo - lo).min(hi - vfo);
+    if half > 0.0 && 2.0 * half < view.span() {
+        view.view_lo_hz = vfo - half;
+        view.view_hi_hz = vfo + half;
+        return CtrSettle::Done { refitted: true };
+    }
+    CtrSettle::Done { refitted: false }
+}
+
 /// How much the span has to change before a zoom counts as one, as a fraction
 /// of it. A wheel notch is a couple of per cent and a pinch frame rather less;
 /// this is far below either and far above the drift a clamp leaves behind.
@@ -2060,6 +2118,10 @@ pub fn show_ext(
     // can see a sub-pixel slide.
     let centring_id = ui.id().with("centre-on-vfo");
     let centred_at: Option<(f64, f64)> = ui.data(|d| d.get_temp(centring_id)).unwrap_or(None);
+    // The centre CTR last asked the front end for, and the view it left: see
+    // [`ctr_settle`].
+    let asked_id = ui.id().with("centre-asked");
+    let asked: Option<CtrAsk> = ui.data(|d| d.get_temp(asked_id)).unwrap_or(None);
     if view.center_on_vfo {
         // The cursor rather than the dial in the modes that hold their tones
         // off it — see [`AudioCursor::center_on_cursor`]. Memoised on the
@@ -2067,16 +2129,45 @@ pub fn show_ext(
         // brings the window along exactly as turning the dial does.
         let vfo = state.active_freq_hz()
             + cursor.filter(|c| c.center_on_cursor).map_or(0.0, |c| f64::from(c.hz));
+        let mut asked = asked;
+        if let Some(ask) = asked {
+            match ctr_settle(view, vfo, ask, dev_center, zoom_center, zoom_span) {
+                CtrSettle::Waiting => {}
+                CtrSettle::Done { refitted } => {
+                    asked = None;
+                    if refitted {
+                        // The narrower view is the one this dial is now
+                        // centred for, so it is not a zoom to answer.
+                        ui.data_mut(|d| d.insert_temp(centring_id, Some((vfo, view.span()))));
+                    }
+                }
+            }
+        }
+        let centred_at: Option<(f64, f64)> = ui.data(|d| d.get_temp(centring_id)).unwrap_or(None);
         if centring_due(centred_at, vfo, view.span()) {
             let over = center_on_dial(view, vfo, zoom_center, zoom_span, rect.width());
+            let before = dev_center;
             pan_center(&mut dev_center, state, over, pan, cmds);
+            if dev_center != before {
+                asked = Some(CtrAsk {
+                    center: dev_center,
+                    view_lo: view.view_lo_hz,
+                    view_hi: view.view_hi_hz,
+                });
+            }
             // Recorded only when it actually centred, so a gesture that moves
             // the span in steps below `ZOOM_EPS` accumulates towards one rather
             // than resetting the comparison every frame and never arriving.
             ui.data_mut(|d| d.insert_temp(centring_id, Some((vfo, view.span()))));
         }
-    } else if centred_at.is_some() {
-        ui.data_mut(|d| d.insert_temp(centring_id, None::<(f64, f64)>));
+        ui.data_mut(|d| d.insert_temp(asked_id, asked));
+    } else {
+        if centred_at.is_some() {
+            ui.data_mut(|d| d.insert_temp(centring_id, None::<(f64, f64)>));
+        }
+        if asked.is_some() {
+            ui.data_mut(|d| d.insert_temp(asked_id, None::<CtrAsk>));
+        }
     }
 
     let view_log_id = ui.id().with("view-log");
@@ -3905,6 +3996,54 @@ mod tests {
         let mut cmds = Vec::new();
         pan_center(&mut dev_center, &mut state, -50_000.0, pan, &mut cmds);
         assert_eq!(cmds, vec![Command::SetCenter(14_100_000.0)]);
+    }
+
+    /// CTR on a zero-IF front end, fully zoomed out (a Pluto on FM broadcast):
+    /// the engine keeps its LO a guard above the dial, so the centre CTR asked
+    /// for never arrives. The dial must still end up in the middle once the real
+    /// centre lands, not drift left a moment after CTR seemed to work.
+    #[test]
+    fn ctr_keeps_the_dial_centred_when_the_front_end_holds_its_lo_off_it() {
+        let (dial, span, guard) = (105_900_000.0, 2_400_000.0, 300_000.0);
+        let mut state = RadioState { center_hz: dial + 600_000.0, sample_rate: span, ..state() };
+        let mut view = def();
+        view.fit(state.center_hz, span);
+
+        // The CTR frame: centre on the dial, ask the front end to follow.
+        let mut dev_center = state.center_hz;
+        let mut cmds = Vec::new();
+        let over = center_on_dial(&mut view, dial, dev_center, span, 1000.0);
+        pan_center(&mut dev_center, &mut state, over, movable(), &mut cmds);
+        assert_eq!(cmds, vec![Command::SetCenter(dial)]);
+        let ask = CtrAsk { center: dev_center, view_lo: view.view_lo_hz, view_hi: view.view_hi_hz };
+        view.clamp_to(dev_center, span);
+
+        // The answer is still on its way: nothing to do.
+        assert_eq!(
+            ctr_settle(&mut view, dial, ask, dev_center, dev_center, span),
+            CtrSettle::Waiting
+        );
+
+        // The engine's centre lands a guard above the dial.
+        let dev_center = dial + guard;
+        let settled = ctr_settle(&mut view, dial, ask, dev_center, dev_center, span);
+        view.clamp_to(dev_center, span);
+        let mid = (view.view_lo_hz + view.view_hi_hz) / 2.0;
+        assert!((mid - dial).abs() < 1.0, "the dial drifted {} Hz off centre", mid - dial);
+        assert_eq!(settled, CtrSettle::Done { refitted: true });
+        assert!((view.span() - (span - 2.0 * guard)).abs() < 1.0, "span {}", view.span());
+    }
+
+    /// The narrowing is CTR's own: a view the operator has moved since is theirs.
+    #[test]
+    fn ctr_settle_leaves_a_moved_view_alone() {
+        let mut view = ViewState { view_lo_hz: 100.0, view_hi_hz: 300.0, ..def() };
+        let ask = CtrAsk { center: 200.0, view_lo: 50.0, view_hi: 250.0 };
+        assert_eq!(
+            ctr_settle(&mut view, 150.0, ask, 260.0, 260.0, 200.0),
+            CtrSettle::Done { refitted: false }
+        );
+        assert_eq!((view.view_lo_hz, view.view_hi_hz), (100.0, 300.0));
     }
 
     fn def() -> ViewState {
