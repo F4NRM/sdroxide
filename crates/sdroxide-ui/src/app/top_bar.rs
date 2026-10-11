@@ -357,6 +357,10 @@ enum MenuChip {
     Disp,
     Sys,
     Menu,
+    /// The memory channels: a window rather than a menu, kept on the row
+    /// because a touch operator recalls a memory constantly and should not
+    /// have to dig for it (SYS and ☰ carry it too).
+    Mem,
     /// The anti-touch padlock ([`crate::touch_lock`]). Measured as its label
     /// and drawn as a painted mark.
     Lock,
@@ -374,6 +378,7 @@ impl MenuChip {
             Self::Disp => "DISP",
             Self::Sys => "SYS",
             Self::Menu => "☰",
+            Self::Mem => "MEM",
             Self::Lock => LOCK_LABEL,
         }
     }
@@ -860,7 +865,13 @@ impl SdroxideApp {
     /// sees the row the phone actually draws.
     fn menu_chips(&self, tx_capable: bool, tier: crate::layout::Tier) -> Vec<MenuChip> {
         if tier == crate::layout::Tier::Phone {
-            return vec![MenuChip::Rx, MenuChip::Disp, MenuChip::Menu, MenuChip::Lock];
+            return vec![
+                MenuChip::Rx,
+                MenuChip::Disp,
+                MenuChip::Menu,
+                MenuChip::Mem,
+                MenuChip::Lock,
+            ];
         }
         let mut chips = vec![MenuChip::Rx, MenuChip::Vfo];
         // Both of these appear only while what they drive is running: the chip
@@ -879,9 +890,9 @@ impl SdroxideApp {
         if tx_capable {
             chips.push(MenuChip::Tx);
         }
-        // The padlock last, after SYS: the one chip that must stay reachable
-        // when every other one has stopped answering.
-        chips.extend([MenuChip::Disp, MenuChip::Sys, MenuChip::Lock]);
+        // MEM after SYS, and the padlock last: the one chip that must stay
+        // reachable when every other one has stopped answering.
+        chips.extend([MenuChip::Disp, MenuChip::Sys, MenuChip::Mem, MenuChip::Lock]);
         chips
     }
 
@@ -904,6 +915,8 @@ impl SdroxideApp {
             MenuChip::Rig | MenuChip::Rx | MenuChip::Disp | MenuChip::Sys => false,
             // Lit while the nested menu is open.
             MenuChip::Menu => false,
+            // Lit while the memory window is open.
+            MenuChip::Mem => self.show_memories,
             // Drawn by [`crate::touch_lock::padlock`], which reads its own state.
             MenuChip::Lock => false,
         }
@@ -1000,9 +1013,9 @@ impl SdroxideApp {
                 (r1.len(), widest(&r1))
             },
             row2: if tx_capable {
-                (4, widest(&["TX", "DISP", "SYS", LOCK_LABEL]))
+                (5, widest(&["TX", "DISP", "SYS", "MEM", LOCK_LABEL]))
             } else {
-                (3, widest(&["DISP", "SYS", LOCK_LABEL]))
+                (4, widest(&["DISP", "SYS", "MEM", LOCK_LABEL]))
             },
         };
         let plan = plan_short_strip(ui.available_width(), &fit, &chips, gap, gap);
@@ -1109,6 +1122,8 @@ impl SdroxideApp {
                     self.disp_menu(ui, btn, cmds);
                     let btn = crate::chrome::chip_sized(ui, false, "SYS", cell2);
                     self.sys_menu(ui, btn, cmds);
+                    let btn = crate::chrome::chip_sized(ui, self.show_memories, "MEM", cell2);
+                    self.mem_chip(btn);
                     crate::touch_lock::padlock(ui, cell2);
                 });
             },
@@ -1287,8 +1302,17 @@ impl SdroxideApp {
                 // Only the phone strip puts one on the row; the other tiers
                 // keep every chip of their own.
                 MenuChip::Menu => self.phone_menu(ui, btn, cmds),
+                MenuChip::Mem => self.mem_chip(btn),
                 MenuChip::Lock => unreachable!("drawn above"),
             }
+        }
+    }
+
+    /// The MEM chip: opens and closes the memory channels window. No menu of
+    /// its own — the window is the list, and one tap away is the point.
+    fn mem_chip(&mut self, btn: egui::Response) {
+        if btn.on_hover_text("Memory channels — recall a stored frequency").clicked() {
+            self.show_memories = !self.show_memories;
         }
     }
 
