@@ -155,6 +155,14 @@ by name in `broadcast_favourites.json`, and a **★ FAVS** filter shows only the
   logic was fixed for that). The reference `dabradio` binary decodes all four of
   10B's services to audio.
 
+  **Resolved (2026-10-10, fork PR #38), and confirmed on the air (2026-10-11):**
+  the paragraphs below are the history. It was not bit errors and not a decoder
+  limit: faad2 is built with `DRM_SUPPORT`, and in that mode `fill_element`
+  refuses any frame whose fill element carries anything but SBR. DAB+ encoders
+  pad almost every Access Unit that way. `sdroxide-faad2` now compiles a
+  patched `syntax.c` that skips the payload, and DAB+ plays clean on a Pluto at
+  2.5 Msps. The fdk-aac question below no longer needs answering.
+
   **What does not:** the DAB+ **audio** path. In our build faad2 refuses most
   Access Units with `FAAD_DECODE_ERROR` (bit errors) on **every** service — only
   a handful decode, so a station is silent or a fragment. Feeding the reference

@@ -1016,6 +1016,35 @@ fn an_attack_mode_does_not_take_the_gain_write_that_would_abort_the_open() {
     );
 }
 
+/// In an attack mode the AD9361 sets the receive gain itself, and the S-meter
+/// can only refer its reading to the antenna if it knows that gain. Nothing
+/// read it back, so on a Pluto (default `slow_attack`) the meter followed the
+/// AGC instead of the signal. The part moves its gain here, and the stream has
+/// to report the new figure, not the operator's setting.
+#[test]
+fn the_gain_the_agc_picks_is_read_back_for_the_meter() {
+    let fake = Fake::start();
+    let cfg = PlutoConfig { agc: PlutoAgc::SlowAttack, rx_gain_db: 40.0, ..config() };
+    let handle = PlutoHandle::open(&fake.address(), &cfg, 435_000_000.0).expect("open");
+
+    // The AGC settles on 55 dB: the driver prints it with its unit.
+    fake.state
+        .lock()
+        .unwrap()
+        .attrs
+        .push(("ad9361-phy/INPUT/voltage0/hardwaregain".into(), "55.000000 dB".into()));
+    wait_for("the AGC's gain to be read back", || handle.applied_rx_gain_db() == Some(55.0));
+
+    // …and moves again, which the reading follows.
+    fake.state
+        .lock()
+        .unwrap()
+        .attrs
+        .push(("ad9361-phy/INPUT/voltage0/hardwaregain".into(), "23.000000 dB".into()));
+    wait_for("the new gain to be read back", || handle.applied_rx_gain_db() == Some(23.0));
+    assert_eq!(handle.rx_gain_db(), 40.0, "the operator's setting is not the applied gain");
+}
+
 /// A gap in the data is not a broken connection. The socket's receive timeout
 /// fires on an ordinary stall, and letting it through ended the stream and
 /// forced a full reopen — every one to five minutes, on a link with no errors

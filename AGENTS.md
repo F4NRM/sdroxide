@@ -95,6 +95,32 @@
 > the workflow are in "The standing queue and how to check it" below. A tag or a
 > nightly runs the full gate before it is cut — see "Cutting a release".
 
+## DAB status, 2026-10-11: confirmed on the air (Kevin, 2.0.7.3)
+
+**DAB+ is working end to end on a PlutoSDR at 2.5 Msps: "fort et clair", no
+dropouts.** Kevin confirmed it on `2.0.7.3`, on his own Pluto. Three PRs
+(2026-10-10) got it there; Kevin has confirmed all three on the air:
+
+| PR | what | how it was proven |
+|---|---|---|
+| **#38** | faad2 was built with `DRM_SUPPORT`, whose `fill_element` refuses a whole frame (error 30) when a fill element carries anything but SBR. DAB+ encoders pad almost every Access Unit that way, so most frames decoded to nothing: the "chopped audio" on every station and client. `sdroxide-faad2/build.rs` compiles a patched `syntax.c` from `OUT_DIR` that skips the payload, as the non-DRM build does; `vendor/` untouched, the anchor asserted to match once. | Kevin's 8B capture (BFM BUSINESS, 197.648 MHz, 2.5 Msps): 75 AUs refused before, 0 after. `a_frame_padded_with_a_fill_element_decodes` fails on unpatched faad2. On the air: confirmed. |
+| **#39** | Block frequencies to the kHz (`197.648`, not `197.6`). | Unit test; on the air: confirmed. The separate "dial reads 197.148" report was never reproduced and is now confirmed fine. |
+| **#40** | The S-meter froze in DAB (and ADS-B, AIS, VDL2): no demodulator, so no `Meters` event at all. A wideband lane now measures its own bandwidth off the spectrum (`spectrum_channel_dbfs`, shared with the scanner). | `wideband_lane_meter.rs`, both tests fail on the old code. On the air: confirmed. |
+
+**This closes the long-standing "faad2 refuses most Access Units" item** recorded
+under DAB in `ROADMAP.md` (now marked resolved there). It was a build flag,
+not bit errors or a codec licence problem, so the fdk-aac route is not needed.
+
+**Open, and the next DAB-adjacent item:** the Pluto does not report its receive
+gain to the engine (`IqSource::rx_gain_db` is the default `None`), and its
+default AGC is `slow_attack`, where the AD9361 moves the gain on its own. So on a
+Pluto the S-meter follows the chip's gain as well as the antenna. Being worked:
+read `hardwaregain` back from the control thread.
+
+Also confirmed by Kevin the same day: **#45** (web client: sound seconds behind
+the waterfall after a hidden spell). Still untested on the air: **#41** (SSTV
+LSB on 60 m) and **#42** (CTR keeping a zero-IF LO half its offset away).
+
 ## The anti-touch lock (phone and tablet, 2026-10-10)
 
 A **padlock chip** after SYS on the tablet strips (after ☰ on the phone) locks

@@ -218,6 +218,10 @@ pub(crate) struct Shared {
     /// Pluto is somebody else's panadapter: keying its own transmitter closes
     /// the receive buffer outright (`rx_enabled`), leaving nothing to discard.
     pub rx_paused: AtomicBool,
+    /// The receive gain each chain is applying, as `f64` bits, read back from
+    /// the AD9361 by the control thread; NaN until the first read lands. See
+    /// [`PlutoRx::applied_rx_gain_db`].
+    pub rx_gain_applied: [AtomicU64; 2],
 }
 
 impl Shared {
@@ -646,6 +650,10 @@ impl PlutoRig {
             ring1: Mutex::new(None),
             lo_watch: Mutex::new(Vec::new()),
             trace: trace.clone(),
+            rx_gain_applied: [
+                AtomicU64::new(f64::NAN.to_bits()),
+                AtomicU64::new(f64::NAN.to_bits()),
+            ],
         });
 
         // RX ring ~0.5 s at the RX rate; TX ring ~0.5 s at the TX rate.
@@ -972,6 +980,20 @@ impl PlutoRx {
         self.rx_gain_db
     }
 
+    /// The gain the AD9361 is applying on this chain, read back from the part,
+    /// or `None` before the first read.
+    ///
+    /// Not [`Self::rx_gain_db`], which is the operator's setting: the default
+    /// AGC is `slow_attack`, where the part ignores that setting and moves the
+    /// gain itself, so only the read-back says what is between the antenna and
+    /// the converter. Refreshed every [`GAIN_READ_EVERY`].
+    pub fn applied_rx_gain_db(&self) -> Option<f64> {
+        let db = f64::from_bits(
+            self.rig.shared.rx_gain_applied[self.chain as usize & 1].load(Ordering::Relaxed),
+        );
+        db.is_finite().then_some(db)
+    }
+
     pub fn set_rx_gain_db(&mut self, db: f64) {
         let db = db.clamp(self.rig.limits.rx_gain_db.0, self.rig.limits.rx_gain_db.1);
         self.rx_gain_db = db;
@@ -1222,6 +1244,9 @@ impl PlutoHandle {
     pub fn rx_gain_db(&self) -> f64 {
         self.rx0.rx_gain_db()
     }
+    pub fn applied_rx_gain_db(&self) -> Option<f64> {
+        self.rx0.applied_rx_gain_db()
+    }
     pub fn set_rx_gain_db(&mut self, db: f64) {
         self.rx0.set_rx_gain_db(db);
     }
@@ -1311,6 +1336,34 @@ pub(crate) fn resolve(address: &str) -> Result<SocketAddr> {
 /// Everything that touches a front-end register happens here, on its own
 /// socket, so nothing the operator does — a retune mid-drag, a gain slider —
 /// waits behind a buffer read.
+/// How often the control thread reads the receive gain back from the AD9361.
+/// Its AGC moves the gain on its own, and the S-meter has to follow it; five
+/// reads a second is one short request each, well inside what iiod answers.
+const GAIN_READ_EVERY: Duration = Duration::from_millis(200);
+
+/// Read each receive chain's applied gain into [`Shared::rx_gain_applied`].
+///
+/// A failed read leaves the last value standing and is not an error: the gain
+/// is a reading for the meter, and the commands on this socket have their own
+/// recovery when the link really is gone.
+fn read_applied_gains(conn: &mut Connection, shared: &Shared) {
+    let chains: &[u8] = if shared.phy.rx2_control && shared.ring1.lock().is_ok_and(|r| r.is_some())
+    {
+        &[0, 1]
+    } else {
+        &[0]
+    };
+    for &chain in chains {
+        match shared.phy.read_rx_gain(conn, chain) {
+            Ok(Some(db)) => {
+                shared.rx_gain_applied[chain as usize].store(db.to_bits(), Ordering::Relaxed)
+            }
+            Ok(None) => {}
+            Err(e) => tracing::debug!("PlutoSDR: could not read chain {chain}'s receive gain: {e}"),
+        }
+    }
+}
+
 fn control_thread(
     mut conn: Connection,
     shared: Arc<Shared>,
@@ -1340,8 +1393,13 @@ fn control_thread(
     // Control sockets replaced with no command completing in between — see
     // [`MAX_BLIND_CTRL_REDIALS`].
     let mut blind_redials = 0u32;
+    let mut gain_read_at: Option<Instant> = None;
     'ctrl: while shared.alive.load(Ordering::Relaxed) {
-        let msg = match ctrl.recv_timeout(Duration::from_millis(200)) {
+        if gain_read_at.is_none_or(|t| t.elapsed() >= GAIN_READ_EVERY) {
+            gain_read_at = Some(Instant::now());
+            read_applied_gains(&mut conn, &shared);
+        }
+        let msg = match ctrl.recv_timeout(GAIN_READ_EVERY) {
             Ok(m) => m,
             Err(crossbeam_channel::RecvTimeoutError::Timeout) => continue,
             Err(crossbeam_channel::RecvTimeoutError::Disconnected) => break,
