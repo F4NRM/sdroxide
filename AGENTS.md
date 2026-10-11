@@ -443,8 +443,10 @@ would build), installed binary 2.0.2_brown matching `Cargo.toml`, and
 
 14. **DAB's MOT slideshow and DLS** — wants its own message pair rather than a
     field, and a capture of an ensemble that actually broadcasts one.
-15. **DMR** — asked for, honestly unscoped: VHF/UHF, and the AMBE+2 codec is the
-    work. Fits the wideband-lane machinery we already have.
+15. **DMR** — **decided against (2026-10-11)**, and the reason is a patent rather
+    than the work. Read **"DMR: scoped to the codec, and decided against"** in
+    this file before answering anyone who asks again — including the two who
+    have already asked twice. Nothing to build, nothing to promise.
 16. **FST4W** — the verdict is recorded and it is **do not ship as wired**; see
     `FST4W-HANDOVER.md` for the diagnosis and `fork/fst4w-wiring`.
 
@@ -1312,6 +1314,12 @@ honestly when it is answered, and neither is a "no": DMR is a **VHF/UHF** mode
 hard part is the **AMBE+2 voice codec**, the same class of dependency as DAB's
 audio. It fits the wideband-lane machinery the fork already has (ADS-B, AIS,
 DAB); the codec is the work.
+
+> **Both halves of that were wrong, 2026-10-11.** The codec is the *easy* half
+> (mbelib-neo is GPL-2.0-or-later, we are GPL-3.0-or-later, there is no licence
+> wall) and the work is the C4FM air interface. It was decided against anyway —
+> **a patent, not the work** — and the full scoping is in **"DMR: scoped to the
+> codec, and decided against"** near the end of this file. Do not re-derive it.
 
 **03:37-ish: the armv7 first job was picked up and re-dispatched with `cross`.**
 
@@ -5178,6 +5186,112 @@ shell-owned window manager with **stable** viewport ids and an explicit owner,
 emitted every frame regardless of focus; until that is done, `keep_alive` plus
 the owner cap is the patch. All geometry handling is a `ROADMAP.md` item if the
 window set ever grows past one.
+
+## DMR: scoped to the codec, and **decided against** (2026-10-11 — read before replying to anyone asking again)
+
+**The verdict, and it is the operator's: we stay quiet on DMR. Nothing is built,
+nothing is promised, and the next person who asks gets the answer below.** The
+reason is **a patent, not a licence** — and the distinction is the whole finding,
+because "we looked into it" has to mean what was actually checked.
+
+### What was asked, and by whom — three times, two people
+
+- dig647 (Wolfgang), fork **issue #28** *"Kanalabstand"* (2026-10-09), then
+  *"und vielleicht noch DMR"*. Kevin answered both halves in the thread: the
+  channel spacings went up as **PR #32 (merged 2026-10-10)**, and DMR was
+  **"notiert, aber nicht geplant"** — noted, not planned, *"der schwierige Teil
+  ist der Sprach-Codec (AMBE+2), das ist ein größeres Projekt"*.
+- Wolfgang's **last word on #28** (2026-10-10 04:26) is a push on exactly that
+  objection: *"bezüglich dmr gibts ja mbe codec du kannst sicherlich was damit
+  anfangen…"* — there is the MBE codec, surely you can do something with it.
+- dig647 again in fork discussion **#15**, and **upstream #607** (Itsisme, DMR /
+  YSF / D-Star). So: three requests, two of them pressing the codec point.
+
+**What our earlier note said was wrong**, and this is the correction worth
+keeping: it recorded that DMR's hard part is the **AMBE+2 voice codec**. The
+codec turns out to be the *easy* half — vendored C, a licence we already
+satisfy. The hard half is the air interface, and nobody had looked at that.
+
+### The codec: no licence wall, and that is genuinely good news
+
+**Wolfgang is right that the codec is a solved, take-it-away problem.**
+
+- The original **mbelib is ISC-licensed**; **`mbelib-neo`**
+  (`arancormonk/mbelib-neo`, a fork of `lwvmobile/mbelib`) is
+  **GPL-2.0-or-later** and is the one to use — it has a modern CMake build with
+  installable headers and pkg-config, and it already covers **AMBE+2 (DMR, NXDN,
+  P25 Phase 2, dPMR)**.
+- **We are GPL-3.0-or-later**, so GPL-2.0-or-later is compatible and ISC is
+  cleaner still. **There is no licence obstacle of any kind** — contrast
+  RadioScript, which has none because it has no licence *at all*
+  (`ON RESEARCH, and NOT OURS TO BUILD`, above). This one is the opposite case,
+  and it is worth knowing that not every "closed codec" is a closed door.
+
+So the build is a `vendor/` and a `-sys` binding, the same shape as `rade_c`.
+
+### The patent, which is why the answer is no
+
+The clean pure-Rust crate that exists for this family,
+**`swiftraccoon/mbelib-rs`**, says in its own README why it does **not** do
+DMR:
+
+> Does not support AMBE+, AMBE+2, IMBE, or the AMBE+2 "half-rate" variant
+> used by DMR / YSF / NXDN (**which remains covered by US Patent 8,359,197
+> until 2028-05-20**).
+
+**That asymmetry is the finding.** There is a clean, no-unsafe, pure-Rust decoder
+for **D-STAR** (AMBE 3600×2400) and none for **DMR**, and the reason is the
+patent, not the engineering. It **expires 2028-05-20**, about nineteen months
+out.
+
+**Two things that are not ours to decide, recorded so the question is closed and
+not re-derived:** we are not a patent office and this was read off a crate's
+README, not a claim chart — **if anyone ever wants to revisit this, it is a
+lawyer's question, not an agent's.** And the operator's own ruling
+(2026-10-11) is the operative one, and it is unconditional: **we stay quiet on
+this one, we are not messing with patents in any way.**
+
+### How much work it would have been, for the record
+
+Worth keeping because "it is a big project" was true of the wrong layer. The
+vocoder was never the work. DMR's air interface is **C4FM** —
+continuous-phase 4-level FSK, 1200 baud, in a **12.5 kHz** channel — and what a
+receiver actually needs is three layers, only the last of which is the codec:
+
+1. a **C4FM demodulator**: symbol timing recovery, differential mapping,
+   de-whitening, and the embedded signalling bits that ride *in* the symbol
+   stream itself;
+2. the **DMR data link**: burst/frame/superframe sync, the four data types, call
+   signalling (source and destination IDs, talkgroup), encryption indicator,
+   SMS;
+3. **voice framing**: 72 AMBE+2 bits per 20 ms, its FEC, the embedded-signalling
+   bits swapped out, handed to the vendor library for PCM.
+
+Layers 1 and 2 are the bulk, and they are ordinary DSP — the same shape as the
+**VDL2 and HFDL** lanes already in the tree. **DAB is the closer precedent**,
+because it also has to turn a wideband lane into audio on the speaker. So
+**receive-only DMR voice, promiscuous mode, is a sitting job and not a project**;
+transmit is a second and separate decision. **The codec was never the wall.**
+
+### Hardware: none, which is worth saying out loud
+
+No front-end problem at all. 12.5 kHz out of a wideband lane, and the machinery
+that carries one already exists (ADS-B, AIS, VDL2, DAB); the RSP1 on the bench
+reaches 2 m and 70 cm easily. A cheap FM set will **not** do it — this is not
+analogue FM voice. The only real constraint is sample rate for 70 cm (a wider
+band than 2 m), and that is the existing wideband-lane plan, already solved.
+
+### Priority, which would have been the second no
+
+Even without the patent, our standing rule settles it: when a choice is between
+a ham workflow and a CB or listening one, **this fork takes the CB/listening
+one**. DMR is VHF/UHF commercial two-way radio. It has nothing to do with 11 m
+or with SWL, and it has no audience here beyond two people who have asked.
+
+**Do not reopen this without the operator saying so.** Kevin's answer in #28 —
+noted, not planned, the codec is a big project — was right in its conclusion and
+wrong only in its reason; the reason is the patent, and it does not expire until
+May 2028.
 
 ## Explore later
 
