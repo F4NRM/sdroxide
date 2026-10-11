@@ -14,6 +14,12 @@ and the [README](https://github.com/madmedicnl/sdroxide-brown#readme).
 ## [Unreleased]
 
 ### Added
+- **FLATTEN — level the waterfall's noise floor across the band** — a chip in
+  the FFT popup, under *Waterfall*. A quiet stretch of band is raised towards
+  its neighbours' floor, so a weak signal shows on a busy band. It only ever
+  **raises** — a carrier is never pushed down — and never by more than 20 dB,
+  so spectrum below the receiver's own noise is not pumped up to look like
+  signal. The spectrum trace is untouched. On by default.
 - **Play a recording back into the decoders** — REC → **▶ RECORDINGS…** lists
   the recordings folder; ▶ PLAY puts a file through SSTV, CW, RTTY, PSK, FT8 and
   every other audio decoder, with the waterfall, on the dial and in the mode its
@@ -34,6 +40,15 @@ and the [README](https://github.com/madmedicnl/sdroxide-brown#readme).
   RTL-SDR, SDRplay and HackRF gain a 2.5 Msps entry; the RX-888 an 80 MHz clock.
 
 ### Fixed
+- **RTTY, NAVTEX and DSC: the panadapter centred 2210 Hz off the station** — on
+  an SDR the dial *is* the signal, but the window followed the tone pair, so at
+  a 1 kHz span the station was off screen entirely. A sound-card rig keeps the
+  old behaviour, which is correct there.
+- **Pluto: the S-meter followed the radio's own gain** — the AD9361's applied
+  gain is now reported to the engine, so the meter reads the antenna again.
+- **RDS: a medium WFM station showed NO SYNC and decoded nothing** — a block
+  lock one step out of step was never released, because no block ever *failed*.
+  It is now abandoned after ten consecutive corrected blocks with no clean one.
 - **Playback sound chopped, half of it missing** — the file went out in
   third-of-a-second lumps, and a browser's audio lane dropped most of each one.
   It now goes out ten milliseconds at a time, like a sound card.
@@ -43,6 +58,13 @@ and the [README](https://github.com/madmedicnl/sdroxide-brown#readme).
   off** — its hover now names the reason.
 
 ### Not proven
+- **RTTY / NAVTEX / DSC anchor** — unit-tested and reasoned, but nobody has
+  heard it on the air. Waiting on a confirmation from a VERON member who
+  reported it on 2.0.7.1; until then the CW `qrg` line and the sound-card
+  behaviour are untouched.
+- **Pluto gain reporting** — not tested on a real Pluto.
+- **RDS block-lock guard** — derived from a reported fault, not reproduced
+  here.
 - **Playback** — tested on generated files and a recorder-written MP3, not yet
   on a real off-air recording; the fix for the chopped sound is not yet heard in
   a browser.
