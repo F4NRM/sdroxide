@@ -13,6 +13,17 @@ and the [README](https://github.com/madmedicnl/sdroxide-brown#readme).
 
 ## [Unreleased]
 
+### Added
+- **Play a recording back into the decoders** — REC → **▶ RECORDINGS…** lists
+  the recordings folder; ▶ PLAY puts a file through SSTV, CW, RTTY, PSK, FT8 and
+  every other audio decoder, with the waterfall, on the dial and in the mode its
+  name records. Pause, again, loop, seek; STOP puts the radio back. MP3, WAV,
+  OGG, FLAC. Works from the browser (discussion #10).
+
+### Not proven
+- **Playback** — tested on generated files and a recorder-written MP3, not yet
+  on a real off-air recording.
+
 ## [2.0.7.1_brown] - 2026-10-10
 
 ### Fixed

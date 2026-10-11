@@ -186,6 +186,18 @@ pub trait IqSource: Send {
     /// Human-readable description for logs/UI.
     fn describe(&self) -> String;
 
+    /// Where a recording being played back is (fork discussion #10), or `None`
+    /// for every source that is a radio. The engine reads this to know a
+    /// playback is running at all.
+    fn playback_status(&self) -> Option<sdroxide_types::PlaybackStatus> {
+        None
+    }
+
+    /// Pause, seek or loop a playback. Default: nothing to steer.
+    fn playback_control(&mut self, _cmd: &sdroxide_types::PlaybackCommand) -> Result<()> {
+        Ok(())
+    }
+
     // Hardware controls — meaningful only for real devices; default no-ops.
     fn set_gain_element(&mut self, _name: &str, _db: f64) -> Result<()> {
         Ok(())
@@ -1686,18 +1698,18 @@ impl IqSource for ConvertedSource {
 }
 
 /// Paces reads so a non-hardware source delivers samples in real time.
-struct Throttle {
+pub(crate) struct Throttle {
     start: Instant,
     emitted: u64,
     rate: f64,
 }
 
 impl Throttle {
-    fn new(rate: f64) -> Self {
+    pub(crate) fn new(rate: f64) -> Self {
         Throttle { start: Instant::now(), emitted: 0, rate }
     }
 
-    fn pace(&mut self, n: usize) {
+    pub(crate) fn pace(&mut self, n: usize) {
         self.emitted += n as u64;
         let due = self.start + Duration::from_secs_f64(self.emitted as f64 / self.rate);
         let now = Instant::now();

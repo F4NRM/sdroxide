@@ -454,6 +454,10 @@ pub enum RadioEvent {
     /// The DAB receiver's ensemble, service list and decoding state — an
     /// occasional snapshot, like [`RadioEvent::AdsbStatus`].
     DabStatus(Box<crate::DabStatus>),
+    /// The answer to a [`crate::Command::ListRecordings`]: the files in the
+    /// station's recordings directory. The engine's, so it rides
+    /// `ServerMsg::Recordings` to a remote client.
+    Recordings(crate::RecordingListing),
 }
 
 /// Snapshot of the frontend's switchable sound devices (native clients).

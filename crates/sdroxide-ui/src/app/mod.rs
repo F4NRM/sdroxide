@@ -42,6 +42,7 @@ pub(in crate::app) mod morse;
 pub(in crate::app) mod net;
 pub(in crate::app) mod panels;
 pub(crate) mod persist;
+pub(in crate::app) mod playback;
 pub(in crate::app) mod publicsdr;
 pub(in crate::app) mod qo100;
 pub(in crate::app) mod rds;
@@ -1070,6 +1071,8 @@ pub struct SdroxideApp {
     client_settings_pending: std::cell::Cell<Option<crate::app::settings::ui_tab::ProfileAction>>,
     /// The KNOWN window's state — see [`known_calls::KnownCallsState`].
     pub(in crate::app) known_calls: known_calls::KnownCallsState,
+    /// The PLAYBACK window's state — see [`playback::PlaybackUi`].
+    pub(in crate::app) playback: playback::PlaybackUi,
     /// The Morse trainer window and its persisted progress.
     morse: morse::MorseState,
     /// The signal-identification guide window.
@@ -1968,6 +1971,7 @@ impl SdroxideApp {
             client_settings_status: None,
             client_settings_pending: std::cell::Cell::new(None),
             known_calls: known_calls::KnownCallsState::default(),
+            playback: playback::PlaybackUi::default(),
             morse: morse::MorseState::new(load_morse_progress(storage)),
             signal_id: signal_id::SignalIdState::default(),
             enigma: enigma::EnigmaState::default(),
@@ -3306,6 +3310,85 @@ mod tests {
                         }
                     }
                 }
+            }
+        }
+    }
+
+    /// Discussion #10: while a recording plays back, the strip above the
+    /// waterfall says so — "not live" and the STOP that ends it — on a phone as
+    /// on a desktop, and none of its controls is drawn past the window's edge.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn the_playback_strip_shows_and_fits() {
+        use crate::multi::frame_test_lock;
+        let _guard = frame_test_lock();
+        let dir = std::env::temp_dir().join(format!("sdroxide-pb-strip-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        unsafe { std::env::set_var("SDROXIDE_CONFIG_DIR", &dir) };
+
+        let name = "sdroxide_radio2_2026-10-06_10-00-05Z_14.230000MHz_SSTV.mp3";
+        for (w, h, tier) in [
+            (360.0f32, 800.0f32, crate::layout::Tier::Phone),
+            (1280.0, 800.0, crate::layout::Tier::Desktop),
+        ] {
+            let controller: Box<dyn RadioController> = Box::new(RecordingController::default());
+            let ctx = egui::Context::default();
+            crate::layout::set_tier(&ctx, tier);
+            let mut app = SdroxideApp::new_tab(&ctx, None, None, controller, 0, true);
+            app.state.rx[0].mode = sdroxide_types::Mode::Sstv;
+            app.state.playback = Some(sdroxide_types::PlaybackStatus {
+                name: name.into(),
+                position_s: 42.0,
+                duration_s: Some(117.0),
+                paused: false,
+                looping: true,
+                ended: false,
+                rate_hz: 48_000,
+                channels: 2,
+                stamp: sdroxide_types::playback::parse_recording_name(name),
+                fault: None,
+            });
+            let mut texts: Vec<(String, egui::Rect)> = Vec::new();
+            for _ in 0..2 {
+                let input = egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(w, h),
+                    )),
+                    ..Default::default()
+                };
+                let out = ctx.run_ui(input, |ui| {
+                    app.ui(ui, &mut eframe::Frame::_new_kittest());
+                });
+                texts.clear();
+                fn walk(s: &egui::Shape, out: &mut Vec<(String, egui::Rect)>) {
+                    match s {
+                        egui::Shape::Text(t) => out.push((
+                            t.galley.text().to_string(),
+                            t.galley.rect.translate(t.pos.to_vec2()),
+                        )),
+                        egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, out)),
+                        _ => {}
+                    }
+                }
+                for c in &out.shapes {
+                    walk(&c.shape, &mut texts);
+                }
+                out.drop_without_applying_deltas();
+            }
+            for want in ["▶ PLAYBACK", "not live", "■ STOP", "LOOP", "↺ AGAIN", "0:42 / 1:57"]
+            {
+                let hit = texts.iter().find(|(t, _)| t.contains(want));
+                let Some((_, r)) = hit else {
+                    panic!("{want:?} missing from the {w:.0} pt frame");
+                };
+                assert!(
+                    r.max.x <= w + 0.5 && r.min.x >= -0.5,
+                    "{want:?} drawn at x {}..{} in a {w:.0} pt window",
+                    r.min.x,
+                    r.max.x
+                );
             }
         }
     }

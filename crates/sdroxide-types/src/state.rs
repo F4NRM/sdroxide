@@ -618,6 +618,13 @@ pub struct RadioState {
     /// position.
     #[serde(default)]
     pub dab: crate::DabSettings,
+    /// A recording being played back into the decoders, and where it is — or
+    /// `None` when the radio is live. Here rather than in an event of its own
+    /// because it changes what every other field means: while it is `Some`,
+    /// the dial is the one the recording was made on and nothing is being
+    /// received. Appended last: postcard numbers fields by position.
+    #[serde(default)]
+    pub playback: Option<crate::PlaybackStatus>,
 }
 
 impl Default for RadioState {
@@ -671,6 +678,7 @@ impl Default for RadioState {
             hd_radio_unavailable: None,
             hfdl: crate::HfdlSettings::default(),
             gain_by_band: false,
+            playback: None,
         }
     }
 }

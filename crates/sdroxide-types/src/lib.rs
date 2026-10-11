@@ -51,6 +51,7 @@ mod morse_trainer;
 mod netcfg;
 mod pi4;
 mod pictures;
+pub mod playback;
 mod probe;
 mod profile;
 mod prop_store;
@@ -271,6 +272,9 @@ pub use radio::{
 pub use rds::{
     RdsClock, RdsData, RdsGroupLog, RdsStandard, RdsStats, RtPlus, af_code_hz, pi_callsign,
     pty_name, rt_plus_class,
+};
+pub use playback::{
+    PlaybackCommand, PlaybackStatus, RecordingFile, RecordingListing, RecordingStamp,
 };
 pub use recording::{JobAction, RecordingJob, RecordingKind};
 pub use region::{Region, region, set_region};

@@ -1299,6 +1299,21 @@ pub enum Command {
     /// Appended last, for the usual reason — postcard numbers variants by
     /// position.
     SetRxLoudness(bool),
+
+    /// Play a recording back into the decoders, or steer one that is playing
+    /// (fork discussion #10). See [`crate::playback`]: the radio is stood down
+    /// for the length of it and put back on [`crate::PlaybackCommand::Stop`].
+    ///
+    /// Appended last, for the usual reason — postcard numbers variants by
+    /// position.
+    Playback(crate::PlaybackCommand),
+
+    /// Ask which recordings the station has. A question, answered once with a
+    /// [`crate::RecordingListing`] — the files live where the engine runs, which
+    /// for a browser is not where the window is.
+    ///
+    /// Appended last, for the usual reason.
+    ListRecordings,
 }
 
 /// What a [`Command::GetKnownCalls`] was answered with.

@@ -117,7 +117,7 @@ fn qsy_clears_decodes(prev: Band, now: Band, mode: Mode) -> bool {
 /// rule, readable ink; the light-theme set is the same banner turned the
 /// other way up, for a theme whose panels are white and which would otherwise
 /// get pale text on a dark strip in the middle of a bright page.
-fn notice_banner_colors() -> (Color32, Color32, Color32, Color32) {
+pub(in crate::app) fn notice_banner_colors() -> (Color32, Color32, Color32, Color32) {
     if crate::theme::is_light() {
         (
             Color32::from_rgb(255, 243, 205),
@@ -808,8 +808,15 @@ impl eframe::App for SdroxideApp {
         // transmit UI is clutter for them. The offer is the per-radio listening
         // screen (`hide_tx`), which is exactly "hide the transmit controls";
         // like the SWR latch, an operator who has said no is not asked again.
-        let rx_only =
-            !self.swl_mode() && self.caps.as_ref().is_some_and(|c| !c.is_transmit_capable());
+        //
+        // Not during a playback: the radio standing in then is a file, and has
+        // no transmitter by design rather than by nature.
+        let rx_only = !self.swl_mode()
+            && self.state.playback.is_none()
+            && self.caps.as_ref().is_some_and(|c| !c.is_transmit_capable());
+        // A recording playing back says so above the waterfall, so it is never
+        // taken for the live band.
+        self.playback_strip(ui, &mut cmds);
         // Say, once, that an undocked operating panel has nowhere to show in
         // this mode — otherwise it silently does not appear when the operator
         // switches to it. Raised once per mode, so dismissing it sticks until
@@ -1369,6 +1376,8 @@ impl eframe::App for SdroxideApp {
         self.enigma_window(&ctx);
         self.poll_known_calls(&mut cmds);
         self.known_calls_window(&ctx);
+        self.poll_playback_list(&mut cmds);
+        self.playback_window(&ctx, &mut cmds);
         self.help.ui(&ctx);
         // Last, so it lands on top of everything else that opened this frame.
         self.oob_tx_window(&ctx);
@@ -2764,6 +2773,7 @@ impl SdroxideApp {
                         self.digi_cfg_seeded = false;
                     }
                 }
+                RadioEvent::Recordings(listing) => self.playback.accept(listing),
                 RadioEvent::KnownCalls(reply) => {
                     // The engine's own answer, about its own hash table — so it
                     // is taken whichever client asked, with no scope check: this
