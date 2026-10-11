@@ -15010,16 +15010,20 @@ the middle of the screen:
 
 **This message does not mean the session has failed.** The connection is up,
 the waterfall runs and the radio is working; only the sound is waiting for you.
-**Click or tap anywhere on the page** and the sound starts and the message
-goes away. You do not need to touch the volume. That first click or tap does
-nothing else, wherever it lands: it does not tune, press a button or move the
-waterfall, so a receiver you are coming back to keeps its frequency. From the
-next click on, the page works as usual.
+**Click, tap or press a key** — anywhere on the page, with a mouse, a
+laptop touchpad, a finger or the keyboard — and the sound starts and the
+message goes away. You do not need to touch the volume. That first gesture
+does nothing else, wherever it lands: it does not tune, press a button, move
+the waterfall or run a keyboard shortcut, so a receiver you are coming back to
+keeps its frequency. From the next gesture on, the page works as usual.
+
+While the message is up, moving the mouse, scrolling or pinching on a touchpad
+does nothing at all, and does not start the sound either: the browser does not
+count those as a gesture. Click, tap or press a key.
 
 This is the browser's autoplay rule, not a fault, and an installed web app
-follows it too. The message can come back on its own after the app has been in
-the background, if the browser stopped the sound there; the same touch brings
-it back.
+follows it too. The message is shown only when the page opens — a new session,
+or a reload with **F5** — and never again during the session.
 
 ### 9.4 Behind a reverse proxy on a subpath
 

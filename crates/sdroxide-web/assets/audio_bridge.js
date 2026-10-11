@@ -56,12 +56,14 @@
     // silent and nothing on screen said why: operators found the cure by
     // accident, on the volume slider. Name it instead, in the middle of the
     // screen in large type: a beginner reading the page as broken is the
-    // failure it exists to prevent. It comes back if the browser stops the
-    // context later.
+    // failure it exists to prevent. It is shown only when the page loads (a
+    // new session, or F5), never again later in the session.
     //
-    // While the hint is up, a click or a tap ANYWHERE starts the sound and
-    // does nothing else: the hint is a transparent layer over the whole page
-    // with the message in its middle. An operator coming back to a running
+    // While the hint is up, the first click, tap or key starts the sound and
+    // does nothing else, wherever it lands, and moving the mouse does nothing
+    // at all (a move is not a gesture to the browser, so it cannot start the
+    // sound). The hint is a transparent layer over the whole page with the
+    // message in its middle; keys are held back by `keyGuard`. An operator coming back to a running
     // receiver must not lose the frequency to the tap that brings the sound
     // back, and the waterfall, where a tap tunes, is most of the screen. The
     // window's capture listener sees the gesture first (that is what starts
@@ -119,7 +121,9 @@
             for (const ev of ["pointerup", "touchend", "mouseup", "pointercancel", "touchcancel"]) {
                 hint.addEventListener(ev, hintRelease, opts);
             }
-            for (const ev of ["click", "dblclick", "contextmenu", "wheel"]) {
+            for (const ev of ["click", "dblclick", "contextmenu", "wheel",
+                              "pointermove", "mousemove", "touchmove",
+                              "pointerover", "pointerout", "mouseover", "mouseout"]) {
                 hint.addEventListener(ev, swallow, opts);
             }
             document.body.appendChild(hint);
@@ -151,12 +155,8 @@
             // "running" rather than listing the states we know about.
             ctx.onstatechange = () => {
                 console.log("sdroxide audio: context state", ctx.state);
-                if (ctx.state === "running") {
-                    hideHint();
-                } else {
-                    showHint();
-                    resumeCtx();
-                }
+                if (ctx.state === "running") hideHint();
+                else resumeCtx();
             };
             if (ctx.state === "running") hideHint();
             // Start the module fetch but do NOT await it yet: resume() has to
@@ -256,6 +256,21 @@
         }
     }
 
+    // The key that starts the sound must not also reach the page, where it
+    // could be a tuning shortcut. Registered on the window, in the capture
+    // phase, BEFORE onGesture: that one may start the context and remove the
+    // hint at once, and this must still see it up. stopPropagation (not the
+    // immediate kind) keeps the key from the page and still lets onGesture
+    // run. The key's own release and repeat are held back with it.
+    const heldKeys = new Set();
+
+    function keyGuard(ev) {
+        if (ev.type === "keydown" && hint) heldKeys.add(ev.code);
+        if (!heldKeys.has(ev.code)) return;
+        if (ev.type === "keyup") heldKeys.delete(ev.code);
+        swallow(ev);
+    }
+
     function onGesture(ev) {
         // Mark a press on the hint before init() runs: a context that starts
         // at once removes the hint synchronously, and the release and click
@@ -276,6 +291,9 @@
         // all -- and stopPropagation() on touchstart and pointerdown, which
         // keeps bubble-phase window listeners from ever running. Capture runs
         // before the canvas target, so neither can hide the gesture from us.
+        for (const ev of ["keydown", "keypress", "keyup"]) {
+            window.addEventListener(ev, keyGuard, { capture: true, passive: false });
+        }
         const opts = { capture: true, passive: true };
         for (const ev of ["pointerdown", "touchstart", "touchend", "click", "keydown"]) {
             window.addEventListener(ev, onGesture, opts);
