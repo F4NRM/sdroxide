@@ -1789,8 +1789,14 @@ use sdroxide_types::{
 /// gains `playback: Option<PlaybackStatus>` at its tail, which changes the
 /// layout of every state frame. `PROTO_VERSION` 202 → 203, `VERSION_BYTE`
 /// 0x16 → 0x17. A downstream (fork) change.
-pub const PROTO_VERSION: u16 = 203;
-const VERSION_BYTE: u8 = 0x17;
+///
+/// v204: deleting a recording from the playback window.
+/// `PlaybackCommand` gains `Delete { name }` last. `PROTO_VERSION` 203 → 204,
+/// `VERSION_BYTE` 0x17 → 0x18, so a v203 station refuses the client cleanly
+/// instead of failing to read a variant it does not have. A downstream (fork)
+/// change.
+pub const PROTO_VERSION: u16 = 204;
+const VERSION_BYTE: u8 = 0x18;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ProtoError {
@@ -2495,6 +2501,7 @@ mod tests {
             sdroxide_types::PlaybackCommand::Seek(12.5),
             sdroxide_types::PlaybackCommand::Loop(true),
             sdroxide_types::PlaybackCommand::Stop,
+            sdroxide_types::PlaybackCommand::Delete { name: "old.mp3".into() },
         ] {
             let cmd = Command::Playback(c);
             assert_eq!(decode::<Command>(&encode(&cmd).unwrap()).unwrap(), cmd);

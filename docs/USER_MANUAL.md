@@ -3266,8 +3266,16 @@ What happens when it plays:
   any point in the file. Paused, the decoders hear silence.
 - **■ STOP** puts the radio back on the dial and in the mode it was left in.
 
-On a stereo recording the left channel — the receiver — is the one played; the
-right is your own transmit. Playback reads the recorder's MP3 and also WAV, OGG
+- **CLEAR** beside **▶ PLAY** deletes a recording from the folder for good. The
+  first press turns it into **DELETE?** and only a second press on the same row
+  deletes, so a stray click costs nothing. The file playing back and one still
+  being recorded cannot be deleted until they stop.
+
+A stereo recording plays back in stereo: a WFM stereo broadcast comes back with
+its two channels, and **ST** lights while it does. ST still forces mono, and
+noise reduction or the auto-notch take it back to mono, exactly as on the air.
+The decoders always take the left channel — the receiver; on a recording made
+while transmitting, the right is your own transmit. Playback reads the recorder's MP3 and also WAV, OGG
 Vorbis and FLAC made elsewhere: copy one into the recordings folder and it is in
 the list. A file whose name carries no stamp plays in the mode you are in. An
 I/Q capture is listed but cannot be played here — it is spectrum, not audio, and

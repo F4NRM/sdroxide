@@ -3520,12 +3520,27 @@ impl SdroxideApp {
             RxChip::Stereo => {
                 // WFM broadcast stereo: lit while a 19 kHz pilot is locked,
                 // click to force mono. Only WFM has a pilot to find.
-                let want = self.state.rx[0].wfm_stereo;
+                let rx0 = &self.state.rx[0];
+                let want = rx0.wfm_stereo;
                 let locked = self.meters.as_ref().is_some_and(|m| m.stereo);
+                // Stereo yields to noise reduction and the auto-notch (they
+                // would comb the matrix), and the chip has to say so: otherwise
+                // it reads as "no pilot" on a station that has one.
+                let yields = rx0.noise_reduction.is_on()
+                    || (rx0.auto_notch && rx0.mode.auto_notch_applies());
+                let playback = self.state.playback.as_ref();
                 let hover = if !want {
                     "WFM stereo forced off — click for automatic stereo"
+                } else if yields {
+                    "WFM stereo is off while noise reduction or the auto-notch runs — they \
+                     would smear the two channels. Switch them off to hear stereo"
+                } else if locked && playback.is_some() {
+                    "Stereo: the recording is playing back in both ears, as recorded. Click to \
+                     force mono"
                 } else if locked {
                     "WFM stereo: pilot locked. Click to force mono"
+                } else if playback.is_some_and(|p| p.channels < 2) {
+                    "This recording is mono — there is no second channel to play"
                 } else {
                     "WFM stereo: automatic, no pilot on this station"
                 };

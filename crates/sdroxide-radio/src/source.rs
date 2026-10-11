@@ -193,6 +193,13 @@ pub trait IqSource: Send {
         None
     }
 
+    /// Whether an audio-mode source carries a second ear in `im` for the
+    /// speaker — a stereo recording being played back. Default: no, `im` is
+    /// nothing a speaker should hear.
+    fn audio_stereo(&self) -> bool {
+        false
+    }
+
     /// Pause, seek or loop a playback. Default: nothing to steer.
     fn playback_control(&mut self, _cmd: &sdroxide_types::PlaybackCommand) -> Result<()> {
         Ok(())

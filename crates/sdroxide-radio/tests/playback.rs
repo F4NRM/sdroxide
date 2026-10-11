@@ -206,6 +206,13 @@ fn a_recording_plays_back_and_the_radio_comes_back() {
     assert_eq!((p.rate_hz, p.channels), (8000, 1));
     assert!((p.duration_s.unwrap() - 3.0).abs() < 0.01);
 
+    // The file playing back cannot be deleted from under the player.
+    h.cmd_tx.send(Command::Playback(PlaybackCommand::Delete { name: STAMPED.into() })).unwrap();
+    w.until(&h.event_rx, "the delete of the playing file refused", |w| {
+        w.notices.iter().any(|n| n.contains("playing back"))
+    });
+    assert!(rec.join(STAMPED).exists(), "the file playing back was deleted");
+
     // Paused, it holds still.
     h.cmd_tx.send(Command::Playback(PlaybackCommand::Pause(true))).unwrap();
     w.until(&h.event_rx, "paused", |w| {
@@ -224,6 +231,27 @@ fn a_recording_plays_back_and_the_radio_comes_back() {
             })
     });
     assert_eq!(opened.load(Ordering::SeqCst), before + 1, "the radio was reopened once");
+
+    // CLEAR: a path is refused, and the files the listing offered go — the
+    // capture as well as the recording — with a fresh list after each.
+    let outside = cfg_dir.join("config.toml");
+    std::fs::write(&outside, b"keep me").unwrap();
+    h.cmd_tx
+        .send(Command::Playback(PlaybackCommand::Delete { name: "../config.toml".into() }))
+        .unwrap();
+    w.until(&h.event_rx, "the path refused", |w| {
+        w.notices.iter().any(|n| n.contains("not a file in the recordings folder"))
+    });
+    assert!(outside.exists(), "a delete reached outside the recordings folder");
+    for name in [STAMPED, "SDRoxide_20261006_100005Z_14200000Hz_192000sps_IQ.wav"] {
+        w.listing = None;
+        h.cmd_tx.send(Command::Playback(PlaybackCommand::Delete { name: name.into() })).unwrap();
+        w.until(&h.event_rx, "a fresh list after the delete", |w| {
+            w.listing.as_ref().is_some_and(|l| l.files.iter().all(|f| f.name != name))
+        });
+        assert!(!rec.join(name).exists(), "{name} is still on disk");
+    }
+    assert!(rec.join("notes.txt").exists(), "a file the list never offered was deleted");
 
     drop(h.cmd_tx);
     if let Some(t) = thread {

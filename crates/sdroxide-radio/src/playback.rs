@@ -12,6 +12,11 @@
 //! — a recording can run for hours — and paced to the wall clock, so a picture
 //! paints at the speed it was sent. Paused, the source keeps time and hands
 //! out silence, because the engine's loop is paced by its source.
+//!
+//! Each sample carries both ears: the first channel in `re`, the second in `im`
+//! (the first again on a mono file). The decoders read `re` — the receiver —
+//! and the speaker plays both when the recording is stereo, which is how a WFM
+//! stereo broadcast comes back in stereo.
 
 use std::collections::VecDeque;
 use std::fs::File;
@@ -38,7 +43,18 @@ fn err(msg: impl Into<String>) -> RadioError {
     RadioError::Msg(msg.into())
 }
 
-/// A compressed or PCM audio file, decoded on demand into its first channel.
+/// Most of one read: 10 ms, the size of block a sound card hands the engine.
+///
+/// The engine reads in blocks sized for an SDR (16 384 samples), which at an
+/// audio rate is a third of a second at once — more than the speaker queue
+/// holds (`MIXER_CAP`, ≈ ¼ s), so the overflow was thrown away and the next
+/// third of a second arrived in one lump: audio with half of it missing, and
+/// decoders fed in bursts. A sound card never delivers like that, and nothing
+/// downstream is built for it.
+const READ_SECONDS: f64 = 0.01;
+
+/// A compressed or PCM audio file, decoded on demand into its first two
+/// channels.
 pub struct AudioReader {
     format: Box<dyn FormatReader>,
     decoder: Box<dyn Decoder>,
@@ -130,11 +146,12 @@ impl AudioReader {
         self.frames
     }
 
-    /// Decode the next packet onto `out`, first channel only. `Ok(false)` at
+    /// Decode the next packet onto `out`, first channel in `re` and second in
+    /// `im` (the first again on a mono file). `Ok(false)` at
     /// the end of the file. A packet that will not decode is skipped, as every
     /// player does: a damaged frame in the middle of a recording is no reason
     /// to lose the rest of it.
-    pub fn decode_next(&mut self, out: &mut VecDeque<f32>) -> Result<bool> {
+    pub fn decode_next(&mut self, out: &mut VecDeque<Complex32>) -> Result<bool> {
         loop {
             let packet = match self.format.next_packet() {
                 Ok(p) => p,
@@ -163,9 +180,10 @@ impl AudioReader {
             let Some(buf) = self.buf.as_mut() else { continue };
             buf.copy_interleaved_ref(decoded);
             let ch = spec.channels.count().max(1);
-            // The first channel is the receiver: the recorder puts our own
-            // transmit in the right ear, and a mono file has only the one.
-            out.extend(buf.samples().iter().step_by(ch).copied());
+            // Both ears, for the speaker; the decoders take the first, which is
+            // the receiver (the recorder puts our own transmit in the right).
+            let right = if ch > 1 { 1 } else { 0 };
+            out.extend(buf.samples().chunks_exact(ch).map(|f| Complex32::new(f[0], f[right])));
             return Ok(true);
         }
     }
@@ -173,7 +191,7 @@ impl AudioReader {
     /// Go to `seconds` into the file. Returns the frame actually reached;
     /// samples between the packet the format landed on and the one asked for
     /// are dropped here, so the next decode starts where the operator pointed.
-    pub fn seek(&mut self, seconds: f64, out: &mut VecDeque<f32>) -> Result<u64> {
+    pub fn seek(&mut self, seconds: f64, out: &mut VecDeque<Complex32>) -> Result<u64> {
         let seconds = seconds.max(0.0);
         let time = Time::new(seconds.trunc() as u64, seconds.fract());
         let seeked = self
@@ -203,7 +221,7 @@ pub struct PlaybackSource {
     reader: AudioReader,
     center_hz: f64,
     /// Decoded, not yet handed out.
-    pending: VecDeque<f32>,
+    pending: VecDeque<Complex32>,
     /// Frames of the file handed out so far — the transport bar's position.
     pos_frames: u64,
     paused: bool,
@@ -255,8 +273,8 @@ impl PlaybackSource {
         }
     }
 
-    /// Steer it. `Open` and `Stop` are the engine's, since they swap the
-    /// source itself; everything else is answered here.
+    /// Steer it. `Open`, `Stop` and `Delete` are the engine's, since they swap
+    /// the source or touch the folder; everything else is answered here.
     pub fn control(&mut self, cmd: &PlaybackCommand) -> Result<()> {
         match cmd {
             PlaybackCommand::Pause(p) => self.paused = *p,
@@ -269,7 +287,9 @@ impl PlaybackSource {
                 self.pos_frames = self.reader.seek(to, &mut self.pending)?;
                 self.ended = false;
             }
-            PlaybackCommand::Open { .. } | PlaybackCommand::Stop => {}
+            PlaybackCommand::Open { .. }
+            | PlaybackCommand::Stop
+            | PlaybackCommand::Delete { .. } => {}
         }
         Ok(())
     }
@@ -282,11 +302,11 @@ impl PlaybackSource {
     /// Fill `out` with the next samples of the file — or silence while paused,
     /// at the end, or after a fault — without pacing. Split from `read` so the
     /// tests can run it faster than real time.
-    fn fill(&mut self, out: &mut [f32]) {
+    fn fill(&mut self, out: &mut [Complex32]) {
         let mut n = 0;
         while n < out.len() {
             if self.paused || self.ended || self.fault.is_some() {
-                out[n..].fill(0.0);
+                out[n..].fill(Complex32::new(0.0, 0.0));
                 return;
             }
             if self.pending.is_empty() {
@@ -335,13 +355,14 @@ impl IqSource for PlaybackSource {
     }
 
     fn read(&mut self, buf: &mut [Complex32]) -> Result<usize> {
-        let mut audio = vec![0.0f32; buf.len()];
-        self.fill(&mut audio);
-        for (c, s) in buf.iter_mut().zip(audio) {
-            *c = Complex32::new(s, 0.0);
-        }
-        self.throttle.pace(buf.len());
-        Ok(buf.len())
+        let n = buf.len().min(read_len(self.sample_rate()));
+        self.fill(&mut buf[..n]);
+        self.throttle.pace(n);
+        Ok(n)
+    }
+
+    fn audio_stereo(&self) -> bool {
+        self.reader.channels() > 1
     }
 
     fn describe(&self) -> String {
@@ -394,9 +415,10 @@ impl IqSource for Standby {
     }
 
     fn read(&mut self, buf: &mut [Complex32]) -> Result<usize> {
-        buf.fill(Complex32::new(0.0, 0.0));
-        self.throttle.pace(buf.len());
-        Ok(buf.len())
+        let n = buf.len().min(read_len(self.rate));
+        buf[..n].fill(Complex32::new(0.0, 0.0));
+        self.throttle.pace(n);
+        Ok(n)
     }
 
     fn describe(&self) -> String {
@@ -410,6 +432,11 @@ impl IqSource for Standby {
     fn needs_reopen(&self) -> bool {
         true
     }
+}
+
+/// How many samples one read hands over at `rate`: [`READ_SECONDS`] of them.
+fn read_len(rate: f64) -> usize {
+    ((rate * READ_SECONDS) as usize).max(1)
 }
 
 /// The capabilities a playback runs under: receive-only audio, and a dial that
@@ -468,9 +495,10 @@ mod tests {
         dir.join(name)
     }
 
-    /// Mean absolute value — a 0.5-amplitude sine averages about 0.3.
-    fn level(s: &[f32]) -> f32 {
-        s.iter().map(|x| x.abs()).sum::<f32>() / s.len() as f32
+    /// Mean absolute value of the first ear — a 0.5-amplitude sine averages
+    /// about 0.3.
+    fn level(s: &[Complex32]) -> f32 {
+        s.iter().map(|x| x.re.abs()).sum::<f32>() / s.len() as f32
     }
 
     /// The whole file comes out, at its own rate and length, from its first
@@ -485,7 +513,7 @@ mod tests {
         assert_eq!((st.channels, st.rate_hz), (2, 8000));
         assert!((st.duration_s.unwrap() - 1.0).abs() < 1e-3, "{:?}", st.duration_s);
 
-        let mut out = vec![0.0f32; 8000];
+        let mut out = vec![Complex32::default(); 8000];
         src.fill(&mut out);
         // A 1 kHz sine sampled at 8 kHz lands on eight exact phases, so its
         // mean |x| is 0.302 rather than the continuous 0.318; the right
@@ -506,7 +534,7 @@ mod tests {
         let path = scratch("steer.wav");
         tone_wav(&path, 8000, 1, 2.0, 700.0);
         let mut src = PlaybackSource::open(&path, "steer.wav", 0.0).unwrap();
-        let mut out = vec![0.0f32; 4000];
+        let mut out = vec![Complex32::default(); 4000];
 
         src.control(&PlaybackCommand::Pause(true)).unwrap();
         src.fill(&mut out);
@@ -579,15 +607,39 @@ mod tests {
         assert_eq!(stamp.mode, Some(sdroxide_types::Mode::Sstv));
         assert!((stamp.freq_hz - 14_230_000.0).abs() < 0.5);
 
-        let mut out = vec![0.0f32; 48_000];
+        let mut out = vec![Complex32::default(); 48_000];
         src.fill(&mut out);
-        let mid = &out[4800..43_200];
-        let (rx, tx) = (power_at(mid, 48_000.0, 1000.0), power_at(mid, 48_000.0, 400.0));
+        let left: Vec<f32> = out[4800..43_200].iter().map(|c| c.re).collect();
+        let right: Vec<f32> = out[4800..43_200].iter().map(|c| c.im).collect();
+        let (rx, tx) = (power_at(&left, 48_000.0, 1000.0), power_at(&left, 48_000.0, 400.0));
         assert!(rx > tx * 100.0, "left (rx) {rx:.3e} against right (tx) {tx:.3e}");
+        // And the right ear comes back as the right ear, not a copy of the
+        // left: a stereo recording plays back in stereo.
+        let (r_own, r_left) =
+            (power_at(&right, 48_000.0, 400.0), power_at(&right, 48_000.0, 1000.0));
+        assert!(r_own > r_left * 100.0, "right {r_own:.3e} against left {r_left:.3e}");
+        assert!(src.audio_stereo());
 
         // And a seek into an MP3 lands where it was asked.
         src.control(&PlaybackCommand::Seek(1.25)).unwrap();
         assert!((src.status().position_s - 1.25).abs() < 0.05, "{}", src.status().position_s);
+    }
+
+    /// The cause of the chopped audio reported on the first build: a read
+    /// handed the engine its whole 16 384-sample block at once — a third of a
+    /// second at 48 kHz, more than the speaker queue holds. A read is now a
+    /// sound card's 10 ms, whatever the engine asks for, and a mono file plays
+    /// the same sample in both ears.
+    #[test]
+    fn a_read_is_a_sound_cards_block_not_the_engines() {
+        let path = scratch("block.wav");
+        tone_wav(&path, 48_000, 1, 1.0, 1000.0);
+        let mut src = PlaybackSource::open(&path, "block.wav", 0.0).unwrap();
+        let mut buf = vec![Complex32::default(); 16_384];
+        let n = src.read(&mut buf).unwrap();
+        assert_eq!(n, 480, "one read handed over {n} samples");
+        assert!(buf[..n].iter().all(|c| c.re == c.im), "a mono file is not the same in both ears");
+        assert!(!src.audio_stereo());
     }
 
     /// Not every file is audio, and the operator is told rather than given a

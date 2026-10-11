@@ -161,6 +161,11 @@ pub enum PlaybackCommand {
     Loop(bool),
     /// End playback and put the radio back as it was.
     Stop,
+    /// Delete this file from the recordings directory, for good — the
+    /// recordings pile up and nothing else on the station removes them. Refused
+    /// for the file playing back and for one still being written. Appended
+    /// last: this enum rides the wire.
+    Delete { name: String },
 }
 
 /// Where playback is, for the transport bar. `None` on the state when nothing

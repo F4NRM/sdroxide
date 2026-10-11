@@ -21,10 +21,22 @@ and the [README](https://github.com/madmedicnl/sdroxide-brown#readme).
   OGG, FLAC. Works from the browser (discussion #10).
 - **Ctrl+C copies the tooltip on screen** — every tooltip, so its text can be
   pasted into a translator.
+- **CLEAR in the PLAYBACK window** — deletes a recording, after a second press
+  on the same row.
+
+### Fixed
+- **Playback sound chopped, half of it missing** — the file went out in
+  third-of-a-second lumps, and a browser's audio lane dropped most of each one.
+  It now goes out ten milliseconds at a time, like a sound card.
+- **Stereo recordings played back in mono** — a WFM stereo recording now plays
+  in both ears, and ST lights.
+- **ST said "no pilot" when noise reduction or the notch had switched stereo
+  off** — its hover now names the reason.
 
 ### Not proven
 - **Playback** — tested on generated files and a recorder-written MP3, not yet
-  on a real off-air recording.
+  on a real off-air recording; the fix for the chopped sound is not yet heard in
+  a browser.
 - **Tooltip copy in the browser** — unit-tested, not yet tried in a browser.
 
 ## [2.0.7.1_brown] - 2026-10-10
