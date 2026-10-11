@@ -148,3 +148,52 @@ fn a_locked_screen_does_not_tune_and_a_three_second_hold_unlocks_it() {
     rig.tap(plus);
     assert_eq!(rig.retunes(), 2, "+ did not tune once unlocked");
 }
+
+/// The request beside the padlock: a touch operator recalls a memory without
+/// digging through a menu. On every touch strip — the stacked tablet, the
+/// short tablet's one row and the phone — MEM sits on the row just before the
+/// padlock (after SYS where the strip has one), and a tap on it opens the
+/// memory channels.
+#[test]
+fn mem_sits_before_the_padlock_and_opens_the_memories() {
+    let _guard = crate::multi::frame_test_lock();
+    let dir = std::env::temp_dir().join(format!("sdroxide-mem-chip-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    unsafe { std::env::set_var("SDROXIDE_CONFIG_DIR", &dir) };
+
+    // Tablet (stacked), tablet (short: one row), phone.
+    for (size, has_sys) in [
+        (egui::vec2(1000.0, 900.0), true),
+        (egui::vec2(1280.0, 720.0), true),
+        (egui::vec2(412.0, 915.0), false),
+    ] {
+        let sent = Rc::new(RefCell::new(Vec::new()));
+        let ctx = egui::Context::default();
+        let app = SdroxideApp::new_tab(&ctx, None, None, Box::new(Sent(sent.clone())), 0, true);
+        let mut rig = Rig { ctx: ctx.clone(), app, sent, t: 0.0, size };
+        for _ in 0..3 {
+            rig.frame(Vec::new(), 0.05).drop_without_applying_deltas();
+        }
+        let out = rig.frame(Vec::new(), 0.05);
+        let mem =
+            find_text(&out.shapes, "MEM").unwrap_or_else(|| panic!("no MEM chip at {size:?}"));
+        let sys = find_text(&out.shapes, "SYS");
+        out.drop_without_applying_deltas();
+        let lock = crate::touch_lock::padlock_rects(&ctx)[0];
+
+        assert!(
+            (mem.y - lock.center().y).abs() < lock.height() / 2.0,
+            "MEM is not on the padlock's row at {size:?}"
+        );
+        assert!(mem.x < lock.left(), "MEM is not before the padlock at {size:?}");
+        if has_sys {
+            let sys = sys.unwrap_or_else(|| panic!("no SYS chip at {size:?}"));
+            assert!(sys.x < mem.x, "MEM is not after SYS at {size:?}");
+        }
+
+        assert!(!rig.app.show_memories);
+        rig.tap(mem);
+        assert!(rig.app.show_memories, "a tap on MEM did not open the memories at {size:?}");
+    }
+}
