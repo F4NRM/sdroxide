@@ -1979,17 +1979,20 @@ pub(in crate::app) fn settings_rtlsdr_tab(
              nothing between. Takes effect on Apply.",
         );
         let shown = format!("{:.3} Msps", cfg.rtlsdr.sample_rate_hz / 1e6);
-        ComboBox::from_id_salt("rtlsdr_rate").selected_text(shown).show_styled(ui, |ui| {
-            for &r in &RtlSdrConfig::SAMPLE_RATES {
-                let sel = (cfg.rtlsdr.sample_rate_hz - r).abs() < 1.0;
-                let mut label = format!("{:.3} Msps", r / 1e6);
-                if r >= 3_200_000.0 {
-                    label.push_str("  (often drops samples)");
+        ui.horizontal(|ui| {
+            ComboBox::from_id_salt("rtlsdr_rate").selected_text(shown).show_styled(ui, |ui| {
+                for &r in &RtlSdrConfig::SAMPLE_RATES {
+                    let sel = (cfg.rtlsdr.sample_rate_hz - r).abs() < 1.0;
+                    let mut label = format!("{:.3} Msps", r / 1e6);
+                    if r >= 3_200_000.0 {
+                        label.push_str("  (often drops samples)");
+                    }
+                    if ui.selectable_label(sel, label).clicked() {
+                        cfg.rtlsdr.sample_rate_hz = r;
+                    }
                 }
-                if ui.selectable_label(sel, label).clicked() {
-                    cfg.rtlsdr.sample_rate_hz = r;
-                }
-            }
+            });
+            dab_rate_hint(ui, &RtlSdrConfig::SAMPLE_RATES);
         });
         ui.end_row();
 
@@ -3430,10 +3433,28 @@ fn pluto_rx_label(rx: u8) -> String {
 /// runs is the first thing a two-chain board asks for.
 const PLUTO_CHOOSE_RECEIVER: &str = "Please choose your receiver";
 
-/// Shown beside the Pluto sample rate, always: 2.5 Msps is the rate DAB /
-/// DAB+ was confirmed decoding at on a Pluto (Kevin, 2.0.7.3), and it is the
-/// reference [`sdroxide_types::DAB_GOOD_RATE_HZ`] now holds.
-const PLUTO_DAB_RATE_HINT: &str = "Choose 2.500 Msps if you want to decode DAB/DAB+";
+/// Shown beside the sample rate of the receivers that can run DAB: 2.5 Msps
+/// is the rate DAB / DAB+ was confirmed decoding at on a Pluto (Kevin,
+/// 2.0.7.3), and it is the reference [`sdroxide_types::DAB_GOOD_RATE_HZ`] now
+/// holds.
+///
+/// Offered on the Pluto, RTL-SDR, SDRplay, Airspy, HackRF, HydraSDR, LimeSDR,
+/// Fobos and RX-888 tabs — and on no other, by the operator's choice.
+const DAB_RATE_HINT: &str = "Choose 2.500 Msps if you want to decode DAB/DAB+";
+
+/// The RX-888 has no sample-rate list: its rate is the ADC clock times the
+/// panadapter width, so the hint names the pair that makes 2.5 Msps.
+const RX888_DAB_RATE_HINT: &str =
+    "Choose 80.0 Msps and the 2.500 MHz width (1/32) if you want to decode DAB/DAB+";
+
+/// [`DAB_RATE_HINT`] in yellow — only when `rates` actually offers 2.5 Msps,
+/// so it never points at a rate the list in front of the operator lacks (an
+/// Airspy Mini reports no 2.5).
+fn dab_rate_hint(ui: &mut egui::Ui, rates: &[f64]) {
+    if rates.iter().any(|r| (r - sdroxide_types::DAB_GOOD_RATE_HZ).abs() < 1.0) {
+        ui.label(RichText::new(DAB_RATE_HINT).color(crate::theme::YELLOW()));
+    }
+}
 
 /// How to hear both chains, in the receiver's tooltip.
 const PLUTO_BOTH_CHAINS_HINT: &str = "To listen on both antennas: add a second radio on the same \
@@ -3569,7 +3590,7 @@ pub(in crate::app) fn settings_pluto_tab(
                     }
                 }
             });
-            ui.label(RichText::new(PLUTO_DAB_RATE_HINT).color(crate::theme::YELLOW()));
+            dab_rate_hint(ui, &PlutoConfig::SAMPLE_RATES);
         });
         ui.end_row();
 
@@ -4682,6 +4703,7 @@ pub(in crate::app) fn settings_rx888_tab(
                                  wide, so the live spectrum sits off to one side of the \
                                  panadapter with nothing beside it."
                             });
+                        ui.label(RichText::new(RX888_DAB_RATE_HINT).color(crate::theme::YELLOW()));
                     }
                 });
             ui.add(
@@ -5727,6 +5749,7 @@ pub(in crate::app) fn settings_airspy_tab(
                         ui.selectable_value(&mut cfg.airspy.sample_rate_hz, *r, text);
                     }
                 });
+            dab_rate_hint(ui, &rates);
             ui.add(
                 egui::Label::new(
                     RichText::new(if from_device {
@@ -6008,6 +6031,7 @@ pub(in crate::app) fn settings_hydrasdr_tab(
                         ui.selectable_value(&mut cfg.hydrasdr.sample_rate_hz, *r, text);
                     }
                 });
+            dab_rate_hint(ui, &rates);
             ui.add(
                 egui::Label::new(
                     RichText::new(if from_device {
@@ -6376,6 +6400,7 @@ pub(in crate::app) fn settings_fobos_tab(
                         );
                     }
                 });
+            dab_rate_hint(ui, &rates);
             ui.add(
                 egui::Label::new(
                     RichText::new(if from_device {
@@ -6574,11 +6599,12 @@ pub(in crate::app) fn settings_hackrf_tab(
 
         ui.label("Sample rate");
         ui.horizontal(|ui| {
+            let hackrf_rates = HackRfConfig::rates_for(is_pro);
             ComboBox::from_id_salt("hackrf_rate")
                 .width(150.0)
                 .selected_text(hackrf_rate_label(cfg.hackrf.sample_rate_hz))
                 .show_styled(ui, |ui| {
-                    for r in HackRfConfig::rates_for(is_pro) {
+                    for r in hackrf_rates.iter().copied() {
                         ui.selectable_value(
                             &mut cfg.hackrf.sample_rate_hz,
                             r,
@@ -6586,6 +6612,7 @@ pub(in crate::app) fn settings_hackrf_tab(
                         );
                     }
                 });
+            dab_rate_hint(ui, &hackrf_rates);
             ui.add(
                 egui::Label::new(
                     RichText::new(HackRfConfig::rate_note(cfg.hackrf.sample_rate_hz)).weak(),
@@ -7046,20 +7073,23 @@ pub(in crate::app) fn settings_sdrplay_tab(
              Takes effect on Apply."
         });
         let shown = format!("{:.3} Msps", cfg.sdrplay.sample_rate_hz / 1e6);
-        ComboBox::from_id_salt("sdrplay_rate").selected_text(shown).show_styled(ui, |ui| {
-            let rates: &[f64] =
-                if dual { &SdrPlayConfig::DUAL_SAMPLE_RATES } else { &SdrPlayConfig::SAMPLE_RATES };
-            for &r in rates {
-                let sel = (cfg.sdrplay.sample_rate_hz - r).abs() < 1.0;
-                let mut label = format!("{:.3} Msps", r / 1e6);
-                if r > 6_048_000.0 {
-                    // The ADC trades resolution for speed past 6.048 Msps.
-                    label.push_str("  (reduced ADC resolution)");
+        let rates: &[f64] =
+            if dual { &SdrPlayConfig::DUAL_SAMPLE_RATES } else { &SdrPlayConfig::SAMPLE_RATES };
+        ui.horizontal(|ui| {
+            ComboBox::from_id_salt("sdrplay_rate").selected_text(shown).show_styled(ui, |ui| {
+                for &r in rates {
+                    let sel = (cfg.sdrplay.sample_rate_hz - r).abs() < 1.0;
+                    let mut label = format!("{:.3} Msps", r / 1e6);
+                    if r > 6_048_000.0 {
+                        // The ADC trades resolution for speed past 6.048 Msps.
+                        label.push_str("  (reduced ADC resolution)");
+                    }
+                    if ui.selectable_label(sel, label).clicked() {
+                        cfg.sdrplay.sample_rate_hz = r;
+                    }
                 }
-                if ui.selectable_label(sel, label).clicked() {
-                    cfg.sdrplay.sample_rate_hz = r;
-                }
-            }
+            });
+            dab_rate_hint(ui, rates);
         });
         ui.end_row();
 
@@ -7860,6 +7890,7 @@ pub(in crate::app) fn settings_lime_tab(
                     ui.selectable_value(&mut cfg.lime.sample_rate_hz, r, label);
                 }
             });
+            dab_rate_hint(ui, rates);
         });
         ui.end_row();
 
@@ -8765,7 +8796,7 @@ mod tests {
     #[test]
     fn the_pluto_sample_rate_names_the_dab_rate() {
         let text = pluto_tab_text(0);
-        assert!(text.lines().any(|l| l == PLUTO_DAB_RATE_HINT), "{text}");
+        assert!(text.lines().any(|l| l == DAB_RATE_HINT), "{text}");
         assert!(!text.contains("Not yet verified"), "{text}");
     }
 }
