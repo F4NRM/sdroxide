@@ -52,6 +52,38 @@
         else window.addEventListener("DOMContentLoaded", show, { once: true });
     }
 
+    // Until the first gesture there is no context at all, so the page is
+    // silent and nothing on screen said why: operators found the cure by
+    // accident, on the volume slider. Name it instead. The hint takes no
+    // pointer events, so the tap that starts the sound lands on whatever is
+    // under it, and it comes back if the browser stops the context later.
+    let hint = null;
+
+    function showHint() {
+        if (hint || location.search.includes("view=solar")) return;
+        const put = () => {
+            if (hint) return;
+            hint = document.createElement("div");
+            hint.style.cssText =
+                "position:fixed;left:50%;bottom:16px;transform:translateX(-50%);" +
+                "z-index:9998;padding:8px 14px;border-radius:6px;" +
+                "font:14px system-ui,sans-serif;background:#4a3000;color:#ffd479;" +
+                "border:1px solid #7a5000;pointer-events:none;max-width:90vw;" +
+                "text-align:center";
+            hint.textContent = "\u{1F507} Tap, click or press a key anywhere to start the sound";
+            document.body.appendChild(hint);
+        };
+        if (document.body) put();
+        else window.addEventListener("DOMContentLoaded", put, { once: true });
+    }
+
+    function hideHint() {
+        if (hint) {
+            hint.remove();
+            hint = null;
+        }
+    }
+
     async function init() {
         if (initStarted) return;
         initStarted = true;
@@ -63,8 +95,14 @@
             // "running" rather than listing the states we know about.
             ctx.onstatechange = () => {
                 console.log("sdroxide audio: context state", ctx.state);
-                if (ctx.state !== "running") resumeCtx();
+                if (ctx.state === "running") {
+                    hideHint();
+                } else {
+                    showHint();
+                    resumeCtx();
+                }
             };
+            if (ctx.state === "running") hideHint();
             // Start the module fetch but do NOT await it yet: resume() has to
             // be called while the gesture's transient activation is still
             // alive, and on WebKit that is gone by the time an await resolves.
@@ -171,6 +209,7 @@
     if (INSECURE) {
         warnInsecure();
     } else {
+        showHint();
         // Capture phase, and not just "click": eframe's canvas handlers call
         // preventDefault() on touchstart -- which stops WebKit synthesizing the
         // compatibility mouse events, so a touch device never fires "click" at

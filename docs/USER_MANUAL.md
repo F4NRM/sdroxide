@@ -15006,7 +15006,9 @@ play audio until you have interacted with it. So a fresh session, or one
 reloaded with **F5**, is silent at first. **Click, tap or press a key anywhere
 on the page** — the waterfall, an empty area, any control — and the sound
 starts. You do not need to touch the volume. This is the browser's autoplay
-rule, not a fault, and an installed web app follows it too.
+rule, not a fault, and an installed web app follows it too. Until then a
+yellow hint at the bottom of the page says so, and it goes away as the sound
+starts.
 
 ### 9.4 Behind a reverse proxy on a subpath
 
