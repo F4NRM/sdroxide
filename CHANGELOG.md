@@ -13,6 +13,8 @@ and the [README](https://github.com/madmedicnl/sdroxide-brown#readme).
 
 ## [Unreleased]
 
+## [2.0.8_brown] - 2026-10-11
+
 ### Added
 - **FLATTEN — level the waterfall's noise floor across the band** — a chip in
   the FFT popup, under *Waterfall*. A quiet stretch of band is raised towards
