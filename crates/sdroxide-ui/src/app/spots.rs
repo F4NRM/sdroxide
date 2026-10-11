@@ -417,11 +417,16 @@ impl SdroxideApp {
 
     /// Tune the active VFO onto a spot (CW dialed a pitch below, so it lands in
     /// the CW passband), set its mode, and open a pre-filled log entry.
-    fn select_spot(&mut self, spot: &Spot, cmds: &mut Vec<Command>) {
+    pub(in crate::app) fn select_spot(&mut self, spot: &Spot, cmds: &mut Vec<Command>) {
         match spot.radio_mode() {
             Some(Mode::Cw) => {
-                let (lo, hi) = Mode::Cw.default_filter();
-                let pitch = ((lo + hi) * 0.5) as f64;
+                // The operator's *own* sidetone pitch, not the mode's 700 Hz
+                // default: a CW spot is tuned a pitch below its signal so it
+                // lands on the CW cursor, and that cursor sits wherever the
+                // operator put it. The skimmer overlay already tunes this way
+                // (`spectrum_view`); the SPOTS list used the default and so
+                // tuned a 600 Hz operator ~100 Hz out (Thieu, 2.0.9.x).
+                let pitch = f64::from(self.cw_pitch_hz());
                 cmds.push(Command::SetVfo { vfo: self.state.active_vfo, hz: spot.freq_hz - pitch });
                 cmds.push(Command::SetMode { rx: RxId::Main, mode: Mode::Cw });
             }

@@ -1077,11 +1077,21 @@ fn draw_net_box(p: &egui::Painter, b: &NetBox, spot: &Spot, hovered: bool, alpha
 /// moves onto the spot, and a radio that tunes with its dial comes along
 /// exactly as it does for the readout (see the command's docs for why it no
 /// longer stays put).
-fn tune_to_net_spot(spot: &Spot, state: &RadioState, cmds: &mut Vec<Command>) {
+fn tune_to_net_spot(
+    spot: &Spot,
+    state: &RadioState,
+    cursor_hz: Option<f32>,
+    cmds: &mut Vec<Command>,
+) {
     match spot.radio_mode() {
         Some(Mode::Cw) => {
-            let (lo, hi) = Mode::Cw.default_filter();
-            let pitch = ((lo + hi) * 0.5) as f64;
+            // The operator's own CW pitch when the cursor says it, the mode
+            // default otherwise — the same rule the skimmer overlay uses, so a
+            // CW spot lands on the cursor either way (Thieu, 2.0.9.x).
+            let pitch = cursor_hz.map(f64::from).unwrap_or_else(|| {
+                let (lo, hi) = Mode::Cw.default_filter();
+                ((lo + hi) * 0.5) as f64
+            });
             cmds.push(Command::TuneInSpan { vfo: state.active_vfo, hz: spot.freq_hz - pitch });
             cmds.push(Command::SetMode { rx: RxId::Main, mode: Mode::Cw });
         }
@@ -1978,7 +1988,7 @@ pub fn show_ext(
                     // Network spot: tune + set mode, and hand the spot back so the
                     // app can pre-fill a log entry (and optionally look it up).
                     let spot = &net_spots[nb.idx];
-                    tune_to_net_spot(spot, state, cmds);
+                    tune_to_net_spot(spot, state, cursor_hz, cmds);
                     *clicked_spot = Some(spot.clone());
                 } else if let Some(sb) = spot_boxes.iter().find(|b| b.rect.contains(pos)) {
                     let spot = &skimmer[sb.idx];
