@@ -69,6 +69,17 @@
     // window's capture listener sees the gesture first (that is what starts
     // the context); the layer then keeps the events from the page.
     let hint = null;
+    // Settings → UI → Sound welcome. The program owns the setting (it is kept
+    // with the profile on the server) but loads after this page has drawn,
+    // so the last answer is remembered on this device to decide the opening.
+    const WELCOME_KEY = "sdroxide-sound-welcome";
+    function welcomeWanted() {
+        try {
+            return localStorage.getItem(WELCOME_KEY) !== "0";
+        } catch (e) {
+            return true;
+        }
+    }
     // A press that began on the hint: its release and click must not reach
     // the page either, so the hint outlives the gesture that removed it.
     let hintBusy = false;
@@ -284,7 +295,7 @@
     if (INSECURE) {
         warnInsecure();
     } else {
-        showHint();
+        if (welcomeWanted()) showHint();
         // Capture phase, and not just "click": eframe's canvas handlers call
         // preventDefault() on touchstart -- which stops WebKit synthesizing the
         // compatibility mouse events, so a touch device never fires "click" at
@@ -323,6 +334,18 @@
             }
             micChunks = [];
             return out;
+        },
+        // The program's Sound welcome setting. Off: the message goes now and
+        // is not shown at the next opening. On: remembered for the next
+        // opening, never shown mid-session.
+        setSoundWelcome: function (on) {
+            try {
+                localStorage.setItem(WELCOME_KEY, on ? "1" : "0");
+            } catch (e) {}
+            if (!on) {
+                hintBusy = false;
+                hideHint();
+            }
         },
         setMicActive: function (active) {
             micWanted = !!active;

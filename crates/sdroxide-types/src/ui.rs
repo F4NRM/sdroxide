@@ -956,10 +956,20 @@ pub struct UiSettings {
     pub simple_ui: bool,
     /// Keep the screen on: ask the browser for a Screen Wake Lock so a phone
     /// or tablet left on the waterfall does not dim and lock itself. A
-    /// property of this screen, like the theme; off by default, because it
-    /// costs battery. The installed program has no equivalent and says so.
+    /// property of this screen, like the theme, and carried with the profile's
+    /// screen ([`ClientScreen`]) so it is remembered on the server; off by
+    /// default, because it costs battery. The installed program has no
+    /// equivalent and says so.
     #[serde(default)]
     pub keep_screen_on: bool,
+    /// Show the welcome message for the sound when the web client opens: a
+    /// browser plays nothing until the page is touched, and without the
+    /// message a fresh session reads as broken. While it is up, the first
+    /// click, tap or key starts the sound and does nothing else. On by
+    /// default, for the beginner it is there for; an operator who knows can
+    /// turn it off. Carried in the profile's screen ([`ClientScreen`]).
+    #[serde(default = "default_true")]
+    pub sound_welcome: bool,
     /// Where the solar-system 3D window last was — see [`Solar3dWindow`].
     ///
     /// Here rather than in the operator's view state because window geometry is
@@ -1231,6 +1241,7 @@ impl Default for UiSettings {
             cb_tx_warning_ack: false,
             simple_ui: false,
             keep_screen_on: false,
+            sound_welcome: true,
             start_swl: false,
             solar3d_window: None,
             client_share_bindings: false,
@@ -1512,6 +1523,13 @@ pub struct ClientScreen {
     pub fft_size: u32,
     /// Whether the first press of the step row tidies the dial onto the step.
     pub tune_step_round_first: bool,
+    /// The web client's welcome message for the sound —
+    /// [`UiSettings::sound_welcome`]. Appended last: this struct rides the
+    /// wire positionally.
+    pub sound_welcome: bool,
+    /// Keep the screen on — [`UiSettings::keep_screen_on`]. Appended last
+    /// with the field above.
+    pub keep_screen_on: bool,
 }
 
 impl Default for ClientScreen {
@@ -1552,6 +1570,8 @@ impl ClientScreen {
             center_on_vfo: true,
             fft_size: 4096,
             tune_step_round_first: s.tune_step_round_first,
+            sound_welcome: s.sound_welcome,
+            keep_screen_on: s.keep_screen_on,
         }
     }
 
@@ -1583,6 +1603,8 @@ impl ClientScreen {
         s.map_cities = self.map_cities;
         s.simple_ui = self.simple_ui;
         s.tune_step_round_first = self.tune_step_round_first;
+        s.sound_welcome = self.sound_welcome;
+        s.keep_screen_on = self.keep_screen_on;
     }
 }
 
@@ -1639,6 +1661,31 @@ mod client_screen_tests {
         let bytes = postcard::to_allocvec(&screen).expect("encodes");
         let back: ClientScreen = postcard::from_bytes(&bytes).expect("decodes");
         assert_eq!(back, screen);
+    }
+
+    /// The sound welcome is on unless asked off, and the wake lock off unless
+    /// asked on — including for a profile stored before either was carried,
+    /// which has neither key and must not lose its welcome message.
+    #[test]
+    fn the_sound_welcome_and_wake_lock_travel_with_the_profile() {
+        let d = ClientScreen::default();
+        assert!(d.sound_welcome, "the welcome message is on by default");
+        assert!(!d.keep_screen_on, "the wake lock is off by default");
+
+        let old: ClientScreen = serde_json::from_str(r#"{"simple_ui":true}"#).expect("old profile");
+        assert!(old.sound_welcome, "a profile from before the field keeps the message");
+        assert!(!old.keep_screen_on);
+
+        let mut mine = UiSettings::default();
+        mine.sound_welcome = false;
+        mine.keep_screen_on = true;
+        let carried = ClientScreen::from_settings(&mine);
+        let back: ClientScreen =
+            postcard::from_bytes(&postcard::to_allocvec(&carried).unwrap()).unwrap();
+        let mut other = UiSettings::default();
+        back.apply_to(&mut other);
+        assert!(!other.sound_welcome, "the message stays off on the next device");
+        assert!(other.keep_screen_on, "and the screen stays on");
     }
 
     /// Applying a served screen leaves every machine-specific field alone.

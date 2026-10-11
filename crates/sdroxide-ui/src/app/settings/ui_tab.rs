@@ -368,6 +368,40 @@ pub(in crate::app) fn settings_ui_tab(
         });
         ui.end_row();
 
+        ui.label("Sound welcome").on_hover_text(
+            "When the web page opens — a new session, or a reload with F5 — \
+             the browser plays no sound until you touch the page. That is the \
+             browser's rule, and without a word on screen a fresh session \
+             looks as if it does not work.\n\n\
+             With this on, a message in the middle of the screen says so: \
+             🔇 Tap, click or press a key anywhere to start the sound. The \
+             first click, tap or key — anywhere, with a mouse, a touchpad, a \
+             finger or the keyboard — closes it and starts the sound, and does \
+             nothing else: it does not tune, press a button or run a \
+             shortcut. It is shown only when the page opens, never again \
+             during the session, whatever happens to the sound later.\n\n\
+             Turn it off once you know what to do: the sound still waits for \
+             your first touch, and that touch then works as usual. Kept with \
+             your profile on the server. On by default.",
+        );
+        ui.horizontal(|ui| {
+            crate::chrome::checkbox(
+                ui,
+                &mut cfg.sound_welcome,
+                egui::RichText::new("welcome message for the sound").color(crate::theme::YELLOW()),
+            );
+            if !crate::sound_welcome::available() {
+                ui.label(
+                    egui::RichText::new(
+                        "browser only — the installed program plays sound without a touch",
+                    )
+                    .small()
+                    .color(crate::theme::YELLOW()),
+                );
+            }
+        });
+        ui.end_row();
+
 
         ui.end_row();
 
