@@ -1779,6 +1779,8 @@ impl eframe::App for MultiApp {
         self.apply_strip_actions(actions, &ctx);
         self.handle_requests(reqs, &ctx);
         self.open_peer_radios(&ctx);
+        // Last, so a tooltip from any pane is on the layers: Ctrl+C copies it.
+        crate::tooltip_copy::tick(&ctx);
     }
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
         for tab in &mut self.tabs {

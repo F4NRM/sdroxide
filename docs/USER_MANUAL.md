@@ -229,6 +229,14 @@ VFO, RIT/XIT, Receiver + Filter/Noise, Rig (only on a radio with an aerial
 selector or a remote power switch), Transmit (TX-capable rigs only), Display,
 FFT, and System.
 
+**Copying a tooltip.** Almost every control explains itself in a tooltip when
+the pointer rests on it. The text of a tooltip cannot be selected, so while one
+is on screen press **Ctrl+C** (**⌘C** on a Mac): its whole text goes to the
+clipboard, ready to paste into a translator, and a short **Copied** note
+appears by the pointer. With no tooltip on screen Ctrl+C does what it always
+does. This works in the desktop program and in the browser (the browser needs
+the page served over https to reach the clipboard); a phone has no Ctrl+C.
+
 ### 2.3 Tuning
 
 **The frequency readout** is a ten-digit display. Hover over any digit and:
