@@ -95,6 +95,113 @@
 > the workflow are in "The standing queue and how to check it" below. A tag or a
 > nightly runs the full gate before it is cut — see "Cutting a release".
 
+## Session 2026-10-11, later: **FLATTEN** (waterfall floor), and the RTTY anchor
+
+Two pieces of work, both on `main`, both off a look at **MSHV** (MixW-lineage
+Qt program, GPL-3, on the Extras disk) rather than off a report. MSHV turned
+out to be **behind** us on both counts — its waterfall is a fixed
+`int data_graph_all[880][204]` whose `x_pos` saturates and freezes, coloured
+by 20×501 **PNG** palettes sampled with one `pixel()` per screen pixel — so
+almost nothing was portable. Two ideas were, and both are now built.
+
+### FLATTEN — per-column noise-floor flattening (shipped, on by default)
+
+`05afaa69`. A receiver's noise is rarely the same everywhere on a span, and
+FIT sets **one** floor for the whole picture (a percentile over every visible
+bin), so a quiet stretch goes black under a level fitted to the loud half.
+
+Each row's columns are averaged over ~16 (`FLATTEN_SEGMENTS`) — **one column
+is one FFT bin, so a floor estimated from a bin is that bin** — the difference
+from the row's own mean becomes a lift, and it ramps between segment centres.
+Applied to the row **before** it reaches the texture, so no shader, no
+texture, no wire change: **no `PROTO_VERSION` bump**, and the only state is
+`ViewState::flatten`, local per radio like `auto_fit`.
+
+**The integer offset does not converge, and that was the find.** Held as `u8`,
+any step smaller than half a unit disappears into whatever the cast does —
+truncating stalls outright, and `round()` is worse than it looks, because
+`45 + (51−45)×0.08 = 45.48` rounds back to 45. Every such cast leaves fixed
+points a few steps short of the target, so the lift stalls at **45 of the 51
+ramp steps** its target asks for: a floor 17.6 dB up where it should be 20,
+forever. The state is a `Vec<f32>` and is rounded only where it lands on a
+row. The test says so in its failure message and fails against the integer
+version — worth re-reading before anyone "simplifies" it back.
+
+Two load-bearing decisions, both pinned: the lift is **never negative** (a
+quiet column is raised to the floor, a louder one left byte-for-byte alone —
+MSHV's ADLE refuses negative offsets at `display_ms.cpp:1773` for the same
+reason), and it is **capped at 20 dB** (without it, spectrum below the
+receiver's own noise is pumped up until it looks like signal). The offsets
+live in texture-column space, so `move_offsets` carries them through the same
+`Shift`/`Rescale` the history is moved by — left behind, the correction slides
+off the spectrum on every pan and zoom, which reads as a rendering quirk
+rather than as a bug and so survives indefinitely.
+
+**Bench verdict: "it looks way better and smoother" — on both radios**, a
+wideband SDR and a demod-audio rig. Hence **on by default**, against the
+spec's own recommendation. Looking at it also showed the cost, which the spec
+had only argued: the black end of the ramp is gone, so you gain "a weak
+signal shows in the quiet part" and lose "this part of the band is dark".
+
+`crates/sdroxide-ui/examples/flatten_probe.rs` draws the same band with and
+without it through the real code and the real colour map — **a committed
+probe, not scratch**, and it is how the first version was checked. It caught
+that its own synthetic "noise" was a travelling sine: the PNG was showing my
+generator, not the algorithm.
+
+### RTTY/NAVTEX/DSC: the panadapter anchored 2210 Hz off the station (shipped, unproven)
+
+`c26b7b82`. Thieu — **VERON member, Dutch contest team** — by mail on
+2.0.7.1: *"Versie Brown 2071 brengt de afstemming in RTTY. Op hol, lijkt nog
+moeilijker te remmen dan 201. Wordt vervolgd"*.
+
+`focus_hz` anchored every mode holding a standard tone pair on the **pair**
+(dial + 2210 Hz for RTTY) whatever the radio. Right for a demod-audio source,
+where the dial is on a suppressed carrier; **backwards for an SDR**, where
+`Mode`'s own doc says RTTY stations are worked *"by moving the dial onto
+them"*. At 3 kHz of span the signal is still on screen two thirds off centre;
+at the 1 kHz you zoom to in order to read the tones — the span a contest
+operator runs — it is **outside the window altogether**. CTR is on by default,
+so nobody asked for it.
+
+**This is SSTV's split, applied to the mode next door.** `focus_hz` already
+handled SSTV with the argument written out — *"Only a demod-audio source. On
+an SDR the operator tunes the dial onto the picture"* — and RTTY never got
+it. That is the shape to look for next time: a decision settled for one mode
+and never applied to its twin.
+
+**Four tests were pinning the bug**, one by name:
+`rtty_anchors_on_the_tone_pair_not_the_dial` asserted the fault in prose
+(*"the dial is not even on screen, and anchoring the picture there takes the
+signal off the far edge"*). All four rewritten to hold both halves; fail-first
+message is *"the window left the station it is tuned to"*. **A test can pin a
+bug and read like a specification** — read what a test's *name* claims before
+trusting it.
+
+**Checked before editing, not after:** the log reads `Mode::on_air_hz`
+directly (`app/mod.rs`) and the transmitter uses it too (`engine.rs`), *not*
+`focus_hz`, so a NAVTEX or DSC decode is still recorded on the channel centre
+and not 1.7 kHz low. `click_sets_offset` deliberately untouched — a click in
+RTTY tunes the dial on every radio. CW's `cw_qrg` has the same shape and is
+**left alone on purpose**: it sits behind a named setting rather than being
+forced by the mode.
+
+**Two things the diagnosis cost, worth remembering.** `git log` on the RTTY
+files between the two tags finds **nothing** — only the zoom-out jitter fix
+touched the panadapter, the RTTY click commit `7c8a14c3` predates 2.0.1, and
+`on_air_hz`'s LSB sign is correct. So "what did you change" had no answer,
+and the reading that resolved it was **grammatical**: *"2071 **brengt**"* is
+present tense — he was describing 2.0.7.1's behaviour, not dating a
+regression. A reporter's tense is evidence. And his standing — VERON, contest
+team — is not colour: he tunes by dial in narrow views in a pile-up, which is
+exactly where a 2210 Hz anchor error is worst and where a casual listener
+would never notice it.
+
+**Still unproven.** No RTTY was found on 20 m or 40 m in a bench capture, and
+the detector had no positive control, so that proves nothing either way. The
+open question, asked and unanswered: **dial or click?** If he means clicking,
+this may not be his report at all.
+
 ## DAB status, 2026-10-11: confirmed on the air (Kevin, 2.0.7.3)
 
 **DAB+ is working end to end on a PlutoSDR at 2.5 Msps: "fort et clair", no
@@ -5443,11 +5550,20 @@ May 2028.
 ## The bench
 
 An **SDRplay RSP1** is attached to this machine and reachable through the
-SDRplay API service. `SoapySDRUtil --find` sees it as
-`driver = sdrplay, label = SDRplay Dev0 RSP1`; gain range 20–59 dB, 0.01–2000
-MHz, one RX channel. It samples real RF — a 5 s capture at 10 MHz with max gain
-showed the WWV/WWVH cluster around 10.000 MHz at ~30 dB over a ~1 dB noise
-floor — so it is usable for decoder bench work.
+SDRplay API service (`sdrplay_apiService`, running as a **system** unit — it
+is not `sdrplay_api` and `systemctl status sdrplay_api` says "could not be
+found", which reads like a missing dongle and is not). Gain range 20–59 dB,
+0.01–2000 MHz, one RX channel. It samples real RF — a 5 s capture at 10 MHz
+with max gain showed the WWV/WWVH cluster around 10.000 MHz at ~30 dB over a
+~1 dB noise floor — so it is usable for decoder bench work.
+
+> **Do not trust `SoapySDRUtil --find` on this box.** It reported *"No devices
+> found!"* on 2026-10-11 while **both** radios opened in the program without
+> trouble. `Backend::SdrPlay` and the `SoapySDRUtil` sdrplay driver do not go
+> through the same path, so the utility saying nothing says nothing about the
+> radio. It cost a wrong call on the bench before the RSP1 was reported
+> missing — the instrument was the first suspect and should have been the
+> first place to look.
 
 Two things worth keeping:
 
@@ -5458,6 +5574,15 @@ Two things worth keeping:
   reads back. It needs `soapysdr` as a direct dependency, which the root crate
   does not carry, so it lives outside the tree (a scratch crate that
   path-depends on `vendor/soapysdr`).
+- **`tools/rsp1-capture` cannot be built where it sits.** Cargo walks up,
+  finds the workspace root and refuses. Copy `src/` + `Cargo.toml` to a
+  scratch dir and append an empty `[workspace]` table to the copy.
+- **`rspcap` silently ignores the sample rate you give it.** On 2026-10-11 it
+  printed *"invalid sample rate. Sample rate unchanged."*, kept the radio's own
+  rate, and then wrote `rate × seconds` samples regardless — so every
+  frequency in the file was wrong while the file size looked exactly right. It
+  worked at 2.048 Msps and failed at 48 kHz. **Read `sample_rate()` back after
+  setting it and use that for the frequency axis.** Not yet fixed in the tool.
 - **Some channels are simply dead.** 2187.5 kHz (MF DSC) was flat noise over a
   3-minute watch here, and 8414.5 kHz had no burst in a 20 s capture; 40 m was
   busy at the same time. A missing signal is not a broken decoder — check a
