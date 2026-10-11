@@ -681,6 +681,7 @@ impl eframe::App for SdroxideApp {
             // The socket wakes the UI when the server answers; this is only so
             // a spinner-less "CHECKING…" cannot look like a hung window.
             crate::repaint::schedule_ms(&ctx, IDLE_POLL_MS);
+            crate::tooltip_copy::tick(&ctx);
             return;
         }
 
@@ -1545,6 +1546,9 @@ impl eframe::App for SdroxideApp {
         crate::repaint::schedule_ms(&ctx, wait_ms);
         let salt = u64::from(self.radio_id);
         self.konami.draw(ui, salt);
+        // Ctrl+C copies the tooltip on screen — after everything has drawn, so
+        // this frame's tooltip is there to be read.
+        crate::tooltip_copy::tick(&ctx);
     }
 
     fn save(&mut self, storage: &mut dyn eframe::Storage) {

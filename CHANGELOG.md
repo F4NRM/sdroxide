@@ -19,10 +19,13 @@ and the [README](https://github.com/madmedicnl/sdroxide-brown#readme).
   every other audio decoder, with the waterfall, on the dial and in the mode its
   name records. Pause, again, loop, seek; STOP puts the radio back. MP3, WAV,
   OGG, FLAC. Works from the browser (discussion #10).
+- **Ctrl+C copies the tooltip on screen** — every tooltip, so its text can be
+  pasted into a translator.
 
 ### Not proven
 - **Playback** — tested on generated files and a recorder-written MP3, not yet
   on a real off-air recording.
+- **Tooltip copy in the browser** — unit-tested, not yet tried in a browser.
 
 ## [2.0.7.1_brown] - 2026-10-10
 

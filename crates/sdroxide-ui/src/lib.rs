@@ -48,6 +48,7 @@ mod solar3d;
 mod sstv;
 pub mod theme;
 mod time;
+mod tooltip_copy;
 mod touch_lock;
 mod view;
 mod wake_lock;
