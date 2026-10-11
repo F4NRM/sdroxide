@@ -1782,8 +1782,15 @@ use sdroxide_types::{
 /// could not hold them and the questions came back every session.
 /// `PROTO_VERSION` 201 → 202, `VERSION_BYTE` 0x15 → 0x16. A downstream (fork)
 /// change.
-pub const PROTO_VERSION: u16 = 202;
-const VERSION_BYTE: u8 = 0x16;
+///
+/// v203: playing a recording back into the decoders (fork discussion #10).
+/// `Command` gains `Playback(PlaybackCommand)` and `ListRecordings`, both last;
+/// `ServerMsg` gains `Recordings(RecordingListing)` last; and `RadioState`
+/// gains `playback: Option<PlaybackStatus>` at its tail, which changes the
+/// layout of every state frame. `PROTO_VERSION` 202 → 203, `VERSION_BYTE`
+/// 0x16 → 0x17. A downstream (fork) change.
+pub const PROTO_VERSION: u16 = 203;
+const VERSION_BYTE: u8 = 0x17;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ProtoError {
@@ -2318,6 +2325,13 @@ pub enum ServerMsg {
     ///
     /// Appended last, for the usual reason.
     ClientAcks(sdroxide_types::ClientAcks),
+
+    /// `RadioEvent::Recordings`: the station's recordings directory, answering
+    /// a `Command::ListRecordings`. Sent once per question — the files are on
+    /// the station, so this is the only way a browser can see them.
+    ///
+    /// Appended last, for the usual reason.
+    Recordings(sdroxide_types::RecordingListing),
 }
 
 /// What [`ServerMsg::ClientSettings`] carries.
@@ -2471,6 +2485,50 @@ mod tests {
         // keeps no table, rather than an empty band.
         let no_table = ServerMsg::KnownCalls(None);
         assert_eq!(decode::<ServerMsg>(&encode(&no_table).unwrap()).unwrap(), no_table);
+
+        // Playback (fork discussion #10): every control, the listing question
+        // and its answer, and a state carrying a playback at its tail. All
+        // appended, so a discriminant or field-order slip shows here.
+        for c in [
+            sdroxide_types::PlaybackCommand::Open { name: "pass.mp3".into() },
+            sdroxide_types::PlaybackCommand::Pause(true),
+            sdroxide_types::PlaybackCommand::Seek(12.5),
+            sdroxide_types::PlaybackCommand::Loop(true),
+            sdroxide_types::PlaybackCommand::Stop,
+        ] {
+            let cmd = Command::Playback(c);
+            assert_eq!(decode::<Command>(&encode(&cmd).unwrap()).unwrap(), cmd);
+        }
+        let ask_list = Command::ListRecordings;
+        assert_eq!(decode::<Command>(&encode(&ask_list).unwrap()).unwrap(), ask_list);
+        let listing = ServerMsg::Recordings(sdroxide_types::RecordingListing {
+            dir: "/home/op/Music/sdroxide".into(),
+            files: vec![sdroxide_types::RecordingFile {
+                name: "sdroxide_2026-10-06_10-00-05Z_14.230000MHz_SSTV.mp3".into(),
+                bytes: 1_234_567,
+                modified_unix: 1_791_280_900,
+                iq: false,
+            }],
+            error: None,
+        });
+        assert_eq!(decode::<ServerMsg>(&encode(&listing).unwrap()).unwrap(), listing);
+        let mut state = sdroxide_types::RadioState::default();
+        state.playback = Some(sdroxide_types::PlaybackStatus {
+            name: "pass.mp3".into(),
+            position_s: 3.25,
+            duration_s: Some(120.0),
+            paused: false,
+            looping: true,
+            ended: false,
+            rate_hz: 48_000,
+            channels: 2,
+            stamp: sdroxide_types::playback::parse_recording_name(
+                "sdroxide_2026-10-06_10-00-05Z_14.230000MHz_SSTV.mp3",
+            ),
+            fault: None,
+        });
+        let frame = ServerMsg::State(state);
+        assert_eq!(decode::<ServerMsg>(&encode(&frame).unwrap()).unwrap(), frame);
 
         // The CW paddle contacts, and both closed at once — the case that
         // matters, since it is the one where two contacts share an element.

@@ -4264,6 +4264,23 @@ impl SdroxideApp {
         if let Some(f) = &self.state.iq_recording_file {
             ui.label(RichText::new(f).size(9.5).color(crate::theme::CYAN_DIM()));
         }
+
+        // The other half of the recorder: put a recording back through the
+        // decoders (fork discussion #10).
+        crate::chrome::menu_caption(ui, "Play back");
+        ui.horizontal_wrapped(|ui| {
+            let playing = self.state.playback.is_some();
+            if crate::chrome::chip(ui, self.playback.show || playing, "▶ RECORDINGS…")
+                .on_hover_text(
+                    "Play a recording back into the decoders — a missed SSTV picture, a weak \
+                     RTTY or CW signal, an FT8 slot — with the waterfall and the decode log, as \
+                     if it were on the air. The radio stands down while it plays.",
+                )
+                .clicked()
+            {
+                self.playback.open();
+            }
+        });
     }
 
     /// The engine row and the strength row. Its own function because a menu has

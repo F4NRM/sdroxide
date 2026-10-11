@@ -1274,6 +1274,8 @@ fn handle_event(shared: &Shared, ev: RadioEvent) {
             // any other engine event: the hash table being asked about is the
             // server's, and a client asking is asking about this station.
             RadioEvent::KnownCalls(reply) => Some(ServerMsg::KnownCalls(reply)),
+            // Likewise the recordings list: the files are this station's.
+            RadioEvent::Recordings(listing) => Some(ServerMsg::Recordings(listing)),
         }
     };
     // The satellite half of the station config also drives this machine's own
