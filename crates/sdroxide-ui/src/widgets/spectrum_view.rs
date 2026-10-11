@@ -1215,6 +1215,44 @@ impl TraceEntry {
     }
 }
 
+/// Where an offset marker should be pinned when the window does not hold it,
+/// and how far it is. Drawn at the edge so a mode's fixed offset stays visible
+/// at any zoom — see the draw site for why the silence is the bug.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum OffsetHint {
+    /// Below the window's low edge, this many hertz.
+    Left(f64),
+    /// Above its high edge, this many hertz.
+    Right(f64),
+}
+
+/// The edge a marker at `hz` should say so from, or `None` when the window
+/// already holds it.
+///
+/// Pure, so the decision is testable without a GPU — the drawing around it is
+/// not. The distance goes to the **nearer** edge, so it is the smallest number
+/// that says where to zoom out to.
+fn offset_edge_hint(lo: f64, hi: f64, hz: f64) -> Option<OffsetHint> {
+    if (lo..=hi).contains(&hz) {
+        return None;
+    }
+    let (d, left) = if hz < lo { (lo - hz, true) } else { (hz - hi, false) };
+    // A marker a hertz past the edge has not gone anywhere, and a hint that
+    // flickers on and off with sub-hertz jitter is worse than none at all.
+    if d <= 1.0 {
+        return None;
+    }
+    Some(if left { OffsetHint::Left(d) } else { OffsetHint::Right(d) })
+}
+
+/// The label, with the arrow on the side the offset lies.
+fn offset_hint_text(hint: OffsetHint) -> String {
+    match hint {
+        OffsetHint::Left(d) => format!("\u{25c0} tones {d:.0} Hz"),
+        OffsetHint::Right(d) => format!("{d:.0} Hz tones \u{25b6}"),
+    }
+}
+
 /// An audio-offset cursor on the panadapter: a marker at `dial + hz`, and what
 /// a left-click on the waterfall means while it is there.
 #[derive(Clone, Copy, Debug)]
@@ -2567,6 +2605,29 @@ pub fn show_ext(
                 x,
                 wf_rect.y_range(),
                 Stroke::new(1.5, Color32::from_rgba_unmultiplied(0, 208, 244, 160)),
+            );
+        } else if let Some(hint) = offset_edge_hint(view.view_lo_hz, view.view_hi_hz, hz) {
+            // **Off screen is not the same as absent.**
+            //
+            // A mode that holds its tones a fixed distance from the dial has to
+            // keep saying so when a narrow zoom leaves them outside the window.
+            // RTTY at 1 kHz of span — a normal contest view — otherwise shows no
+            // trace of an offset at all, and the operator cannot tell that from a
+            // mode that has none. That silence is what makes a working
+            // configuration read as a fault.
+            let left = matches!(hint, OffsetHint::Left(_));
+            let x = if left { rect.left() + 1.0 } else { rect.right() - 1.0 };
+            let ink = Color32::from_rgba_unmultiplied(0, 208, 244, 190);
+            painter.vline(x, wf_rect.y_range(), Stroke::new(1.0, ink));
+            // `painter.text` and the panadapter's own labels — the manual galley
+            // call drew the rule and not the words, which is not a thing to
+            // work out twice.
+            painter.text(
+                pos2(x, wf_rect.top() + 2.0),
+                if left { Align2::LEFT_TOP } else { Align2::RIGHT_TOP },
+                offset_hint_text(hint),
+                FontId::proportional(9.5 * crate::theme::panadapter_font_scale()),
+                ink,
             );
         }
     }
@@ -4283,5 +4344,56 @@ mod tests {
     fn no_outer_window_before_the_passband_is_known() {
         let pan = WindowPan::default().with_outer(Some((1e6, 30e6)), 0.0);
         assert_eq!(pan.outer, None);
+    }
+}
+
+#[cfg(test)]
+mod offset_hint_tests {
+    use super::{OffsetHint, offset_edge_hint, offset_hint_text};
+
+    /// The window holds the marker: nothing to say, because the line is drawn
+    /// where it belongs and a hint would be a second copy of it.
+    #[test]
+    fn a_marker_inside_the_window_says_nothing() {
+        assert_eq!(offset_edge_hint(14_080_000.0, 14_090_000.0, 14_085_000.0), None);
+        // Edges included — a marker exactly on an edge is drawn, not flagged.
+        assert_eq!(offset_edge_hint(14_080_000.0, 14_090_000.0, 14_080_000.0), None);
+        assert_eq!(offset_edge_hint(14_080_000.0, 14_090_000.0, 14_090_000.0), None);
+    }
+
+    /// The case the whole thing exists for: RTTY at a 1 kHz contest view, where
+    /// the 2210 Hz tone pair is outside the window and used to leave no trace.
+    #[test]
+    fn a_narrow_view_still_says_the_tones_are_there() {
+        let dial = 14_085_000.0;
+        let tones = dial + 2210.0;
+        // 1 kHz of span, centred on the dial — the signal, and nothing else.
+        let lo = dial - 500.0;
+        let hi = dial + 500.0;
+        assert_eq!(offset_edge_hint(lo, hi, tones), Some(OffsetHint::Right(1710.0)));
+        assert_eq!(offset_hint_text(OffsetHint::Right(1710.0)), "1710 Hz tones \u{25b6}");
+    }
+
+    /// The arrow has to point the way the offset lies, or it is worse than
+    /// nothing: an operator zooming the wrong way.
+    #[test]
+    fn the_arrow_points_at_the_offset() {
+        // LSB, so the tone pair sits *below* the dial.
+        let dial = 7_040_000.0;
+        let lo = dial - 500.0;
+        let hi = dial + 500.0;
+        assert_eq!(offset_edge_hint(lo, hi, dial - 2210.0), Some(OffsetHint::Left(1710.0)));
+        assert_eq!(offset_hint_text(OffsetHint::Left(1710.0)), "\u{25c0} tones 1710 Hz");
+    }
+
+    /// The distance is to the nearer edge, so it is the smallest honest
+    /// number — and a hint that flickers on sub-hertz jitter is worse than
+    /// silence.
+    #[test]
+    fn it_measures_to_the_nearer_edge_and_stays_quiet() {
+        assert_eq!(offset_edge_hint(0.0, 1000.0, 1400.0), Some(OffsetHint::Right(400.0)));
+        assert_eq!(offset_edge_hint(0.0, 1000.0, -1400.0), Some(OffsetHint::Left(1400.0)));
+        assert_eq!(offset_edge_hint(0.0, 1000.0, 1000.4), None, "a marker a fraction over");
+        assert_eq!(offset_edge_hint(0.0, 1000.0, -0.4), None, "and on the other side");
     }
 }
