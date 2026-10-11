@@ -15001,6 +15001,13 @@ The native remote client (`sdroxide --connect`) has no such restriction — it
 uses your local sound devices directly and carries audio over the same
 WebSocket.
 
+**The first touch starts the sound.** Even on a secure page, a browser will not
+play audio until you have interacted with it. So a fresh session, or one
+reloaded with **F5**, is silent at first. **Click, tap or press a key anywhere
+on the page** — the waterfall, an empty area, any control — and the sound
+starts. You do not need to touch the volume. This is the browser's autoplay
+rule, not a fault, and an installed web app follows it too.
+
 ### 9.4 Behind a reverse proxy on a subpath
 
 The web client works from any path, not only the root. Behind a reverse proxy
