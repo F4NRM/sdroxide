@@ -12352,6 +12352,17 @@ spoken announcements below them under `[speech]`:
   Nothing is turned off, only hidden: clear the tick to bring the chips back.
   The radio keeps working exactly as before, so it is safe to leave on and
   switch off for a moment when you want the extras.
+- **Wake lock** — tick **keep the screen on** and a phone or tablet left on the
+  waterfall does not dim and lock itself (stored as `keep_screen_on` under
+  `[ui]`, off by default). Browser only, and it needs an https page; the line
+  beside the box says when it is unavailable or refused. Kept with your profile
+  on the server, like the rest of the screen.
+- **Sound welcome** — tick **welcome message for the sound** (on by default,
+  stored as `sound_welcome` under `[ui]`) and the web page, when it opens or is
+  reloaded with **F5**, says in the middle of the screen how to start the sound
+  ([9.3](#93-audio-needs-a-secure-context)). Untick it once you know: the sound
+  still waits for your first touch, and that touch then works as usual. Kept
+  with your profile on the server.
 - **Start in SWL mode** — tick **start with SWL mode on** and every session
   comes up with SWL mode already on (stored as `start_swl` under `[ui]`). Off
   unless asked for; the **SWL mode** switch above still turns it off for a
@@ -14849,7 +14860,7 @@ typed and said no.
   on its own; *remember* is what makes that invisible.
 - **Where your screen settings live.** A remote client's own screen — the theme,
   layout, waterfall and spectrum look, fonts, Simple UI, the map
-  layers — is kept **in this browser** by default, private to the browser and
+  layers, the wake lock and the sound welcome message — is kept **in this browser** by default, private to the browser and
   forgotten when its storage is cleared. **Settings → UI → Screen settings on**
   can instead keep it **on the server**, against the profile you signed in as
   (or the station default when that profile has none), so the screen follows the
@@ -15000,6 +15011,38 @@ ssh -N -L 4950:localhost:4950 user@radio-host
 The native remote client (`sdroxide --connect`) has no such restriction — it
 uses your local sound devices directly and carries audio over the same
 WebSocket.
+
+**The first touch starts the sound.** Even on a secure page, a browser will not
+play audio until you have interacted with it. So a fresh session, or one
+reloaded with **F5**, is silent at first, and a large yellow message sits in
+the middle of the screen:
+
+> 🔇 Tap, click or press a key anywhere to start the sound
+
+**This message does not mean the session has failed.** The connection is up,
+the waterfall runs and the radio is working; only the sound is waiting for you.
+**Click, tap or press a key** — anywhere on the page, with a mouse, a
+laptop touchpad, a finger or the keyboard — and the sound starts and the
+message goes away. You do not need to touch the volume. That first gesture
+does nothing else, wherever it lands: it does not tune, press a button, move
+the waterfall or run a keyboard shortcut, so a receiver you are coming back to
+keeps its frequency. From the next gesture on, the page works as usual.
+
+While the message is up, moving the mouse, scrolling or pinching on a touchpad
+does nothing at all, and does not start the sound either: the browser does not
+count those as a gesture. Click, tap or press a key.
+
+This is the browser's autoplay rule, not a fault, and an installed web app
+follows it too. The message is shown only when the page opens — a new session,
+or a reload with **F5** — and never again during the session, whatever happens
+to the sound later (a network drop, a stutter, a cut).
+
+Once you know what to do, untick **Settings → UI → Sound welcome**: the message
+goes at once and does not come back at the next opening. The sound still waits
+for your first touch, and that touch then works as usual. The setting is kept
+with your profile on the server, so it follows you to another device; that
+device shows the message once more at its very first opening, until it has
+heard your answer from the server.
 
 ### 9.4 Behind a reverse proxy on a subpath
 

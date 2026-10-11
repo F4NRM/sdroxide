@@ -277,8 +277,9 @@ be locked with no way out. Desktop tier: no padlock. Guard:
 through the lock`).
 
 Its partner is **Wake lock** (Settings → UI, under Simple UI,
-`UiSettings::keep_screen_on`, off by default, not in `ClientScreen` — it is per
-device): the browser's Screen Wake Lock, re-asked every frame it is wanted and
+`UiSettings::keep_screen_on`, off by default; **in `ClientScreen` since v205**,
+at Kevin's request, so it is remembered with the profile on the server rather
+than per device): the browser's Screen Wake Lock, re-asked every frame it is wanted and
 missing because the browser drops it whenever the page is hidden
 (`wake_lock::keep_awake`). Needs https; the row says when it is unavailable,
 refused, or (installed program) browser-only. Not driven in a real browser here.

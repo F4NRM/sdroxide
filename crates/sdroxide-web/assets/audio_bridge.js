@@ -52,6 +52,109 @@
         else window.addEventListener("DOMContentLoaded", show, { once: true });
     }
 
+    // Until the first gesture there is no context at all, so the page is
+    // silent and nothing on screen said why: operators found the cure by
+    // accident, on the volume slider. Name it instead, in the middle of the
+    // screen in large type: a beginner reading the page as broken is the
+    // failure it exists to prevent. It is shown only when the page loads (a
+    // new session, or F5), never again later in the session.
+    //
+    // While the hint is up, the first click, tap or key starts the sound and
+    // does nothing else, wherever it lands, and moving the mouse does nothing
+    // at all (a move is not a gesture to the browser, so it cannot start the
+    // sound). The hint is a transparent layer over the whole page with the
+    // message in its middle; keys are held back by `keyGuard`. An operator coming back to a running
+    // receiver must not lose the frequency to the tap that brings the sound
+    // back, and the waterfall, where a tap tunes, is most of the screen. The
+    // window's capture listener sees the gesture first (that is what starts
+    // the context); the layer then keeps the events from the page.
+    let hint = null;
+    // Settings → UI → Sound welcome. The program owns the setting (it is kept
+    // with the profile on the server) but loads after this page has drawn,
+    // so the last answer is remembered on this device to decide the opening.
+    const WELCOME_KEY = "sdroxide-sound-welcome";
+    function welcomeWanted() {
+        try {
+            return localStorage.getItem(WELCOME_KEY) !== "0";
+        } catch (e) {
+            return true;
+        }
+    }
+    // A press that began on the hint: its release and click must not reach
+    // the page either, so the hint outlives the gesture that removed it.
+    let hintBusy = false;
+    let hintHidePending = false;
+
+    function swallow(ev) {
+        ev.stopPropagation();
+        if (ev.cancelable) ev.preventDefault();
+    }
+
+    function hintPress(ev) {
+        hintBusy = true;
+        swallow(ev);
+    }
+
+    function hintRelease(ev) {
+        swallow(ev);
+        // The click (and a touch's compatibility mouse events) follow the
+        // release; let them land on the hint before it goes.
+        setTimeout(() => {
+            hintBusy = false;
+            if (hintHidePending) hideHint();
+        }, 400);
+    }
+
+    function showHint() {
+        hintHidePending = false;
+        if (hint || location.search.includes("view=solar")) return;
+        const put = () => {
+            if (hint) return;
+            hint = document.createElement("div");
+            hint.style.cssText =
+                "position:fixed;inset:0;z-index:9998;background:transparent;" +
+                "cursor:pointer;touch-action:none";
+            const box = document.createElement("div");
+            box.style.cssText =
+                "position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);" +
+                "padding:24px 32px;border-radius:12px;" +
+                "font:bold clamp(22px,5vw,44px)/1.3 system-ui,sans-serif;" +
+                "background:rgba(74,48,0,0.92);color:#ffd479;" +
+                "border:2px solid #7a5000;box-sizing:border-box;" +
+                "width:max-content;max-width:min(90vw,22em);" +
+                "text-align:center;box-shadow:0 4px 24px rgba(0,0,0,0.6)";
+            box.textContent = "\u{1F507} Tap, click or press a key anywhere to start the sound";
+            hint.appendChild(box);
+            const opts = { passive: false };
+            for (const ev of ["pointerdown", "touchstart", "mousedown"]) {
+                hint.addEventListener(ev, hintPress, opts);
+            }
+            for (const ev of ["pointerup", "touchend", "mouseup", "pointercancel", "touchcancel"]) {
+                hint.addEventListener(ev, hintRelease, opts);
+            }
+            for (const ev of ["click", "dblclick", "contextmenu", "wheel",
+                              "pointermove", "mousemove", "touchmove",
+                              "pointerover", "pointerout", "mouseover", "mouseout"]) {
+                hint.addEventListener(ev, swallow, opts);
+            }
+            document.body.appendChild(hint);
+        };
+        if (document.body) put();
+        else window.addEventListener("DOMContentLoaded", put, { once: true });
+    }
+
+    function hideHint() {
+        if (hintBusy) {
+            hintHidePending = true;
+            return;
+        }
+        hintHidePending = false;
+        if (hint) {
+            hint.remove();
+            hint = null;
+        }
+    }
+
     async function init() {
         if (initStarted) return;
         initStarted = true;
@@ -63,8 +166,10 @@
             // "running" rather than listing the states we know about.
             ctx.onstatechange = () => {
                 console.log("sdroxide audio: context state", ctx.state);
-                if (ctx.state !== "running") resumeCtx();
+                if (ctx.state === "running") hideHint();
+                else resumeCtx();
             };
+            if (ctx.state === "running") hideHint();
             // Start the module fetch but do NOT await it yet: resume() has to
             // be called while the gesture's transient activation is still
             // alive, and on WebKit that is gone by the time an await resolves.
@@ -162,7 +267,26 @@
         }
     }
 
-    function onGesture() {
+    // The key that starts the sound must not also reach the page, where it
+    // could be a tuning shortcut. Registered on the window, in the capture
+    // phase, BEFORE onGesture: that one may start the context and remove the
+    // hint at once, and this must still see it up. stopPropagation (not the
+    // immediate kind) keeps the key from the page and still lets onGesture
+    // run. The key's own release and repeat are held back with it.
+    const heldKeys = new Set();
+
+    function keyGuard(ev) {
+        if (ev.type === "keydown" && hint) heldKeys.add(ev.code);
+        if (!heldKeys.has(ev.code)) return;
+        if (ev.type === "keyup") heldKeys.delete(ev.code);
+        swallow(ev);
+    }
+
+    function onGesture(ev) {
+        // Mark a press on the hint before init() runs: a context that starts
+        // at once removes the hint synchronously, and the release and click
+        // of this same tap would then fall through to the waterfall.
+        if (hint && ev && hint.contains(ev.target)) hintBusy = true;
         init();
         resumeCtx();
         if (micWanted) startMic();
@@ -171,12 +295,16 @@
     if (INSECURE) {
         warnInsecure();
     } else {
+        if (welcomeWanted()) showHint();
         // Capture phase, and not just "click": eframe's canvas handlers call
         // preventDefault() on touchstart -- which stops WebKit synthesizing the
         // compatibility mouse events, so a touch device never fires "click" at
         // all -- and stopPropagation() on touchstart and pointerdown, which
         // keeps bubble-phase window listeners from ever running. Capture runs
         // before the canvas target, so neither can hide the gesture from us.
+        for (const ev of ["keydown", "keypress", "keyup"]) {
+            window.addEventListener(ev, keyGuard, { capture: true, passive: false });
+        }
         const opts = { capture: true, passive: true };
         for (const ev of ["pointerdown", "touchstart", "touchend", "click", "keydown"]) {
             window.addEventListener(ev, onGesture, opts);
@@ -206,6 +334,18 @@
             }
             micChunks = [];
             return out;
+        },
+        // The program's Sound welcome setting. Off: the message goes now and
+        // is not shown at the next opening. On: remembered for the next
+        // opening, never shown mid-session.
+        setSoundWelcome: function (on) {
+            try {
+                localStorage.setItem(WELCOME_KEY, on ? "1" : "0");
+            } catch (e) {}
+            if (!on) {
+                hintBusy = false;
+                hideHint();
+            }
         },
         setMicActive: function (active) {
             micWanted = !!active;
