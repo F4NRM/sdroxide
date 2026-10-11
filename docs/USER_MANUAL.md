@@ -15003,12 +15003,22 @@ WebSocket.
 
 **The first touch starts the sound.** Even on a secure page, a browser will not
 play audio until you have interacted with it. So a fresh session, or one
-reloaded with **F5**, is silent at first. **Click, tap or press a key anywhere
-on the page** — the waterfall, an empty area, any control — and the sound
-starts. You do not need to touch the volume. This is the browser's autoplay
-rule, not a fault, and an installed web app follows it too. Until then a
-yellow hint at the bottom of the page says so, and it goes away as the sound
-starts.
+reloaded with **F5**, is silent at first, and a large yellow message sits in
+the middle of the screen:
+
+> 🔇 Tap, click or press a key anywhere to start the sound
+
+**This message does not mean the session has failed.** The connection is up,
+the waterfall runs and the radio is working; only the sound is waiting for you.
+**Click, tap or press a key anywhere on the page** — the waterfall, an empty
+area, any control — and the sound starts and the message goes away. You do not
+need to touch the volume. The message lets a click through to whatever is under
+it, so a tap on the waterfall tunes as well.
+
+This is the browser's autoplay rule, not a fault, and an installed web app
+follows it too. The message can come back on its own after the app has been in
+the background, if the browser stopped the sound there; the same touch brings
+it back.
 
 ### 9.4 Behind a reverse proxy on a subpath
 
