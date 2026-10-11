@@ -258,7 +258,7 @@ impl SdroxideApp {
             }
             ui.separator();
             ui.label(
-                RichText::new(format!("{} UTC", crate::time::utc_clock(now)))
+                RichText::new(crate::time::utc_and_local_now(now))
                     .monospace()
                     .color(crate::theme::CYAN()),
             );

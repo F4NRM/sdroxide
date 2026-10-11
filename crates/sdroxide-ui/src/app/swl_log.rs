@@ -407,7 +407,7 @@ impl SdroxideApp {
         crate::chrome::window_body_bg(ui);
         ui.horizontal(|ui| {
             ui.label(
-                RichText::new(format!("{} UTC", crate::time::utc_clock(now_unix())))
+                RichText::new(crate::time::utc_and_local_now(now_unix()))
                     .monospace()
                     .color(crate::theme::CYAN()),
             );

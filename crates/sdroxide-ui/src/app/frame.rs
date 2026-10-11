@@ -209,6 +209,22 @@ fn centred_waterfall_note(ui: &egui::Ui, area: egui::Rect, text: &str) {
     p.galley(box_rect.center() - galley.size() / 2.0, galley, ink);
 }
 
+/// The wall clock, top-right of the panadapter: UTC and the operator's own
+/// local time, so a listener always has both in view (#655). Draw-only over the
+/// picture — it never reflows the strip — and the local half is dropped when
+/// the operator is already on UTC.
+fn paint_panadapter_clock(ui: &egui::Ui, area: egui::Rect) {
+    let text = crate::time::utc_and_local_now(crate::time::now_unix());
+    let p = ui.painter_at(area);
+    let ink = egui::Color32::LIGHT_GRAY;
+    let galley = p.layout_no_wrap(text, egui::FontId::proportional(11.0), ink);
+    let size = galley.size() + egui::vec2(12.0, 7.0);
+    let rect =
+        egui::Rect::from_min_size(egui::pos2(area.right() - size.x - 8.0, area.top() + 8.0), size);
+    p.rect_filled(rect, 4.0, egui::Color32::from_black_alpha(150));
+    p.galley(rect.center() - galley.size() / 2.0, galley, ink);
+}
+
 /// The dial as a large readout string, MHz with trailing zeros trimmed —
 /// "27.265", "144.8", "10.1206". Shared by the detached panadapter's overlay.
 #[cfg(not(target_arch = "wasm32"))]
@@ -1826,6 +1842,7 @@ impl SdroxideApp {
                 self.view.auto_fit = false;
             }
             paint_panadapter_chrome(ui, area);
+            paint_panadapter_clock(ui, area);
             if self.levels_hidden(now) && levels_hidden_chip(ui, spec_area) {
                 self.view.auto_fit = true;
                 self.fit_levels_now(now);
