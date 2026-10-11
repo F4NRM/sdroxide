@@ -1795,8 +1795,14 @@ use sdroxide_types::{
 /// `VERSION_BYTE` 0x17 → 0x18, so a v203 station refuses the client cleanly
 /// instead of failing to read a variant it does not have. A downstream (fork)
 /// change.
-pub const PROTO_VERSION: u16 = 204;
-const VERSION_BYTE: u8 = 0x18;
+///
+/// v205: the web client's welcome message for the sound, and the wake lock
+/// kept with the profile. `ClientScreen` gains `sound_welcome: bool` and
+/// `keep_screen_on: bool` at its tail, so the screen a profile carries changes
+/// layout. `PROTO_VERSION` 204 → 205, `VERSION_BYTE` 0x18 → 0x19. A
+/// downstream (fork) change.
+pub const PROTO_VERSION: u16 = 205;
+const VERSION_BYTE: u8 = 0x19;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ProtoError {
