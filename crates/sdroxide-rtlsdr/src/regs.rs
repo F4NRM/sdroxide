@@ -267,13 +267,19 @@ mod tests {
     /// reference. If someone adds a rate to `SAMPLE_RATES` that the hardware
     /// can only approximate, this test says so before a user finds it as a
     /// frequency error.
+    ///
+    /// One rate is offered knowing it is approximate: **2.5 Msps**, the DAB /
+    /// DAB+ reference, comes out as 2 500 000.11 Hz — a tenth of a hertz, which
+    /// the driver reports as the achieved rate and which no decoder notices. It
+    /// is pinned at that error, so a larger one still fails.
     #[test]
     fn every_offered_rate_is_representable() {
         for rate in sdroxide_types::RtlSdrConfig::SAMPLE_RATES {
             assert!(rate_supported(rate as u32), "{rate} Hz is outside the resampler's windows");
             let (_, achieved) = resamp_ratio(RTL_XTAL_HZ, rate as u32);
+            let allowed = if rate == 2_500_000.0 { 0.2 } else { 0.01 };
             assert!(
-                (achieved - rate).abs() < 0.01,
+                (achieved - rate).abs() < allowed,
                 "offered rate {rate} Hz is only reachable as {achieved} Hz"
             );
         }

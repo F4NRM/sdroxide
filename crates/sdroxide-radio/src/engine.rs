@@ -19278,39 +19278,19 @@ mod rig_mode_class_tests {
         assert_eq!(DAB_PRIME_SAMPLES, 1152, "one Access Unit per channel at 48 kHz");
     }
 
-    /// Fork #18: the DAB warning advised widening the receiver even on a front
-    /// end where **no** setting widens the DAB window, so it kept telling the
-    /// operator to change something that could not move the number. Kevin
-    /// reported it still showing after raising the rate to 5 Msps.
-    ///
-    /// The window target is capped at `DAB_SAMPLE_RATE` and `rate_for` takes the
-    /// rung nearest that target, so the window never rises above the cap and
-    /// `DAB_GOOD_RATE_HZ` is unreachable at *any* device rate. If the arithmetic
-    /// assertions below ever fail, a front end has become able to widen the
-    /// window — and the wording is what would then have to change.
+    /// 2.5 Msps is the DAB reference (confirmed on a Pluto, Kevin 2.0.7.3):
+    /// a receiver that lands the lane there gets no warning, which is the
+    /// nag fork #18 reported at 5 Msps. A narrower one is told to widen,
+    /// because 2.5 Msps is within reach.
     #[test]
-    fn dab_widening_is_only_advised_where_it_widens() {
-        // The reported setup: 5 Msps, window lands at 2.5.
+    fn dab_warns_only_below_the_two_and_a_half_msps_reference() {
         assert_eq!(dab_window_rate(5_000_000.0), 2_500_000.0, "the window the report saw");
+        assert_eq!(dab_degraded_message(5_000_000.0), None, "5 Msps lands on the reference");
+        assert_eq!(dab_degraded_message(2_500_000.0), None, "2.5 Msps is the reference");
 
-        // The reported sentence, asserted on the message itself — this is the
-        // half that fails against the old wording.
-        let said = dab_degraded_message(5_000_000.0).expect("2.5 Msps is below the margin");
-        assert!(
-            !said.contains("widen the receiver"),
-            "still advises widening where no setting can widen it: {said}"
-        );
-        assert!(said.contains("cannot reach it at any setting"), "{said}");
-
-        // Same answer across the range of front ends, which is why this was a
-        // permanent nag rather than one mis-set control.
-        for rate in [1_000_000.0, 1_536_000.0, 2_000_000.0, 2_500_000.0, 3_000_000.0] {
-            assert!(!dab_widening_helps(rate), "{rate:.0} sps: claimed widening would help");
-            assert!(
-                dab_window_rate(rate) < sdroxide_dab::DAB_GOOD_RATE_HZ,
-                "{rate:.0} sps: the margin became reachable, re-check the wording"
-            );
-        }
+        let said = dab_degraded_message(2_000_000.0).expect("2.0 Msps is below the reference");
+        assert!(said.contains("2.50 Msps"), "names the reference: {said}");
+        assert!(dab_widening_helps(2_000_000.0));
     }
 }
 

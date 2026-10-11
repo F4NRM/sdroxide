@@ -3045,25 +3045,6 @@ impl SdroxideApp {
                         );
                     }
                 }
-                // **The DAB lane advice, beside the rate it is about.** Kevin
-                // asked for this to move out of the decoder's popup and into
-                // the radio tab (#18), so it is acted on where the sample rate
-                // is set rather than hunted for. Offered only where the radio
-                // can reach Band III at all — an HF-only front end has no DAB
-                // to advise about — and dismissible for good once read.
-                if self.caps.as_ref().is_some_and(|c| c.can_rx_hz(200_000_000.0)) {
-                    if let Some(advice) = dab_rate_advice(self.state.sample_rate) {
-                        // Dismissal rides `io.ui_edit`, which `settings_window`
-                        // writes back and persists for the whole tab body.
-                        crate::chrome::advisory(
-                            ui,
-                            io.ui_edit,
-                            "dab-rate",
-                            &advice,
-                            crate::theme::YELLOW(),
-                        );
-                    }
-                }
                 ui.separator();
                 ui.horizontal(|ui| {
                     // The same button either way: it reopens whichever radio
@@ -4679,64 +4660,6 @@ impl SdroxideApp {
                 ui.close();
             }
         });
-    }
-}
-
-/// The DAB lane advice for the radio tab, for a receiver running at
-/// `sample_rate`. `None` when the lane is already wide enough.
-///
-/// Uses the same arithmetic as the engine's warning
-/// ([`sdroxide_dsp::dab_window_rate`]) so the two can never disagree. Worded
-/// for the tab that owns the rate: it says what to raise, or — where the
-/// decimation ladder cannot reach the margin at any setting — that the ceiling
-/// belongs to the receiver, rather than handing out advice that changes
-/// nothing. Split out so the wording can be asserted.
-fn dab_rate_advice(sample_rate: f64) -> Option<String> {
-    let rate = sdroxide_types::dab_window_rate(sample_rate);
-    if rate >= sdroxide_types::DAB_GOOD_RATE_HZ {
-        return None;
-    }
-    let good = sdroxide_types::DAB_GOOD_RATE_HZ / 1e6;
-    let here = rate / 1e6;
-    Some(if sdroxide_types::dab_widening_helps(sample_rate) {
-        format!(
-            "DAB / DAB+ wants a {good:.2} Msps lane for margin and this receiver gives \
-             {here:.3} Msps. Raise the sample rate above — a wider front end is the only \
-             thing that widens the lane."
-        )
-    } else {
-        format!(
-            "DAB / DAB+ wants a {good:.2} Msps lane for margin and this receiver gives \
-             {here:.3} Msps. No sample rate on this front end reaches it: the lane is \
-             capped by the receiver, so widening the rate will not change this."
-        )
-    })
-}
-
-#[cfg(test)]
-mod dab_rate_advice_tests {
-    use super::dab_rate_advice;
-
-    /// The report the sentence had to stop making (fork #18): on an SDRplay at
-    /// 5 Msps the window is 2.5 and **no setting** widens it, so the advice
-    /// must say the ceiling is the receiver's rather than "widen the window".
-    #[test]
-    fn the_advice_never_tells_the_operator_to_widen_an_uncappable_lane() {
-        let said = dab_rate_advice(5_000_000.0).expect("2.5 Msps is below the margin");
-        assert!(said.contains("2.500 Msps"), "names the lane it is on: {said}");
-        assert!(said.contains("No sample rate on this front end reaches it"), "{said}");
-        assert!(!said.contains("Raise the sample rate"), "not advice that cannot work: {said}");
-    }
-
-    /// The lane is capped by the DAB target, not the device rate, so **every**
-    /// setting lands below the margin — the arithmetic the wording rests on.
-    /// If this ever stops being true (a front end whose ladder reaches 3.072),
-    /// the advice's second branch is the one to revisit.
-    #[test]
-    fn every_device_rate_lands_below_the_dab_margin() {
-        for &r in &[1_024_000.0, 2_048_000.0, 2_400_000.0, 5_000_000.0, 8_000_000.0, 16_000_000.0] {
-            assert!(dab_rate_advice(r).is_some(), "{r:.0} sps: expected advice");
-        }
     }
 }
 

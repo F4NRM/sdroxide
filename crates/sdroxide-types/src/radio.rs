@@ -2723,7 +2723,7 @@ impl RtlSdrConfig {
     /// Sample rates offered in the UI. All lie inside the resampler's upper
     /// window except 250 kHz, which is in the lower one. 3.2 Msps is offered
     /// but drops samples on most hosts.
-    pub const SAMPLE_RATES: [f64; 9] = [
+    pub const SAMPLE_RATES: [f64; 10] = [
         250_000.0,
         960_000.0,
         1_024_000.0,
@@ -2732,6 +2732,8 @@ impl RtlSdrConfig {
         1_800_000.0,
         2_048_000.0,
         2_400_000.0,
+        // The DAB / DAB+ reference rate (`DAB_GOOD_RATE_HZ`).
+        2_500_000.0,
         3_200_000.0,
     ];
 
@@ -3420,12 +3422,14 @@ impl Rx888Config {
     /// anything between 4 and 130 MHz — the panel has a free-entry field for
     /// that — so this is the set worth a click, not a limit. The native driver
     /// re-exports this same list as `sdroxide_rx888::ADC_RATES`.
-    pub const ADC_RATES: [f64; 7] = [
+    pub const ADC_RATES: [f64; 8] = [
         8_100_000.0,
         16_200_000.0,
         32_400_000.0,
         48_600_000.0,
         64_800_000.0,
+        // 1/32 of 80 MHz is 2.5 Msps — the DAB / DAB+ reference rate.
+        80_000_000.0,
         96_000_000.0,
         129_600_000.0,
     ];
@@ -4823,7 +4827,7 @@ impl HackRfConfig {
     /// Unlike the Airspy HF+ list next door this is not queried from the device
     /// — a HackRF has no rate table, it synthesises whatever it is asked for —
     /// so this list is the whole menu.
-    pub const SAMPLE_RATES: [f64; 7] = [2.0e6, 4.0e6, 8.0e6, 10.0e6, 12.5e6, 16.0e6, 20.0e6];
+    pub const SAMPLE_RATES: [f64; 8] = [2.0e6, 2.5e6, 4.0e6, 8.0e6, 10.0e6, 12.5e6, 16.0e6, 20.0e6];
 
     /// The extra rates a **HackRF Pro** offers, below everything the other
     /// boards can do. Prepended to [`Self::SAMPLE_RATES`] by
@@ -4862,6 +4866,7 @@ impl HackRfConfig {
             1_000_000 => "HackRF Pro only — 2 MB/s",
             1_500_000 => "HackRF Pro only — 3 MB/s",
             2_000_000 => "below the MAX5864's spec — but the usual choice, and 4 MB/s",
+            2_500_000 => "below the MAX5864's spec — the DAB / DAB+ rate, 5 MB/s",
             4_000_000 => "below the MAX5864's spec — 8 MB/s",
             8_000_000 => "lowest specified rate — 16 MB/s",
             10_000_000 => "20 MB/s",
@@ -6343,11 +6348,13 @@ impl SdrPlayConfig {
     /// Sample rates offered in the UI. Below 2 Msps the ADC still runs at
     /// 2 Msps and the API decimates; above 6.048 Msps the ADC trades
     /// resolution for speed (12 bits up to 6.048, 10 to 8.064, 8 beyond).
-    pub const SAMPLE_RATES: [f64; 10] = [
+    pub const SAMPLE_RATES: [f64; 11] = [
         250_000.0,
         500_000.0,
         1_000_000.0,
         2_000_000.0,
+        // The DAB / DAB+ reference rate (`DAB_GOOD_RATE_HZ`).
+        2_500_000.0,
         3_000_000.0,
         4_000_000.0,
         5_000_000.0,
@@ -9091,5 +9098,29 @@ mod tests {
         assert_eq!(LimeConfig::rates_for("LimeNET-Micro"), &LimeConfig::SAMPLE_RATES);
         // An unknown board gets the safe full list rather than an empty one.
         assert_eq!(LimeConfig::rates_for(""), &LimeConfig::SAMPLE_RATES);
+    }
+
+    /// 2.5 Msps is the DAB / DAB+ reference, and every receiver the settings
+    /// point at it for must actually offer it — or the yellow hint names a rate
+    /// the list in front of the operator does not have.
+    #[test]
+    fn every_dab_receiver_offers_two_and_a_half_msps() {
+        let dab = crate::DAB_GOOD_RATE_HZ;
+        let has = |rates: &[f64]| rates.iter().any(|r| (r - dab).abs() < 1.0);
+        assert!(has(&PlutoConfig::SAMPLE_RATES), "Pluto");
+        assert!(has(&RtlSdrConfig::SAMPLE_RATES), "RTL-SDR");
+        assert!(has(&SdrPlayConfig::SAMPLE_RATES), "SDRplay");
+        assert!(has(&AirspyConfig::SAMPLE_RATES), "Airspy R2");
+        assert!(has(&HackRfConfig::rates_for(false)), "HackRF One");
+        assert!(has(&HackRfConfig::rates_for(true)), "HackRF Pro");
+        assert!(has(&HydraSdrConfig::SAMPLE_RATES), "HydraSDR");
+        assert!(has(LimeConfig::rates_for("LimeSDR-USB")), "LimeSDR");
+        assert!(has(LimeConfig::rates_for("LimeSDR-Mini")), "LimeSDR Mini");
+        assert!(has(&FobosConfig::SAMPLE_RATES), "Fobos");
+        // The RX-888 makes its rate from the ADC clock and the width: 80 MHz
+        // at 1/32 is 2.5 Msps, and it is usable above the VHF crossover.
+        assert!(Rx888Config::ADC_RATES.contains(&80_000_000.0));
+        assert_eq!(Rx888Config::ddc_out_rate_hz(80_000_000.0, 256), dab);
+        assert!(Rx888Config::width_works_on_vhf(80_000_000.0, 256));
     }
 }

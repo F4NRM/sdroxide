@@ -677,7 +677,7 @@ mod tests {
     /// The rates the settings combo offers, which is what the driver has to
     /// cope with. Lives in `sdroxide-types` because the settings UI is shared
     /// with the wasm client and cannot depend on this crate.
-    const OFFERED_RATES: [f64; 7] = HackRfConfig::SAMPLE_RATES;
+    const OFFERED_RATES: [f64; 8] = HackRfConfig::SAMPLE_RATES;
 
     /// Both halves are little-endian. The Airspy HF+ in the crate next door
     /// sends its one frequency field big-endian, so this is asserted against
