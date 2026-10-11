@@ -1685,6 +1685,13 @@ impl SdroxideApp {
             // mode rides (SSTV is LSB on 160/80/40 m), and it is a *view* anchor
             // only: the logged frequency stays the dial.
             let sstv_picture = self.caps.as_ref().is_some_and(|c| c.audio_mode) && mode.is_sstv();
+            // The same split, for the same reason, one mode over: the tone pair
+            // is *only* off the dial on a front end that hands over demodulated
+            // audio. On an SDR the dial is on the station — RTTY's own docs say
+            // so — and centring 2210 Hz above it put the station outside the
+            // window at any span narrow enough to read the tones, which is the
+            // span a contest operator uses (Thieu, VERON).
+            let audio_front_end = self.caps.as_ref().is_some_and(|c| c.audio_mode);
             Some(spectrum_view::AudioCursor {
                 hz: if sstv_picture {
                     side * crate::app::spectrum::SSTV_TONE_HZ as f32
@@ -1695,9 +1702,14 @@ impl SdroxideApp {
                 // It does not on a listening source with no transmitter: a click
                 // is then the only way to nudge the dial inside the passband a
                 // hardware-demodulated radio hands over — so it tunes, as CW.
+                //
+                // Deliberately still keyed on `holds_standard_tones()` alone and
+                // not on the front end: a click in RTTY tunes the dial on *every*
+                // radio, which is what commit 7c8a14c3 wanted, and it is right on
+                // an SDR too. Only the centring below is front-end-dependent.
                 click_sets_offset: !mode.holds_standard_tones() && !self.atsmini_active(),
                 line_on_cursor: false,
-                center_on_cursor: mode.holds_standard_tones() || sstv_picture,
+                center_on_cursor: (audio_front_end && mode.holds_standard_tones()) || sstv_picture,
             })
         } else {
             None

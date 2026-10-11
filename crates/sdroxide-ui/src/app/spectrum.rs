@@ -1163,7 +1163,27 @@ fn focus_hz(mode: Mode, dial_hz: f64, audio_hz: f32, cw_qrg: bool, audio_front_e
             dial_hz + SSTV_TONE_HZ
         };
     }
-    let on_cursor = mode.holds_standard_tones() || (mode == Mode::Cw && cw_qrg);
+    //
+    // **And the same for RTTY, NAVTEX and DSC — the SSTV case's twin.** Their
+    // tone pair is off the dial *only* on a front end that hands over demodulated
+    // audio. On an SDR the dial is on the station; `Mode`'s own doc says RTTY
+    // stations are worked "by moving the dial onto them". Anchoring 2210 Hz above
+    // it left the station outside the window at any span narrow enough to read the
+    // tones — the span a contest operator runs — and CTR is on by default, so
+    // nobody had to ask for it (Thieu, VERON, on 2.0.7.1).
+    //
+    // A **view** question only: the *log* reads `Mode::on_air_hz` directly
+    // (`app/mod.rs`), so a NAVTEX or DSC decode is still recorded on the channel
+    // centre and not 1.7 kHz low.
+    if audio_front_end && mode.holds_standard_tones() {
+        return mode.on_air_hz(dial_hz, audio_hz);
+    }
+    // CW keeps the cursor centring unconditionally: it sits behind the named
+    // `cw_qrg` setting rather than being forced by the mode, so the operator
+    // asks for it and knows what they asked for. Left alone on purpose — if
+    // `cw_qrg` turns out to want the same split, that is its own change with
+    // its own report behind it.
+    let on_cursor = mode == Mode::Cw && cw_qrg;
     if on_cursor { mode.on_air_hz(dial_hz, audio_hz) } else { dial_hz }
 }
 
@@ -1557,49 +1577,80 @@ mod tests {
 mod focus_tests {
     use super::{Mode, focus_hz};
 
-    /// The whole point: RTTY's tone pair is a couple of kilohertz above the
-    /// dial, so the window belongs on the pair. Zoomed in tighter than the
-    /// offset — the case the operator hit — the dial is not even on screen,
-    /// and anchoring the picture there takes the signal off the far edge.
+    /// **RTTY: the anchor follows whichever side of the offset the *signal* is
+    /// on, and which side that is depends on the radio.**
+    ///
+    /// On an SDR the dial *is* the station — `Mode`'s own doc says RTTY
+    /// stations are worked "by moving the dial onto them" — so the window
+    /// belongs on the dial. Anchoring 2210 Hz above it put the station
+    /// **outside** a 1 kHz window entirely, which is the span a contest
+    /// operator runs (Thieu, VERON, on 2.0.7.1: *"lijkt nog moeilijker te
+    /// remmen dan 201"*).
+    ///
+    /// On a front end that hands over demodulated audio the dial sits on a
+    /// suppressed carrier and the pair really is 2210 Hz away, so there the
+    /// tone anchor is the correct one. This is SSTV's split applied to the
+    /// mode next door — and it is why this test used to assert the other half
+    /// of it, on every radio.
     #[test]
-    fn rtty_anchors_on_the_tone_pair_not_the_dial() {
+    fn rtty_anchors_on_whichever_side_the_signal_is() {
         let dial = 14_080_000.0;
-        let pair = focus_hz(Mode::Rtty, dial, sdroxide_types::RTTY_CENTER_HZ, false, false);
-        assert_eq!(pair, dial + 2210.0, "the window was anchored on the dial");
-        // A 1 kHz window centred on the pair holds it; centred on the dial it
-        // would not have held it at all.
-        assert!(!(pair - 500.0..=pair + 500.0).contains(&dial), "the dial was on screen after all");
+        let pair = sdroxide_types::RTTY_CENTER_HZ;
+        // SDR: the operator puts the dial on the station, so the window does too.
+        let on_sdr = focus_hz(Mode::Rtty, dial, pair, false, false);
+        assert_eq!(on_sdr, dial, "the window left the station it is tuned to");
+        // And the 1 kHz view that provoked the report now holds it.
+        assert!(
+            (on_sdr - 500.0..=on_sdr + 500.0).contains(&dial),
+            "a 1 kHz window missed the station"
+        );
+        // Sound card: the dial is on a suppressed carrier and the pair is the
+        // signal, so here the anchor stays where it was.
+        assert_eq!(focus_hz(Mode::Rtty, dial, pair, false, true), dial + 2210.0);
     }
 
     /// A nudged offset moves the anchor with it: the pair is wherever the
-    /// operator put it, not wherever the standard says it usually is.
+    /// operator put it, not wherever the standard says it usually is. Only
+    /// meaningful on a sound card now — on an SDR the operator moves the dial
+    /// itself, so a nudged offset has nothing to move.
     #[test]
     fn a_nudged_rtty_offset_carries_the_anchor() {
         let dial = 7_040_000.0;
-        assert_eq!(focus_hz(Mode::Rtty, dial, 1000.0, false, false), dial + 1000.0);
+        assert_eq!(focus_hz(Mode::Rtty, dial, 1000.0, false, true), dial + 1000.0);
+        assert_eq!(focus_hz(Mode::Rtty, dial, 1000.0, false, false), dial);
     }
 
     /// NAVTEX holds its tone by convention exactly as RTTY does — the assigned
-    /// channel is the centre of the pair, 1700 Hz up — so it comes along.
+    /// channel is the centre of the pair, 1700 Hz up — and the split is the
+    /// same for the same reason.
+    ///
+    /// The **log** is untouched by any of this: it reads `Mode::on_air_hz`
+    /// directly, so a NAVTEX decode is recorded on the channel centre and not
+    /// 1.7 kHz low whichever radio it arrived on. Only the window moves.
     #[test]
-    fn navtex_anchors_on_its_tone_too() {
+    fn navtex_anchors_on_its_tone_only_on_a_sound_card() {
         let dial = 518_000.0 - f64::from(sdroxide_types::NAVTEX_TONE_HZ);
         assert_eq!(
-            focus_hz(Mode::Navtex, dial, sdroxide_types::NAVTEX_TONE_HZ, false, false),
+            focus_hz(Mode::Navtex, dial, sdroxide_types::NAVTEX_TONE_HZ, false, true),
             518_000.0
+        );
+        assert_eq!(
+            focus_hz(Mode::Navtex, dial, sdroxide_types::NAVTEX_TONE_HZ, false, false),
+            dial
         );
     }
 
     /// DSC's channel frequencies are the centre of *its* tone pair too, so the
-    /// same 1700 Hz arithmetic applies — logging the dial would name every
-    /// sequence 1.7 kHz low.
+    /// same 1700 Hz arithmetic and the same front-end split apply. The logging
+    /// it was written for reads `Mode::on_air_hz` directly and is unaffected.
     #[test]
-    fn dsc_anchors_on_its_tone_too() {
+    fn dsc_anchors_on_its_tone_only_on_a_sound_card() {
         let dial = 2_187_500.0 - f64::from(sdroxide_types::DSC_TONE_HZ);
         assert_eq!(
-            focus_hz(Mode::Dsc, dial, sdroxide_types::DSC_TONE_HZ, false, false),
+            focus_hz(Mode::Dsc, dial, sdroxide_types::DSC_TONE_HZ, false, true),
             2_187_500.0
         );
+        assert_eq!(focus_hz(Mode::Dsc, dial, sdroxide_types::DSC_TONE_HZ, false, false), dial);
     }
 
     /// The modes that pick a slot inside a sub-band stay on the dial. FT8's
