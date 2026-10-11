@@ -11,7 +11,7 @@ everything before 1.9.5) is described in the
 [User Manual](https://github.com/madmedicnl/sdroxide-brown/blob/main/docs/USER_MANUAL.md)
 and the [README](https://github.com/madmedicnl/sdroxide-brown#readme).
 
-## [2.0.9_brown] - 2026-10-11
+## [2.0.9.1_brown] - 2026-10-11
 
 ### Added
 - **An offset that has left the window still says so** — the panadapter's cyan
