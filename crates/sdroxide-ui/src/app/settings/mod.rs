@@ -460,6 +460,34 @@ fn mhz_drag(ui: &mut egui::Ui, hz: &mut f64, hover: &str) -> egui::Response {
 /// *everything* and has one offset for the whole dial, while a transverter is
 /// in front of one band and the radio is on its own below. A station can have
 /// both, and a dial no row covers falls through to the offset above it.
+/// The label one inactivity-stop choice reads as in the list.
+fn idle_stop_label(minutes: u32) -> String {
+    match minutes {
+        sdroxide_types::auto::AUTO_IDLE_STOP_NEVER => "DISABLE".to_owned(),
+        m if m % 60 == 0 && m >= 60 => format!("{m} min ({} h)", m / 60),
+        m => format!("{m} min"),
+    }
+}
+
+/// The inactivity stop as a list, for a radio with the long stop (a PlutoSDR):
+/// the presets up to six hours, and DISABLE for none. A figure stored that is
+/// not one of the presets is shown as it is rather than snapped, so opening the
+/// tab never changes a setting by itself.
+fn idle_stop_combo(ui: &mut egui::Ui, stored: &mut u32) {
+    let current =
+        if *stored == 0 { (sdroxide_types::auto::AUTO_IDLE_STOP_S / 60.0) as u32 } else { *stored };
+    egui::ComboBox::from_id_salt("auto-idle-stop").selected_text(idle_stop_label(current)).show_ui(
+        ui,
+        |ui| {
+            for m in sdroxide_types::auto::AUTO_IDLE_STOP_LONG_CHOICES {
+                if ui.selectable_label(current == m, idle_stop_label(m)).clicked() {
+                    *stored = m;
+                }
+            }
+        },
+    );
+}
+
 fn transverter_table(ui: &mut egui::Ui, cfg: &mut sdroxide_types::RadioConfig) {
     use sdroxide_types::{ConverterTx as Tx, MAX_TRANSVERTERS, Transverter};
 
@@ -2402,25 +2430,33 @@ impl SdroxideApp {
 
                     // Auto mode's inactivity stop. Per radio because one set
                     // may be left running longer than another, and capped
-                    // because auto mode is for a break, not a contest.
+                    // because auto mode is for a break, not a contest — except
+                    // on a PlutoSDR, which offers up to six hours or no stop.
                     ui.label(RichText::new("Auto mode").strong());
+                    let long = sdroxide_types::auto::has_long_idle_stop(cfg.backend);
                     ui.horizontal(|ui| {
-                        // Zero means "the default": show the figure that is
-                        // actually in force, so the box is never sitting at a
-                        // value the DragValue's own range would snap away from.
-                        let mut mins = if cfg.auto_idle_stop_min == 0 {
-                            (sdroxide_types::auto::AUTO_IDLE_STOP_S / 60.0) as u32
+                        if long {
+                            idle_stop_combo(ui, &mut cfg.auto_idle_stop_min);
                         } else {
-                            cfg.auto_idle_stop_min
-                        };
-                        let resp = ui.add(
-                            egui::DragValue::new(&mut mins)
-                                .speed(1.0)
-                                .range(1..=sdroxide_types::auto::AUTO_IDLE_STOP_MAX_MIN)
-                                .suffix(" min"),
-                        );
-                        if resp.changed() {
-                            cfg.auto_idle_stop_min = mins;
+                            // Zero means "the default": show the figure that is
+                            // actually in force, so the box is never sitting at
+                            // a value the DragValue's own range would snap away
+                            // from.
+                            let mut mins = if cfg.auto_idle_stop_min == 0 {
+                                (sdroxide_types::auto::AUTO_IDLE_STOP_S / 60.0) as u32
+                            } else {
+                                cfg.auto_idle_stop_min
+                                    .min(sdroxide_types::auto::AUTO_IDLE_STOP_MAX_MIN)
+                            };
+                            let resp = ui.add(
+                                egui::DragValue::new(&mut mins)
+                                    .speed(1.0)
+                                    .range(1..=sdroxide_types::auto::AUTO_IDLE_STOP_MAX_MIN)
+                                    .suffix(" min"),
+                            );
+                            if resp.changed() {
+                                cfg.auto_idle_stop_min = mins;
+                            }
                         }
                         ui.label(
                             RichText::new("stop after no input")
@@ -2429,13 +2465,20 @@ impl SdroxideApp {
                         );
                     })
                     .response
-                    .on_hover_text(
+                    .on_hover_text(if long {
+                        "How long the unattended FT8/FT4/FT2 sequencer may run with no \
+                         operator input before it disarms. Per radio: one set can be left \
+                         running longer than another.\n\nOn a PlutoSDR it goes up to six \
+                         hours, and DISABLE switches the stop off altogether: auto mode then \
+                         runs until you stop it. The transmit watchdog and the band lockout \
+                         still apply.\n\nTakes effect on Apply."
+                    } else {
                         "How long the unattended FT8/FT4/FT2 sequencer may run with no \
                          operator input before it disarms. Per radio: one set can be left \
                          running longer than another.\n\nCapped at 45 minutes on purpose — \
                          auto mode is for a bathroom break, not for leaving a station to work \
-                         a contest with nobody behind it.\n\nTakes effect on Apply.",
-                    );
+                         a contest with nobody behind it.\n\nTakes effect on Apply."
+                    });
                     ui.end_row();
 
                     ui.label(RichText::new("Converter").strong());
