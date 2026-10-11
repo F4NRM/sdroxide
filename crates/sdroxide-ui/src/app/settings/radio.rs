@@ -2181,25 +2181,28 @@ pub(in crate::app) fn settings_rtltcp_tab(
             cfg.rtltcp.sample_rate_hz / 1e6,
             RtlTcpConfig::link_mbit(cfg.rtltcp.sample_rate_hz),
         );
-        ComboBox::from_id_salt("rtltcp_rate").width(260.0).selected_text(shown).show_styled(
-            ui,
-            |ui| {
-                for &r in &RtlSdrConfig::SAMPLE_RATES {
-                    let sel = (cfg.rtltcp.sample_rate_hz - r).abs() < 1.0;
-                    let mbit = RtlTcpConfig::link_mbit(r);
-                    let mut label = format!("{:.3} Msps  —  {mbit:.0} Mbit/s", r / 1e6);
-                    // The threshold is where a rate stops fitting comfortably in
-                    // what a single WiFi hop delivers in practice, which is well
-                    // under its nominal rate.
-                    if mbit >= 30.0 {
-                        label.push_str("  (wired link)");
+        ui.horizontal(|ui| {
+            ComboBox::from_id_salt("rtltcp_rate").width(260.0).selected_text(shown).show_styled(
+                ui,
+                |ui| {
+                    for &r in &RtlSdrConfig::SAMPLE_RATES {
+                        let sel = (cfg.rtltcp.sample_rate_hz - r).abs() < 1.0;
+                        let mbit = RtlTcpConfig::link_mbit(r);
+                        let mut label = format!("{:.3} Msps  —  {mbit:.0} Mbit/s", r / 1e6);
+                        // The threshold is where a rate stops fitting comfortably in
+                        // what a single WiFi hop delivers in practice, which is well
+                        // under its nominal rate.
+                        if mbit >= 30.0 {
+                            label.push_str("  (wired link)");
+                        }
+                        if ui.selectable_label(sel, label).clicked() {
+                            cfg.rtltcp.sample_rate_hz = r;
+                        }
                     }
-                    if ui.selectable_label(sel, label).clicked() {
-                        cfg.rtltcp.sample_rate_hz = r;
-                    }
-                }
-            },
-        );
+                },
+            );
+            dab_rate_hint(ui, &RtlSdrConfig::SAMPLE_RATES);
+        });
         ui.end_row();
 
         ui.label("AGC").on_hover_text(
@@ -3438,8 +3441,8 @@ const PLUTO_CHOOSE_RECEIVER: &str = "Please choose your receiver";
 /// 2.0.7.3), and it is the reference [`sdroxide_types::DAB_GOOD_RATE_HZ`] now
 /// holds.
 ///
-/// Offered on the Pluto, RTL-SDR, SDRplay, Airspy, HackRF, HydraSDR, LimeSDR,
-/// Fobos and RX-888 tabs — and on no other, by the operator's choice.
+/// Offered on the Pluto, RTL-SDR, rtl_tcp, SDRplay, Airspy, HackRF, HydraSDR,
+/// LimeSDR, Fobos and RX-888 tabs — and on no other, by the operator's choice.
 const DAB_RATE_HINT: &str = "Choose 2.500 Msps if you want to decode DAB/DAB+";
 
 /// The RX-888 has no sample-rate list: its rate is the ADC clock times the

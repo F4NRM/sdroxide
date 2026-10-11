@@ -29,7 +29,8 @@ and the [README](https://github.com/madmedicnl/sdroxide-brown#readme).
   Pluto. The 3.07 Msps warning in the radio tab is gone, and so is the Pluto's
   "not yet verified" note.
 - **"Choose 2.500 Msps" beside the sample rate** — in yellow, on the Pluto,
-  RTL-SDR, SDRplay, Airspy, HackRF, HydraSDR, LimeSDR, Fobos and RX-888 tabs.
+  RTL-SDR, rtl_tcp, SDRplay, Airspy, HackRF, HydraSDR, LimeSDR, Fobos and RX-888
+  tabs.
   RTL-SDR, SDRplay and HackRF gain a 2.5 Msps entry; the RX-888 an 80 MHz clock.
 
 ### Fixed
