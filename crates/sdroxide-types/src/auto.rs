@@ -31,12 +31,45 @@ pub const AUTO_IDLE_STOP_S: f64 = 20.0 * 60.0;
 /// chooses within it, never past it.
 pub const AUTO_IDLE_STOP_MAX_MIN: u32 = 45;
 
-/// The inactivity stop in seconds, from the operator's choice in minutes,
-/// clamped to `1..=AUTO_IDLE_STOP_MAX_MIN` (and to the default for zero, which
-/// a config written before this existed loads as).
-pub fn auto_idle_stop_s(minutes: u32) -> f64 {
+/// The stored value that means "never stop for inactivity" — the **DISABLE**
+/// entry. Only honoured on a radio whose backend
+/// [`has_long_idle_stop`]; anywhere else it clamps to the ceiling like any
+/// other figure past it.
+pub const AUTO_IDLE_STOP_NEVER: u32 = u32::MAX;
+
+/// The choices offered on a radio with the long inactivity stop, in the order
+/// the list shows them: the default first, then the short ones, the long ones
+/// and **DISABLE** last.
+pub const AUTO_IDLE_STOP_LONG_CHOICES: [u32; 8] =
+    [20, 30, 45, 60, 120, 240, 360, AUTO_IDLE_STOP_NEVER];
+
+/// Whether this radio may set the inactivity stop past
+/// [`AUTO_IDLE_STOP_MAX_MIN`], up to six hours, or switch it off.
+///
+/// Only the PlutoSDR for now: it is the radio this was asked for and tested
+/// against, and every other backend keeps the 45-minute ceiling until there is
+/// a reason to widen it.
+pub fn has_long_idle_stop(backend: crate::Backend) -> bool {
+    backend == crate::Backend::Pluto
+}
+
+/// The inactivity stop in seconds, from the operator's choice in minutes, or
+/// `None` when it is switched off.
+///
+/// Zero is the default (twenty minutes), which a config written before this
+/// existed loads as. With `long` (see [`has_long_idle_stop`]) the figure is
+/// taken as it is and [`AUTO_IDLE_STOP_NEVER`] means no stop; without it the
+/// figure is clamped to [`AUTO_IDLE_STOP_MAX_MIN`], `NEVER` included, so a
+/// setting carried over from a Pluto never switches the stop off elsewhere.
+pub fn auto_idle_stop_s(minutes: u32, long: bool) -> Option<f64> {
     let m = if minutes == 0 { (AUTO_IDLE_STOP_S / 60.0) as u32 } else { minutes };
-    f64::from(m.min(AUTO_IDLE_STOP_MAX_MIN)) * 60.0
+    if long {
+        if m == AUTO_IDLE_STOP_NEVER {
+            return None;
+        }
+        return Some(f64::from(m) * 60.0);
+    }
+    Some(f64::from(m.min(AUTO_IDLE_STOP_MAX_MIN)) * 60.0)
 }
 
 /// How long after issuing a command the tick waits before issuing another.
@@ -274,9 +307,27 @@ mod tests {
 
     #[test]
     fn the_inactivity_stop_is_clamped_to_the_ceiling() {
-        assert_eq!(auto_idle_stop_s(0), AUTO_IDLE_STOP_S, "zero means the default");
-        assert_eq!(auto_idle_stop_s(20), 20.0 * 60.0);
-        assert_eq!(auto_idle_stop_s(45), 45.0 * 60.0);
-        assert_eq!(auto_idle_stop_s(120), 45.0 * 60.0, "never past the ceiling");
+        assert_eq!(auto_idle_stop_s(0, false), Some(AUTO_IDLE_STOP_S), "zero means the default");
+        assert_eq!(auto_idle_stop_s(20, false), Some(20.0 * 60.0));
+        assert_eq!(auto_idle_stop_s(45, false), Some(45.0 * 60.0));
+        assert_eq!(auto_idle_stop_s(120, false), Some(45.0 * 60.0), "never past the ceiling");
+        assert_eq!(
+            auto_idle_stop_s(AUTO_IDLE_STOP_NEVER, false),
+            Some(45.0 * 60.0),
+            "DISABLE carried to another radio still stops at the ceiling"
+        );
+    }
+
+    #[test]
+    fn a_pluto_may_run_up_to_six_hours_or_never_stop() {
+        assert!(has_long_idle_stop(crate::Backend::Pluto));
+        assert!(!has_long_idle_stop(crate::Backend::SdrPlay));
+        assert!(!has_long_idle_stop(crate::Backend::RtlSdr));
+        assert_eq!(auto_idle_stop_s(0, true), Some(AUTO_IDLE_STOP_S), "zero means the default");
+        for m in [60, 120, 240, 360] {
+            assert_eq!(auto_idle_stop_s(m, true), Some(f64::from(m) * 60.0), "{m} min on a Pluto");
+        }
+        assert_eq!(auto_idle_stop_s(AUTO_IDLE_STOP_NEVER, true), None, "DISABLE never stops");
+        assert_eq!(AUTO_IDLE_STOP_LONG_CHOICES[0], (AUTO_IDLE_STOP_S / 60.0) as u32);
     }
 }

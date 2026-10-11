@@ -29,10 +29,14 @@ impl SdroxideApp {
         auto::band_may_transmit(band, !self.state.oob_tx, sdroxide_types::cb_tx_allowed())
     }
 
-    /// The inactivity stop for this radio, in seconds, from its own setting.
-    fn auto_idle_stop_s(&self) -> f64 {
-        let min = self.radio_cfg.as_ref().map_or(0, |c| c.auto_idle_stop_min);
-        auto::auto_idle_stop_s(min)
+    /// The inactivity stop for this radio, in seconds, from its own setting,
+    /// or `None` when it is switched off (a PlutoSDR set to DISABLE).
+    fn auto_idle_stop_s(&self) -> Option<f64> {
+        let (min, long) = self
+            .radio_cfg
+            .as_ref()
+            .map_or((0, false), |c| (c.auto_idle_stop_min, auto::has_long_idle_stop(c.backend)));
+        auto::auto_idle_stop_s(min, long)
     }
 
     /// Run auto mode for this frame. Cheap and a no-op unless it is armed.
@@ -73,8 +77,9 @@ impl SdroxideApp {
             self.stop_auto(format!("auto stopped: {reason}"), cmds);
             return;
         }
-        let stop_s = self.auto_idle_stop_s();
-        if now - self.auto_last_activity >= stop_s {
+        if let Some(stop_s) = self.auto_idle_stop_s()
+            && now - self.auto_last_activity >= stop_s
+        {
             let mins = (stop_s / 60.0).round() as u32;
             self.stop_auto(format!("auto stopped: {mins} minutes with no operator input"), cmds);
             return;

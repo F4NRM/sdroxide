@@ -29,6 +29,11 @@ and the [README](https://github.com/madmedicnl/sdroxide-brown#readme).
   instead of one noisy frequency reading: header read down to about −3 dB SNR
   (was +10 dB), lock without a header the same, no false starts on noise.
 
+### Changed
+- **Auto mode on a PlutoSDR can run longer** — Settings → Radio → Auto mode is a
+  list on a Pluto: 20 / 30 / 45 / 60 / 120 / 240 / 360 min, or **DISABLE** for
+  no inactivity stop. Other radios keep the 45-minute cap.
+
 ### Not proven
 - The weak-SSTV fix is measured on synthetic noise, not yet on an off-air
   recording.
