@@ -11,6 +11,16 @@ everything before 1.9.5) is described in the
 [User Manual](https://github.com/madmedicnl/sdroxide-brown/blob/main/docs/USER_MANUAL.md)
 and the [README](https://github.com/madmedicnl/sdroxide-brown#readme).
 
+## [2.0.9_brown] - 2026-10-11
+
+### Added
+- **An offset that has left the window still says so** — the panadapter's cyan
+  tuning cursor and RTTY's amber mark/space lines were drawn only while they
+  were on screen, so a narrow zoom showed a cleanly centred signal and no trace
+  of an offset at all — indistinguishable from a mode that has none. The edge
+  the offset lies beyond now carries `◀ tones 1710 Hz`, with the distance to
+  the nearer edge.
+
 ## [Unreleased]
 
 ## [2.0.8_brown] - 2026-10-11
