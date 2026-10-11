@@ -25,11 +25,27 @@ pub(in crate::app) struct PlaybackUi {
     /// The position under the seek bar while it is being dragged — sent on
     /// release, so a drag is one seek and not a hundred.
     scrub: Option<f64>,
+    /// The file whose CLEAR has been pressed once. Deleting is for good, so it
+    /// takes a second press on the same row, which then reads DELETE?.
+    clear_armed: Option<String>,
 }
 
 impl PlaybackUi {
     pub(in crate::app) fn accept(&mut self, listing: RecordingListing) {
         self.listing = Some(listing);
+    }
+
+    /// What pressing CLEAR on `name` does: the first press arms it, the second
+    /// press on the same file deletes it. Pressing another file's CLEAR moves
+    /// the arming there, so a stray first press can never delete anything.
+    fn press_clear(&mut self, name: &str) -> Option<PlaybackCommand> {
+        if self.clear_armed.as_deref() == Some(name) {
+            self.clear_armed = None;
+            Some(PlaybackCommand::Delete { name: name.to_string() })
+        } else {
+            self.clear_armed = Some(name.to_string());
+            None
+        }
     }
 
     /// Open the window and ask for a fresh list.
@@ -174,6 +190,7 @@ impl super::SdroxideApp {
         ui.separator();
         let playing = self.state.playback.as_ref().map(|p| p.name.clone());
         let transmitting = self.state.tx.ptt || self.state.tx.tune;
+        let writing = [self.state.recording_file.clone(), self.state.iq_recording_file.clone()];
         egui::ScrollArea::vertical().auto_shrink([false, false]).id_salt("playback-list").show(
             ui,
             |ui| {
@@ -186,7 +203,8 @@ impl super::SdroxideApp {
                         .color(crate::theme::gray(150)),
                     );
                 }
-                for file in listing.files.iter().filter(|f| matches(f, &self.playback.find)) {
+                let find = self.playback.find.clone();
+                for file in listing.files.iter().filter(|f| matches(f, &find)) {
                     let (when, what) = describe(file);
                     let current = playing.as_deref() == Some(file.name.as_str());
                     ui.horizontal(|ui| {
@@ -218,6 +236,40 @@ impl super::SdroxideApp {
                             cmds.push(Command::Playback(PlaybackCommand::Open {
                                 name: file.name.clone(),
                             }));
+                        }
+                        // Deleting what is in use would pull the file out from
+                        // under the player or the recorder; the chip says so
+                        // rather than doing nothing.
+                        let busy = if current {
+                            Some("Playing back — stop it before deleting it")
+                        } else if writing.iter().any(|w| w.as_deref() == Some(file.name.as_str())) {
+                            Some("Still being recorded — stop REC before deleting it")
+                        } else {
+                            None
+                        };
+                        let armed =
+                            self.playback.clear_armed.as_deref() == Some(file.name.as_str());
+                        let clear = ui
+                            .add_enabled_ui(busy.is_none(), |ui| {
+                                crate::chrome::chip_accent(
+                                    ui,
+                                    armed,
+                                    if armed { "DELETE?" } else { "CLEAR" },
+                                    crate::theme::ALERT(),
+                                    egui::Color32::WHITE,
+                                )
+                            })
+                            .inner
+                            .on_hover_text(if armed {
+                                "Press again to delete this file for good. It cannot be undone."
+                            } else {
+                                "Delete this recording from the folder (asks once more first)"
+                            })
+                            .on_disabled_hover_text(busy.unwrap_or_default());
+                        if clear.clicked() {
+                            if let Some(cmd) = self.playback.press_clear(&file.name) {
+                                cmds.push(Command::Playback(cmd));
+                            }
                         }
                         ui.label(RichText::new(when).monospace().size(11.0));
                         ui.label(RichText::new(what).size(11.0).strong());
@@ -387,6 +439,18 @@ impl super::SdroxideApp {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Deleting is for good, so one press only arms it: the second press on
+    /// the same file deletes, and a press on another file moves the arming
+    /// rather than deleting either.
+    #[test]
+    fn clear_asks_once_more_before_deleting() {
+        let mut ui = PlaybackUi::default();
+        assert_eq!(ui.press_clear("a.mp3"), None);
+        assert_eq!(ui.press_clear("b.mp3"), None, "a press on another file deleted something");
+        assert_eq!(ui.press_clear("b.mp3"), Some(PlaybackCommand::Delete { name: "b.mp3".into() }));
+        assert_eq!(ui.press_clear("b.mp3"), None, "the arming outlived the delete");
+    }
 
     #[test]
     fn the_clock_reads_like_a_player() {

@@ -3123,6 +3123,15 @@ struct Engine {
     /// tell when either end has moved.
     audio_rs_in_rate: f64,
     audio_rs_out_rate: f64,
+    /// The right ear of a stereo recording being played back
+    /// ([`IqSource::audio_stereo`]), resampled beside the left by its own
+    /// resampler, built for the rate pair beside it.
+    audio_im: Vec<f32>,
+    audio_resampler_r: Option<MonoResampler>,
+    audio_rs_r_rates: (f64, f64),
+    /// Whether the last audio-mode block went out in true stereo — what lights
+    /// ST during a playback, where there is no pilot to lock.
+    audio_stereo_on: bool,
     /// The rate [`IqSource::rx_audio`] last reported, for the arrangement where
     /// receive audio comes from a transceiver while an attached receiver
     /// supplies the I/Q ([`DeviceCaps::rx_audio_external`]). Remembered because
@@ -4471,6 +4480,10 @@ fn engine_thread(
         audio_resampler,
         audio_rs_in_rate: radio_fs,
         audio_rs_out_rate: audio_out_rate,
+        audio_im: Vec::new(),
+        audio_resampler_r: None,
+        audio_rs_r_rates: (0.0, 0.0),
+        audio_stereo_on: false,
         ext_audio_rate: 48_000.0,
         reopen: engine_cfg.reopen.map(|f| Arc::new(Mutex::new(f))),
         retry: None,
@@ -5190,7 +5203,10 @@ fn engine_thread(
                 engine.swr_over = 0;
                 engine.swr_settle = 0;
                 engine.swr_tuning = false;
-                let stereo = engine.main.as_ref().is_some_and(|c| c.stereo_locked());
+                // A stereo recording being played back counts too: it has no
+                // pilot, but it is in the two ears all the same.
+                let stereo = engine.main.as_ref().is_some_and(|c| c.stereo_locked())
+                    || (engine.audio_mode && engine.audio_stereo_on);
                 let tone = engine.main.as_ref().and_then(|c| c.sub_tone());
                 // Read unconditionally, so the window is consumed whether or not
                 // a reading is published — otherwise a front end with no signal
@@ -6008,20 +6024,47 @@ impl Engine {
         self.analyzer.process(iq);
 
         self.play_rx_audio(self.radio_fs);
-        // A demod-audio rig has one receiver and no sub, so the second ear is
-        // free — and the binaural widener is the one thing that fills it. This
-        // is the front end a great many operators are listening on, so it gets
-        // the same treatment the demodulated path does.
         self.main_play_r.clear();
-        binaural_split(
-            &mut self.binaural,
-            &self.state.rx[0],
-            self.audio_out_rate,
-            true,
-            &mut self.audio_play,
-            &mut self.bin_left,
-            &mut self.main_play_r,
-        );
+        // A stereo recording played back brings its own right ear, and it goes
+        // to the speaker as recorded — a WFM stereo broadcast comes back in
+        // stereo. The same switch and the same rule as live stereo decide it
+        // ([`stereo_allowed`]): ST forces mono, and noise reduction or the notch,
+        // which only ran on the left, take it back to the left in both ears.
+        self.audio_stereo_on = self.source.audio_stereo()
+            && stereo_allowed(&self.state.rx[0])
+            && !self.audio_play.is_empty();
+        if self.audio_stereo_on {
+            let rates = (self.radio_fs, self.audio_out_rate);
+            if self.audio_rs_r_rates != rates {
+                self.audio_rs_r_rates = rates;
+                self.audio_resampler_r = MonoResampler::new(rates.0, rates.1);
+            }
+            self.audio_im.clear();
+            self.audio_im.extend(iq.iter().map(|c| c.im));
+            match self.audio_resampler_r.as_mut() {
+                Some(rs) => rs.push(&self.audio_im, &mut self.main_play_r),
+                None => self.main_play_r.extend_from_slice(&self.audio_im),
+            }
+            let rx0 = &self.state.rx[0];
+            let vol = if rx0.muted { 0.0 } else { rx0.volume };
+            for s in self.main_play_r.iter_mut() {
+                *s *= vol;
+            }
+        } else {
+            // A demod-audio rig has one receiver and no sub, so the second ear
+            // is free — and the binaural widener is the one thing that fills
+            // it. This is the front end a great many operators are listening
+            // on, so it gets the same treatment the demodulated path does.
+            binaural_split(
+                &mut self.binaural,
+                &self.state.rx[0],
+                self.audio_out_rate,
+                true,
+                &mut self.audio_play,
+                &mut self.bin_left,
+                &mut self.main_play_r,
+            );
+        }
         let right = (!self.main_play_r.is_empty()).then_some(&self.main_play_r[..]);
         // The time-shift window works here too: a demod-audio rig is a
         // listener's front end as much as an SDR is.
@@ -10607,6 +10650,14 @@ impl Engine {
         match cmd {
             PlaybackCommand::Open { name } => self.start_playback(&name),
             PlaybackCommand::Stop => self.stop_playback(),
+            PlaybackCommand::Delete { name } => {
+                if let Err(why) = self.delete_recording(&name) {
+                    self.notice(&why);
+                }
+                // The list is answered either way, so the window shows what is
+                // really on disk rather than what it expected.
+                let _ = self.event_tx.send(RadioEvent::Recordings(list_recordings()));
+            }
             other => {
                 if self.source.playback_status().is_none() {
                     self.notice("Nothing is being played back");
@@ -10617,6 +10668,38 @@ impl Engine {
                 }
                 self.publish_playback(true);
             }
+        }
+    }
+
+    /// Delete `name` from the recordings directory. Only a plain name the
+    /// listing could have offered is accepted — a remote client names a file,
+    /// never a path — and never the file playing back or one still being
+    /// written, since either is in use.
+    fn delete_recording(&mut self, name: &str) -> std::result::Result<(), String> {
+        if !sdroxide_types::playback::playable_name(name) {
+            return Err(format!("{name} is not a file in the recordings folder"));
+        }
+        if self.source.playback_status().is_some_and(|p| p.name == name) {
+            return Err(format!("{name} is playing back — stop it before deleting it"));
+        }
+        if [&self.state.recording_file, &self.state.iq_recording_file]
+            .iter()
+            .any(|f| f.as_deref() == Some(name))
+        {
+            return Err(format!("{name} is still being recorded — stop REC before deleting it"));
+        }
+        let dir = sdroxide_config::recordings_dir_path()
+            .map_err(|e| format!("Delete: no recordings folder ({e})"))?;
+        let path = dir.join(name);
+        match std::fs::remove_file(&path) {
+            Ok(()) => {
+                self.notice(&format!("Deleted {name}"));
+                Ok(())
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                Err(format!("{name} is no longer in the recordings folder"))
+            }
+            Err(e) => Err(format!("Could not delete {name}: {e}")),
         }
     }
 
