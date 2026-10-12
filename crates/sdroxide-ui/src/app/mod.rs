@@ -2223,10 +2223,7 @@ impl SdroxideApp {
         if focused {
             self.speech.announcer.reseed();
             if let Some(c) = &self.caps {
-                ctx.send_viewport_cmd(egui::ViewportCommand::Title(format!(
-                    "sdroxide — {}",
-                    c.label
-                )));
+                ctx.send_viewport_cmd(egui::ViewportCommand::Title(crate::window_title(&c.label)));
             }
         } else {
             // Losing the keyboard with a bound control held must release it:

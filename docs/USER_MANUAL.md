@@ -7541,14 +7541,15 @@ the binary to ask it. **Brown** names which build this is: this fork's variant,
 told apart at a glance from the upstream program, since the two install happily
 side by side and read the same settings. It is a *variant* name, the way SDR++
 Brown names that program's second build — it says "this build, not upstream"
-without saying what is in it. It is also the window and taskbar title, and
-`--version` on the command line prints it (with the `_brown` release suffix, e.g.
+without saying what is in it. It is also the window and taskbar title, which carries the version beside it,
+and `--version` on the command line prints it (with the `_brown` release suffix, e.g.
 `SDR Oxide Brown 1.9.2_brown`).
 
 The release **tags** carry the same suffix: `v1.9.2_brown` rather than upstream's
 `v1.9.2`. The version the program *reports to other software* — the SSTV id, the
 WSPR/PSK Reporter fields, the ADIF program id — is left as plain `1.9.2`, because
 the suffix is for a person and a tag, not for anything a machine parses.
+
 
 **Station** — your **Callsign** and **Grid square**. This is the identity the
 whole program uses: FT8/FT4/FT2 exchanges, the SSTV image header, the logbook, the

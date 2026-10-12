@@ -543,6 +543,17 @@ mod v3dv_tests {
 /// desktop-menu entry gets its icon from the installed hicolor theme instead
 /// (see `packaging/`). Both come from `packaging/icons/sdroxide-brown.svg`.
 #[cfg(not(target_arch = "wasm32"))]
+/// The main window's title: the program and its version, then what it is
+/// connected to. The version is there so a screenshot says which build it came
+/// from (#664).
+/// `FLAVOR`, not upstream's hard-coded name: **the version in the title is
+/// exactly what tells two sdroxide installs apart**, and a title that said
+/// "sdroxide" while carrying upstream's spelling would defeat the whole point.
+pub fn window_title(detail: &str) -> String {
+    let base = format!("{} {}", sdroxide_version::FLAVOR, env!("CARGO_PKG_VERSION"));
+    if detail.is_empty() { base } else { format!("{base} — {detail}") }
+}
+
 pub fn app_icon() -> eframe::egui::IconData {
     const PNG: &[u8] = include_bytes!("../../../packaging/icons/sdroxide-brown-256.png");
     // Decoding a 256x256 PNG once at startup; a failure here would only cost

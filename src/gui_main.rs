@@ -186,9 +186,10 @@ pub fn run_multi(
             // the window groups under the menu entry in taskbars and docks.
             .with_app_id("sdroxide")
             .with_icon(sdroxide_ui::app_icon())
-            // A window from this build is told apart from an upstream one at a
-            // glance in the taskbar.
-            .with_title(sdroxide_version::FLAVOR.to_string()),
+            // Program, version, then what it is connected to — so a screenshot
+            // says which build it came from (#664), and says *Brown* rather
+            // than the name of the program upstream calls it.
+            .with_title(sdroxide_ui::window_title("")),
         // On a first start there is no saved geometry, and where the window
         // manager puts a window then is its own business — Windows cascades
         // them, which on a screen barely wider than the window pushes the
@@ -429,7 +430,7 @@ pub fn run_remote(url: &str) -> Result<()> {
             .with_min_inner_size([800.0, 500.0])
             .with_app_id("sdroxide")
             .with_icon(sdroxide_ui::app_icon())
-            .with_title(format!("{} — remote {url}", sdroxide_version::FLAVOR)),
+            .with_title(sdroxide_ui::window_title(&format!("remote {url}"))),
         // Centred on a first start, for the reason the local window is — see
         // `run` above (issues #234 and #256).
         centered: true,

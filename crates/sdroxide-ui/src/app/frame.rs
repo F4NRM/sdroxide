@@ -2688,9 +2688,8 @@ impl SdroxideApp {
                     // The window title belongs to the focused tab; a hidden
                     // radio reconnecting must not retitle the window over it.
                     if self.focused {
-                        ctx.send_viewport_cmd(egui::ViewportCommand::Title(format!(
-                            "sdroxide — {}",
-                            c.label
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Title(crate::window_title(
+                            &c.label,
                         )));
                     }
                     // A different interface on this radio: the stored zoom
