@@ -4017,7 +4017,7 @@ fn engine_thread(
     } else {
         ais_cfg
     };
-    let dab_cfg = sdroxide_types::DabSettings::default();
+    let dab_cfg = sdroxide_config::load_dab_config();
     state.dab = if audio_mode {
         sdroxide_types::DabSettings::OFF // wideband-only, like the rest of the lanes
     } else {
@@ -9852,6 +9852,10 @@ impl Engine {
                 // `sync_dab`, driven below like the other wideband lanes.
                 self.state.dab = cfg;
                 self.dab_cfg = self.state.dab.clone();
+                // Written through, so what a scan found outlives the session.
+                if let Err(e) = sdroxide_config::save_dab_config(&self.dab_cfg) {
+                    warn!("saving DAB config: {e}");
+                }
                 self.sync_dab();
             }
 
