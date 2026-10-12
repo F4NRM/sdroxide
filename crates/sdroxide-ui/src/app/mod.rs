@@ -86,9 +86,9 @@ use self::panels::fsq::fsq_load_contacts;
 use self::panels::rf_paint::RfPaintUi;
 use self::panels::sstv::SstvUi;
 use self::persist::{
-    load_alerts_settings, load_broadcast_favourites, load_broadcast_stations, load_morse_progress,
-    load_qso_log, load_recording_jobs, load_speech_settings, load_swl_log, load_swl_report,
-    load_ui_settings, recordings_dir_for_display,
+    load_alerts_settings, load_broadcast_favourites, load_broadcast_stations, load_hfdl_channels,
+    load_morse_progress, load_qso_log, load_recording_jobs, load_speech_settings, load_swl_log,
+    load_swl_report, load_ui_settings, recordings_dir_for_display,
 };
 use self::settings::servers::TciServerStatus;
 use self::settings::{SatEditState, SettingsTab, TestOutcome};
@@ -741,6 +741,10 @@ pub struct SdroxideApp {
     pub(in crate::app) schedule: crate::app::schedule::ScheduleUi,
     /// Favourite broadcast stations, by name (`broadcast_favourites.json`).
     pub(in crate::app) broadcast_favs: Vec<String>,
+    /// The operator's own HFDL channels, in kHz (`hfdl_channels.json`) — the
+    /// busy assigned frequencies that are not in the published plan, drawn as
+    /// one-click chips beside it in the HFDL panel.
+    pub(in crate::app) hfdl_channels: Vec<u32>,
     /// Scheduled recordings: the jobs, and the clock that runs them.
     pub(in crate::app) recording_jobs: Vec<sdroxide_types::RecordingJob>,
     pub(in crate::app) jobs: crate::app::recording_jobs::JobsUi,
@@ -1860,6 +1864,7 @@ impl SdroxideApp {
             swl_filter: Default::default(),
             schedule: Default::default(),
             broadcast_favs: load_broadcast_favourites(storage),
+            hfdl_channels: load_hfdl_channels(storage),
             recording_jobs: load_recording_jobs(storage),
             jobs: Default::default(),
             log_view: Default::default(),

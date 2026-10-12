@@ -2161,6 +2161,18 @@ pub fn save_broadcast_favourites(names: &[String]) -> Result<(), ConfigError> {
     save_json("broadcast_favourites.json", &names)
 }
 
+/// The operator's own HFDL channels (`hfdl_channels.json`), in kHz — the busy
+/// assigned frequencies that are not in the published plan, saved as one-click
+/// chips beside it. Per machine, like the broadcast favourites: a channel a
+/// listener found busy is theirs, not the station's.
+pub fn load_hfdl_channels() -> Vec<u32> {
+    load_json_list("hfdl_channels.json")
+}
+
+pub fn save_hfdl_channels(khz: &[u32]) -> Result<(), ConfigError> {
+    save_json("hfdl_channels.json", &khz)
+}
+
 /// Scheduled recordings (`recording_jobs.json`).
 pub fn load_recording_jobs() -> Vec<sdroxide_types::RecordingJob> {
     load_json_list("recording_jobs.json")
@@ -3793,6 +3805,13 @@ mod tests {
             root.join("recordings"),
             "an isolated session ignores it and stays in the sandbox"
         );
+
+        // The operator's own HFDL channels: a save writes the file and a load
+        // reads it back, and a missing one is simply empty (not an error).
+        assert!(load_hfdl_channels().is_empty(), "no file, no saved channels");
+        save_hfdl_channels(&[5_451, 8_843, 11_184]).unwrap();
+        assert!(root.join("hfdl_channels.json").exists());
+        assert_eq!(load_hfdl_channels(), vec![5_451, 8_843, 11_184]);
 
         unsafe { std::env::remove_var("SDROXIDE_CONFIG_DIR") };
     }

@@ -123,6 +123,29 @@ pub(in crate::app) fn persist_broadcast_favourites(_names: &[String]) {
     // Written by eframe's periodic `save()` into localStorage.
 }
 
+// ── HFDL custom channels (native: config-dir JSON; wasm: eframe storage) ─────
+#[cfg(not(target_arch = "wasm32"))]
+pub(in crate::app) fn load_hfdl_channels(_storage: Option<&dyn eframe::Storage>) -> Vec<u32> {
+    sdroxide_config::load_hfdl_channels()
+}
+
+#[cfg(target_arch = "wasm32")]
+pub(in crate::app) fn load_hfdl_channels(storage: Option<&dyn eframe::Storage>) -> Vec<u32> {
+    storage.and_then(|s| eframe::get_value(s, "hfdl_channels")).unwrap_or_default()
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub(in crate::app) fn persist_hfdl_channels(khz: &[u32]) {
+    if let Err(e) = sdroxide_config::save_hfdl_channels(khz) {
+        eprintln!("failed to save HFDL channels: {e}");
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+pub(in crate::app) fn persist_hfdl_channels(_khz: &[u32]) {
+    // HFDL is a native wideband lane — the browser client never reaches this.
+}
+
 // ── Recording jobs (native: config-dir JSON; wasm: eframe storage) ───────────
 #[cfg(not(target_arch = "wasm32"))]
 pub(in crate::app) fn load_recording_jobs(
