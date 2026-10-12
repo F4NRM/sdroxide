@@ -23,6 +23,16 @@ const GAP: f32 = 10.0;
 /// One station row.
 const ROW_H: f32 = 22.0;
 
+/// What the channel picker says while closed: which block the receiver is
+/// on, said in words — "Channel received 8D 201.072".
+pub(in crate::app) fn channel_caption(channel: &str) -> String {
+    match sdroxide_types::DAB_BAND_III.iter().find(|(n, _)| *n == channel) {
+        Some((n, hz)) => format!("Channel received {n} {}", dab_mhz(*hz)),
+        None if channel.is_empty() => "No channel received".to_string(),
+        None => format!("Channel received {channel}"),
+    }
+}
+
 /// Decode a slideshow picture as the station sent it — JPEG or PNG, any size
 /// — into an image the panel can draw. `None` when the bytes are not one.
 pub(in crate::app) fn slide_image(data: &[u8]) -> Option<egui::ColorImage> {
@@ -95,7 +105,7 @@ impl SdroxideApp {
                 });
                 self.dab_transport(ui, cmds, &rows, card_w + GAP + list_w);
             });
-            self.dab_vu_meter(ui, st, body_h + BAR_H + 6.0, vu_w, compact);
+            self.dab_vu_meter(ui, cmds, st, body_h + BAR_H + 6.0, vu_w, compact);
             // The right of the panel: the slideshow, as large as it fits.
             let free = ui.available_width();
             if free > 120.0 {
@@ -183,7 +193,14 @@ impl SdroxideApp {
             ui.spacing_mut().item_spacing.y = 6.0;
             self.dab_now_playing(ui, st, &live, egui::vec2(width, card_h));
             self.dab_vu_step(ui, st);
-            crate::widgets::vu_meter::stereo_horizontal(ui, &self.dab_vu, egui::vec2(width, vu_h));
+            let volume = self.state.rx[0].volume;
+            let out = crate::widgets::vu_meter::stereo_horizontal(
+                ui,
+                &self.dab_vu,
+                egui::vec2(width, vu_h),
+                Some(volume),
+            );
+            self.dab_vu_volume(ui, cmds, out);
             if slide_h > 0.0 {
                 self.dab_slideshow(ui, egui::vec2(width, slide_h));
             }
@@ -367,14 +384,14 @@ impl SdroxideApp {
                 &self.state.dab.found,
                 self.dab_scan.as_ref().map(|s| s.found.as_slice()),
             );
-            let shown = sdroxide_types::DAB_BAND_III
-                .iter()
-                .find(|(n, _)| *n == self.state.dab.channel)
-                .map(|(n, hz)| format!("{n}  {}", dab_mhz(*hz)))
-                .unwrap_or_else(|| self.state.dab.channel.clone());
+            let shown = channel_caption(&self.state.dab.channel);
+            // The station count beside it only while there is room for both:
+            // a picker pushed past its column takes the list with it.
+            let room = ui.available_width();
+            let with_count = room >= 300.0;
             egui::ComboBox::from_id_salt("dab_channel_pick")
                 .selected_text(RichText::new(shown).size(12.0))
-                .width((ui.available_width() - 70.0).max(80.0))
+                .width(if with_count { room - 70.0 } else { room - 8.0 }.max(80.0))
                 .show_ui(ui, |ui| {
                     for name in &channels {
                         let freq = sdroxide_types::DAB_BAND_III
@@ -427,11 +444,13 @@ impl SdroxideApp {
                         }
                     }
                 });
-            ui.label(
-                RichText::new(format!("{} stations", rows.len()))
-                    .size(10.0)
-                    .color(theme::gray(140)),
-            );
+            if with_count {
+                ui.label(
+                    RichText::new(format!("{} stations", rows.len()))
+                        .size(10.0)
+                        .color(theme::gray(140)),
+                );
+            }
         });
         if let Some(scan) = self.dab_scan.as_ref() {
             let n = sdroxide_types::DAB_BAND_III.len();
@@ -650,7 +669,13 @@ impl SdroxideApp {
 
 #[cfg(test)]
 mod tests {
-    use super::{slide_image, station_initials};
+    use super::{channel_caption, slide_image, station_initials};
+
+    #[test]
+    fn the_picker_names_the_channel_received() {
+        assert_eq!(channel_caption("8D"), "Channel received 8D 201.072");
+        assert_eq!(channel_caption(""), "No channel received");
+    }
 
     /// A slideshow picture keeps the size the station sent it at, whatever
     /// its shape, and bytes that are no picture are refused, not drawn.
