@@ -215,6 +215,29 @@ impl DabSettings {
         self.stations.retain(|s| s.channel != channel);
     }
 
+    /// Take a sweep's answer: it walked [`DAB_BAND_III`] up to block `at`
+    /// (the whole band when `at` is past its end) and decoded stations on the
+    /// blocks in `found`.
+    ///
+    /// Only blocks that named stations are kept — a block with nothing on it
+    /// is not a channel to offer. A block the sweep never reached (it was
+    /// stopped early) keeps what was known of it, so stopping is never a loss;
+    /// a block it did walk and found silent is dropped with its stations. The
+    /// presets are the operator's and are left alone. Band order.
+    pub fn apply_scan(&mut self, at: usize, found: &[String]) {
+        let old = std::mem::take(&mut self.found);
+        self.found = DAB_BAND_III
+            .iter()
+            .enumerate()
+            .filter(|(i, (name, _))| {
+                found.iter().any(|f| f == name) || (*i >= at && old.iter().any(|o| o == name))
+            })
+            .map(|(_, (name, _))| name.to_string())
+            .collect();
+        let kept = &self.found;
+        self.stations.retain(|s| kept.contains(&s.channel));
+    }
+
     /// Forget one station on one channel. It comes back the next time the
     /// ensemble is read — a SCAN, or tuning the channel again.
     pub fn forget_station(&mut self, channel: &str, service_id: &str) {
@@ -338,6 +361,44 @@ pub fn dab_widening_helps(device_rate: f64) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn known(channel: &str, id: &str) -> DabKnownStation {
+        DabKnownStation { channel: channel.into(), service_id: id.into(), label: id.into() }
+    }
+
+    fn idx(name: &str) -> usize {
+        DAB_BAND_III.iter().position(|(n, _)| *n == name).unwrap()
+    }
+
+    /// A whole sweep keeps exactly the blocks that named stations, in band
+    /// order, and drops a block it walked and found silent with its stations.
+    /// The presets are not the sweep's to touch.
+    #[test]
+    fn a_full_sweep_keeps_only_the_blocks_that_named_stations() {
+        let mut d = DabSettings {
+            found: vec!["12C".into(), "5A".into()],
+            stations: vec![known("5A", "A"), known("12C", "C"), known("8B", "B")],
+            presets: vec![known("5A", "A")],
+            ..DabSettings::default()
+        };
+        d.apply_scan(DAB_BAND_III.len(), &["12C".into(), "8B".into()]);
+        assert_eq!(d.found, vec!["8B".to_string(), "12C".to_string()]);
+        assert_eq!(d.stations, vec![known("12C", "C"), known("8B", "B")]);
+        assert_eq!(d.presets, vec![known("5A", "A")], "a sweep cleared a preset");
+    }
+
+    /// Stopping a sweep half way loses nothing it never looked at.
+    #[test]
+    fn a_stopped_sweep_keeps_what_it_never_reached() {
+        let mut d = DabSettings {
+            found: vec!["5A".into(), "12C".into()],
+            stations: vec![known("5A", "A"), known("12C", "C")],
+            ..DabSettings::default()
+        };
+        d.apply_scan(idx("8B"), &["7D".into()]);
+        assert_eq!(d.found, vec!["7D".to_string(), "12C".to_string()]);
+        assert_eq!(d.stations, vec![known("12C", "C")]);
+    }
 
     /// 2.5 Msps is the reference (confirmed on a Pluto), and it is reachable:
     /// a 2.5 or 5 Msps receiver lands the lane on it, so nothing is advised.

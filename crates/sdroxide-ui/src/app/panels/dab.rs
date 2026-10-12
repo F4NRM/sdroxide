@@ -20,7 +20,7 @@ use sdroxide_types::{Command, DabService, DabStatus};
 /// sweep's findings straight back over the clearing, is the inert control this
 /// fork keeps having to unpick. Both cases return false, so the chip is simply
 /// not there rather than sitting there doing nothing.
-fn dab_clear_offered(scanning: bool, found_len: usize) -> bool {
+pub(in crate::app) fn dab_clear_offered(scanning: bool, found_len: usize) -> bool {
     !scanning && found_len > 0
 }
 
@@ -44,7 +44,7 @@ use crate::theme;
 /// worth more full width than a third of a wide one.
 const DAB_SPLIT_WIDTH: f32 = 560.0;
 
-/// The four columns — CHANNELS, STATIONS, STATION INFO and the VU meter — sit
+/// The receiver — the station card, the station list and the VU meter — sits
 /// together on the left and take **at most half** the panel's width, so the
 /// right half stays free. Never narrower than this, though, unless the panel
 /// itself is: four columns in less than this are clipped text.
@@ -67,15 +67,6 @@ pub(in crate::app) fn dab_group_layout(width: f32) -> (f32, f32, bool) {
     }
 }
 
-/// The widths of CHANNELS, STATIONS and STATION INFO inside a group `group`
-/// wide, after the VU meter (`vu_w`) and the gaps have taken theirs.
-pub(in crate::app) fn dab_column_widths(group: f32, vu_w: f32) -> [f32; 3] {
-    let rest = (group - vu_w - 3.0 * DAB_COL_GAP).max(0.0);
-    [rest * 0.28, rest * 0.40, rest * 0.32]
-}
-
-const DAB_COL_GAP: f32 = 10.0;
-
 /// The status describes `channel` — the lane's window sits on that block —
 /// and not the one the lane has just left. A sweep retunes every few seconds
 /// and the first status after a retune is still the old block's, so without
@@ -96,6 +87,7 @@ pub(in crate::app) fn dab_station_rows(
     remembered: &[sdroxide_types::DabKnownStation],
     channel: &str,
     hidden: &[(String, String)],
+    presets: &[sdroxide_types::DabKnownStation],
 ) -> Vec<DabService> {
     let gone = |id: &str| hidden.iter().any(|(c, s)| c == channel && s == id);
     let mut out: Vec<DabService> = live.iter().filter(|s| !gone(&s.service_id)).cloned().collect();
@@ -111,59 +103,13 @@ pub(in crate::app) fn dab_station_rows(
             });
         }
     }
+    // The starred stations first, then the rest, each keeping its own order.
+    let starred = |s: &DabService| {
+        presets.iter().any(|k| k.channel == channel && k.service_id == s.service_id)
+    };
+    out.sort_by_key(|s| !starred(s));
     out
 }
-
-/// A list chip at one width for its whole column, so a list reads as a
-/// column, with a small × sitting on its top-left corner that clears it.
-///
-/// The × lives on the chip rather than beside it: a button of its own in
-/// front of every row cost a column of width and pushed the chips out of line
-/// with the SCAN and CLEAR above them. It is registered after the chip, so a
-/// press on it is the ×'s and not the chip's. Returns the chip's response and
-/// whether the × was pressed.
-fn chip_with_clear(
-    ui: &mut egui::Ui,
-    selected: bool,
-    label: String,
-    width: f32,
-    clear_hover: &str,
-    show_clear: bool,
-) -> (egui::Response, bool) {
-    let h = crate::chrome::chip_height(ui, None);
-    let chip = crate::chrome::chip_sized(ui, selected, label, egui::vec2(width, h));
-    if !show_clear {
-        return (chip, false);
-    }
-    let c = chip.rect.left_top() + egui::vec2(7.0, 7.0);
-    let x = ui
-        .interact(
-            egui::Rect::from_center_size(c, egui::vec2(13.0, 13.0)),
-            chip.id.with("dab-clear"),
-            egui::Sense::click(),
-        )
-        .on_hover_text(clear_hover);
-    let hot = x.hovered();
-    let p = ui.painter();
-    p.circle_filled(c, 5.5, if hot { theme::ALERT() } else { theme::BG_DEEP() });
-    p.circle_stroke(
-        c,
-        5.5,
-        egui::Stroke::new(1.0, if hot { theme::ALERT() } else { theme::LINE_LIT() }),
-    );
-    p.text(
-        c,
-        egui::Align2::CENTER_CENTER,
-        "×",
-        egui::FontId::proportional(9.5),
-        if hot { theme::TEXT_STRONG() } else { theme::gray(170) },
-    );
-    (chip, x.clicked())
-}
-
-/// The widest a list chip grows: past this a wide panel's chips would be long
-/// bars with a short label floating in them.
-const DAB_CHIP_MAX_W: [f32; 2] = [170.0, 230.0];
 
 /// The channels the picker offers: what a running scan has found *so far*,
 /// then what is already remembered, and a couple of common blocks before the
@@ -217,12 +163,20 @@ pub(in crate::app) fn dab_focus_service<'a>(
     st.services.iter().find(|s| s.service_id == id)
 }
 
-/// Whether a block is carrying a multiplex, and so worth offering as a channel.
-///
-/// Services are the test, not the ensemble's name. A multiplex whose FIC
-/// carries services but no ensemble label is a station the operator can plainly
-/// see, and a sweep that required a name walked past it — the reported "the scan
-/// found a station on a channel yet did not put the channel in the list".
+/// The stations a sweep has heard on `channel`: the status has to be that
+/// block's — a sweep retunes every few seconds, and a status still describing
+/// the block before would credit its stations to the wrong channel — and it
+/// has to name at least one. An ensemble label with no stations is a block
+/// worth listening to a little longer, not one to offer yet.
+pub(in crate::app) fn dab_scan_heard<'a>(
+    st: &'a DabStatus,
+    channel: &str,
+) -> Option<&'a [DabService]> {
+    (dab_status_is_for(st, channel) && !st.services.is_empty()).then_some(st.services.as_slice())
+}
+
+/// Whether the block carries an ensemble at all, stations named or not: the
+/// sweep then stays a little longer for the FIC to name them.
 pub(in crate::app) fn dab_block_has_multiplex(st: &DabStatus) -> bool {
     st.ensemble.is_some() || !st.services.is_empty()
 }
@@ -332,7 +286,7 @@ impl SdroxideApp {
             // A sweep stopped half way has still learned something, and
             // discarding it would punish the operator for stopping early.
             // Keep it and remember it, exactly as finishing does.
-            self.state.dab.found = scan.found;
+            self.state.dab.apply_scan(scan.at, &scan.found);
             cmds.push(Command::SetDabConfig(self.state.dab.clone()));
         } else {
             self.dab_scan =
@@ -380,286 +334,6 @@ impl SdroxideApp {
              control. 0 VU is −18 dBFS; the red segments are the loud end.",
             );
     }
-
-    /// Left column: the blocks this scan found, and the sweep that finds them.
-    ///
-    /// `list_h` is the height the list is allowed, so the scroll area is bounded
-    /// by its own rect rather than by whatever height happens to be left over —
-    /// which is what gives it a working scrollbar.
-    fn dab_channels(
-        &mut self,
-        ui: &mut egui::Ui,
-        cmds: &mut Vec<Command>,
-        st: &DabStatus,
-        list_h: f32,
-    ) {
-        ui.label(RichText::new("CHANNELS").size(10.0).color(theme::CYAN_DIM()));
-
-        // The sweep, and a toggle. Sweeping every Band III block is how an
-        // operator learns which carry a transmission where they are; the ones
-        // that do become the list below. While it runs the chip is the way out,
-        // so it has to be live — it used to carry `&& !scanning`, which made a
-        // button reading SCANNING… inert.
-        let scanning = self.dab_scan.is_some();
-        if crate::chrome::chip(ui, scanning, if scanning { "SCANNING…" } else { "SCAN" })
-            .on_hover_text(if scanning {
-                "Stop the sweep here. The channels it has already found stay in the list."
-            } else {
-                "Walk every Band III block and keep the ones that carry an ensemble. \
-                 What is found becomes the list below, and is remembered."
-            })
-            .clicked()
-        {
-            self.dab_toggle_scan(cmds);
-        }
-
-        // **Clear the list**, asked for on the fork's #18 as "Add clear list".
-        //
-        // The CHANNELS list is what the sweep found and it is *remembered*, so
-        // it only ever grows: every ensemble the receiver has ever come across
-        // stays, with nothing to remove one. That is the right default for a
-        // listener — re-scanning costs minutes — and the wrong one with no way
-        // out, so this is the way out.
-        //
-        // Two rules, both so the chip can never be the inert thing this fork
-        // keeps finding: it is **only offered when there is something to clear**,
-        // and it is **not offered during a sweep**, where stopping would write
-        // the sweep's findings straight back over the clearing. Pressing SCAN
-        // finds them again, which is why this needs no confirmation.
-        if dab_clear_offered(scanning, self.state.dab.found.len())
-            && crate::chrome::chip(ui, false, "CLEAR")
-                .on_hover_text("Forget the channels found so far. SCAN will find them again.")
-                .clicked()
-        {
-            self.state.dab.found.clear();
-            cmds.push(Command::SetDabConfig(self.state.dab.clone()));
-            self.client_settings_status =
-                Some("channel list cleared — SCAN will find them again".into());
-        }
-
-        // Where the sweep is, so a two-minute walk is not a silent one.
-        if let Some(scan) = self.dab_scan.as_ref() {
-            let n = sdroxide_types::DAB_BAND_III.len();
-            let at = scan.at.min(n - 1);
-            ui.add(
-                egui::ProgressBar::new((at + 1) as f32 / n as f32).desired_height(12.0).text(
-                    RichText::new(format!(
-                        "{} · {}/{n} · {} found",
-                        sdroxide_types::DAB_BAND_III[at].0,
-                        at + 1,
-                        scan.found.len()
-                    ))
-                    .size(9.0),
-                ),
-            );
-        }
-
-        let channels = dab_channel_choices(
-            &self.state.dab.found,
-            self.dab_scan.as_ref().map(|s| s.found.as_slice()),
-        );
-        egui::ScrollArea::vertical()
-            .id_salt("dab_channels_scroll")
-            .auto_shrink([false, false])
-            .max_height(list_h)
-            .min_scrolled_height(list_h)
-            .show(ui, |ui| {
-                for name in &channels {
-                    let here = self.state.dab.channel == *name;
-                    let freq = sdroxide_types::DAB_BAND_III
-                        .iter()
-                        .find(|(n, _)| n == name)
-                        .map(|(_, hz)| *hz);
-                    let label = match freq {
-                        Some(hz) => format!("{name}  {}", dab_mhz(hz)),
-                        None => name.clone(),
-                    };
-                    let w = ui.available_width().min(DAB_CHIP_MAX_W[0]);
-                    let (r, cleared) = chip_with_clear(
-                        ui,
-                        here,
-                        label,
-                        w,
-                        "Clear this channel and the stations remembered on it. SCAN finds it \
-                         again.",
-                        !scanning,
-                    );
-                    if cleared {
-                        self.state.dab.forget_channel(name);
-                        cmds.push(Command::SetDabConfig(self.state.dab.clone()));
-                    }
-                    let r = r.on_hover_text(
-                        "Tune this block. A new channel carries a different service list, so \
-                         the station chosen is dropped with it.",
-                    );
-                    {
-                        if r.clicked() && !cleared {
-                            // Picking a channel is the operator saying "stop
-                            // here". A sweep left running retunes away on its
-                            // very next tick (~100 ms), so the pick snapped
-                            // straight back and read as a dead control — the one
-                            // thing a channel pick must never do. This was the
-                            // reported bug: no way out of a scan but waiting out
-                            // all 38 blocks.
-                            self.dab_scan = None;
-                            self.state.dab.channel = name.clone();
-                            // The service id belonged to the ensemble being
-                            // left. Carried across it is not a harmless default:
-                            // the receiver holds a request its FIC can never
-                            // resolve, and the channel would sit silent with a
-                            // station lit that does not exist here.
-                            self.state.dab.service_id.clear();
-                            cmds.push(Command::SetDabConfig(self.state.dab.clone()));
-                            // Put the dial on the channel, as the ADS-B lane
-                            // does with 1090 MHz: the decoder is fed from a
-                            // window there, and an operator who picked a channel
-                            // should see the receiver move to it rather than
-                            // have to tune twice.
-                            if let Some(hz) = freq {
-                                cmds.push(Command::SetVfo { vfo: self.state.active_vfo, hz });
-                            }
-                        }
-                    }
-                }
-            });
-
-        // What the receiver is doing, in the column that owns the choice.
-        if let Some(why) = st.degraded.as_ref().filter(|_| st.services.is_empty()) {
-            ui.label(RichText::new(why).color(theme::YELLOW()).size(10.0));
-        }
-    }
-
-    /// Middle column: the ensemble's services, the one playing marked, each a
-    /// press to listen.
-    fn dab_services(
-        &mut self,
-        ui: &mut egui::Ui,
-        cmds: &mut Vec<Command>,
-        st: &DabStatus,
-        list_h: f32,
-    ) {
-        ui.label(RichText::new("STATIONS").size(10.0).color(theme::CYAN_DIM()));
-        let channel = self.state.dab.channel.clone();
-        // What is named now leads; what was heard here before follows, so a
-        // channel picked from the list shows its stations at once.
-        let live: &[DabService] = if dab_status_is_for(st, &channel) { &st.services } else { &[] };
-        let rows = dab_station_rows(live, &self.state.dab.stations, &channel, &self.dab_hidden);
-        if rows.is_empty() {
-            ui.add_space(2.0);
-            ui.label(
-                RichText::new(if st.unavailable.is_some() {
-                    "the receiver cannot hold a DAB ensemble here"
-                } else {
-                    "nothing decoded yet — the FIC takes a moment after the channel is in tune"
-                })
-                .size(10.0)
-                .weak(),
-            );
-            return;
-        }
-        egui::ScrollArea::vertical()
-            .id_salt("dab_services_scroll")
-            .auto_shrink([false, false])
-            .max_height(list_h)
-            .min_scrolled_height(list_h)
-            .show(ui, |ui| {
-                for s in &rows {
-                    let playing = st.playing.as_deref() == Some(s.service_id.as_str());
-                    let heard_now = live.iter().any(|l| l.service_id == s.service_id);
-                    let label = if s.label.trim().is_empty() {
-                        format!("({})", s.service_id)
-                    } else {
-                        s.label.clone()
-                    };
-                    let w = ui.available_width().min(DAB_CHIP_MAX_W[1]);
-                    let (r, cleared) = chip_with_clear(
-                        ui,
-                        playing,
-                        label,
-                        w,
-                        "Clear this station from the list. The next SCAN brings it back if the \
-                         ensemble still carries it.",
-                        true,
-                    );
-                    if cleared {
-                        self.state.dab.forget_station(&channel, &s.service_id);
-                        self.dab_hidden.push((channel.clone(), s.service_id.clone()));
-                        cmds.push(Command::SetDabConfig(self.state.dab.clone()));
-                    } else if r.clicked() {
-                        self.state.dab.service_id = s.service_id.clone();
-                        cmds.push(Command::SetDabConfig(self.state.dab.clone()));
-                    }
-                    ui.label(
-                        RichText::new(if heard_now {
-                            dab_service_extra(s)
-                        } else {
-                            format!("{} · remembered", s.service_id)
-                        })
-                        .size(9.0)
-                        .color(theme::gray(140)),
-                    );
-                }
-            });
-    }
-
-    /// Right column: the chosen station's own numbers, and the decoder's state.
-    ///
-    /// A service list says *what* is on the air and not one of its numbers, so
-    /// the numbers a listener would otherwise have to look up — the programme's
-    /// bitrate, its protection profile, which sub-channel it rides in — are
-    /// given a home of their own instead of being the small grey afterthought
-    /// under a list that is also the only way to play something.
-    fn dab_info(&self, ui: &mut egui::Ui, st: &DabStatus) {
-        ui.label(RichText::new("STATION INFO").size(10.0).color(theme::CYAN_DIM()));
-        let Some(s) = dab_focus_service(st, &self.state.dab.service_id) else {
-            ui.add_space(2.0);
-            ui.label(
-                RichText::new(if st.services.is_empty() {
-                    "no station yet"
-                } else {
-                    "no station chosen — press one in the list"
-                })
-                .size(10.0)
-                .weak(),
-            );
-            return;
-        };
-
-        ui.add_space(2.0);
-        let name =
-            if s.label.trim().is_empty() { format!("({})", s.service_id) } else { s.label.clone() };
-        ui.label(RichText::new(name).strong());
-
-        let playing = st.playing.as_deref() == Some(s.service_id.as_str());
-        ui.label(
-            RichText::new(if playing { "▶ playing" } else { "chosen" })
-                .size(10.0)
-                .color(if playing { theme::CYAN_DIM() } else { theme::gray(140) }),
-        );
-
-        ui.add_space(4.0);
-        let row = |ui: &mut egui::Ui, k: &str, v: String| {
-            ui.horizontal_wrapped(|ui| {
-                ui.label(RichText::new(format!("{k}:")).size(10.0).color(theme::gray(140)));
-                ui.label(RichText::new(v).size(10.0));
-            });
-        };
-        row(ui, "Service", s.service_id.clone());
-        if let Some(b) = s.bitrate {
-            row(ui, "Bitrate", format!("{b} kbps"));
-        }
-        if let Some(p) = &s.protection {
-            row(ui, "Protection", p.clone());
-        }
-        if let Some(c) = s.subchannel {
-            row(ui, "Sub-channel", c.to_string());
-        }
-        if let Some(e) = &st.ensemble {
-            row(ui, "Ensemble", e.clone());
-        }
-        row(ui, "Channel", self.state.dab.channel.clone());
-        row(ui, "Decoder", format!("{} frames · {} fibs", st.frames, st.fibs));
-    }
 }
 
 #[cfg(test)]
@@ -669,6 +343,40 @@ mod tests {
         dab_service_extra,
     };
     use sdroxide_types::{DabService, DabStatus};
+
+    fn on(block: &str, services: Vec<DabService>) -> DabStatus {
+        let hz = sdroxide_types::DAB_BAND_III.iter().find(|(n, _)| *n == block).unwrap().1;
+        DabStatus { services, window_center_hz: hz, ..Default::default() }
+    }
+
+    /// The sweep credits stations to the block the status is about, and only
+    /// when it names some: a status still describing the previous block, or
+    /// one with no stations yet, puts nothing on the list.
+    #[test]
+    fn a_sweep_credits_stations_only_to_their_own_block() {
+        let st = on("8B", vec![svc("0xF201")]);
+        assert_eq!(super::dab_scan_heard(&st, "8B").map(|s| s.len()), Some(1));
+        assert!(super::dab_scan_heard(&st, "8C").is_none(), "stale status credited to 8C");
+        assert!(super::dab_scan_heard(&on("8B", vec![]), "8B").is_none());
+    }
+
+    /// The starred stations lead the list, and the rest keep their order.
+    #[test]
+    fn the_starred_stations_come_first() {
+        let k = |id: &str| sdroxide_types::DabKnownStation {
+            channel: "8B".into(),
+            service_id: id.into(),
+            label: id.into(),
+        };
+        let live = vec![svc("A"), svc("B"), svc("C"), svc("D")];
+        let rows = super::dab_station_rows(&live, &[], "8B", &[], &[k("C"), k("A")]);
+        let ids: Vec<&str> = rows.iter().map(|s| s.service_id.as_str()).collect();
+        assert_eq!(ids, ["A", "C", "B", "D"]);
+        // A star on another channel's station does not move this one.
+        let other = sdroxide_types::DabKnownStation { channel: "11C".into(), ..k("D") };
+        let rows = super::dab_station_rows(&live, &[], "8B", &[], &[other]);
+        assert_eq!(rows[0].service_id, "A");
+    }
 
     /// Kevin's report: 8B read `197.6` where the block is 197.648 MHz.
     #[test]
@@ -794,7 +502,7 @@ mod tests {
 mod clear_list_tests {
     use super::dab_clear_offered;
 
-    /// The four columns take half the panel when the full meter fits there;
+    /// The receiver takes half the panel when the full meter fits there;
     /// below that the meter narrows and drops its plate before the group
     /// grows past half.
     #[test]

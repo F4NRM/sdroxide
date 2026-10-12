@@ -8765,7 +8765,7 @@ mod tests {
             )),
             ..Default::default()
         };
-        let out = ctx.run_ui(input, |ui| {
+        let mut out = ctx.run_ui(input, |ui| {
             settings_pluto_tab(
                 ui,
                 &[],
@@ -8778,6 +8778,9 @@ mod tests {
                 &mut cmds,
             )
         });
+        // Nothing renders here: drop the font atlas egui handed out, or
+        // epaint's debug check fails the test in a debug build.
+        out.textures_delta.clear();
         let mut text = String::new();
         out.shapes.iter().for_each(|c| walk(&c.shape, &mut text));
         text

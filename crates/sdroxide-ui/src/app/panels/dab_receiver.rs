@@ -11,8 +11,8 @@ use eframe::egui::{self, Align2, Color32, FontId, Pos2, Rect, RichText, Sense, S
 use sdroxide_types::{Command, DabKnownStation, DabService, DabStatus};
 
 use super::dab::{
-    dab_channel_choices, dab_focus_service, dab_group_layout, dab_mhz, dab_station_rows,
-    dab_status_is_for,
+    dab_channel_choices, dab_clear_offered, dab_focus_service, dab_group_layout, dab_mhz,
+    dab_service_extra, dab_station_rows, dab_status_is_for,
 };
 use crate::app::SdroxideApp;
 use crate::theme;
@@ -65,7 +65,13 @@ impl SdroxideApp {
         let channel = self.state.dab.channel.clone();
         let live: Vec<DabService> =
             if dab_status_is_for(st, &channel) { st.services.clone() } else { Vec::new() };
-        let rows = dab_station_rows(&live, &self.state.dab.stations, &channel, &self.dab_hidden);
+        let rows = dab_station_rows(
+            &live,
+            &self.state.dab.stations,
+            &channel,
+            &self.dab_hidden,
+            &self.state.dab.presets,
+        );
 
         ui.horizontal_top(|ui| {
             ui.spacing_mut().item_spacing.x = GAP;
@@ -148,7 +154,13 @@ impl SdroxideApp {
         let channel = self.state.dab.channel.clone();
         let live: Vec<DabService> =
             if dab_status_is_for(st, &channel) { st.services.clone() } else { Vec::new() };
-        let rows = dab_station_rows(&live, &self.state.dab.stations, &channel, &self.dab_hidden);
+        let rows = dab_station_rows(
+            &live,
+            &self.state.dab.stations,
+            &channel,
+            &self.dab_hidden,
+            &self.state.dab.presets,
+        );
         let card_h = 150.0f32.min(avail_h * 0.34);
         let vu_h = crate::widgets::vu_meter::HEIGHT_HORIZONTAL;
         let slide_h =
@@ -293,15 +305,7 @@ impl SdroxideApp {
             &mut y,
         );
         if let Some(s) = svc {
-            let mut tech = Vec::new();
-            if let Some(b) = s.bitrate {
-                tech.push(format!("{b} kbps"));
-            }
-            if let Some(pr) = &s.protection {
-                tech.push(pr.clone());
-            }
-            tech.push(s.service_id.clone());
-            line(tech.join("  ·  "), 10.0, theme::gray(130), &mut y);
+            line(dab_service_extra(s), 10.0, theme::gray(130), &mut y);
         }
 
         // The station's own text (DLS), across the bottom of the card.
@@ -392,6 +396,24 @@ impl SdroxideApp {
                                 }
                             }
                         });
+                    }
+                    // Kevin's "Add clear list" (#18): the whole list at once.
+                    // Not offered mid-sweep, where stopping would write the
+                    // sweep's findings straight back over the clearing.
+                    if dab_clear_offered(self.dab_scan.is_some(), self.state.dab.found.len()) {
+                        ui.separator();
+                        if ui
+                            .button("× clear all channels")
+                            .on_hover_text(
+                                "Forget every channel and the stations on them. SCAN finds \
+                                 them again; the stars stay.",
+                            )
+                            .clicked()
+                        {
+                            self.state.dab.found.clear();
+                            self.state.dab.stations.clear();
+                            cmds.push(Command::SetDabConfig(self.state.dab.clone()));
+                        }
                     }
                 });
             ui.label(

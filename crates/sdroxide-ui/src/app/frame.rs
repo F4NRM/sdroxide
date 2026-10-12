@@ -2597,43 +2597,52 @@ impl SdroxideApp {
         // if nothing on screen is moving.
         crate::repaint::after_ms(ctx, 100);
 
-        // A block that carries a multiplex joins the list. The test used to be
-        // an ensemble *name* alone, and that is too strict: a multiplex whose
-        // FIC carries services but no ensemble label was a station the operator
-        // could plainly see, and the sweep walked straight past it and never
-        // offered the channel — the reported "it found a station but the channel
-        // did not appear in the list".
-        if let Some(st) = self.dab_status.as_ref()
-            && crate::app::panels::dab::dab_block_has_multiplex(st)
-        {
-            let name = sdroxide_types::DAB_BAND_III[scan.at].0.to_string();
-            if !scan.found.contains(&name) {
-                scan.found.push(name);
+        // A block whose status names stations joins the list, and its stations
+        // are remembered with it there and then — so a sweep stopped half way,
+        // or a restart, keeps every station it heard. Only a status that is
+        // about *this* block counts: the one before can still be arriving for a
+        // moment after the retune, and must not be credited here.
+        let name = sdroxide_types::DAB_BAND_III[scan.at].0.to_string();
+        let mut heard_stations = false;
+        let mut multiplex = false;
+        if let Some(st) = self.dab_status.as_ref() {
+            if let Some(services) = crate::app::panels::dab::dab_scan_heard(st, &name) {
+                heard_stations = true;
+                if !scan.found.contains(&name) {
+                    scan.found.push(name.clone());
+                }
+                self.state.dab.remember_stations(&name, services);
+            } else if crate::app::panels::dab::dab_status_is_for(st, &name) {
+                multiplex = crate::app::panels::dab::dab_block_has_multiplex(st);
             }
         }
 
-        if now - scan.since.unwrap_or(now) < DAB_SCAN_DWELL_S {
+        // An ensemble named but no stations yet: give the FIC a little longer.
+        let dwell = if multiplex && !heard_stations {
+            DAB_SCAN_DWELL_S * 2.0
+        } else {
+            DAB_SCAN_DWELL_S
+        };
+        if now - scan.since.unwrap_or(now) < dwell {
             if scan.since.is_none() {
                 scan.since = Some(now);
             }
             return;
         }
         // Move on. Past the last block the scan is over: keep what was found
-        // and hand it to the settings, which are remembered.
+        // and hand it to the settings, which the server remembers.
         scan.at += 1;
         scan.since = Some(now);
         if scan.at >= sdroxide_types::DAB_BAND_III.len() {
             let found = std::mem::take(&mut scan.found);
-            self.state.dab.found = found;
+            self.state.dab.apply_scan(sdroxide_types::DAB_BAND_III.len(), &found);
             self.dab_scan = None;
             cmds.push(Command::SetDabConfig(self.state.dab.clone()));
             return;
         }
-        let name = sdroxide_types::DAB_BAND_III[scan.at].0.to_string();
-        self.state.dab.channel = name.clone();
-        if let Some((_, hz)) = sdroxide_types::DAB_BAND_III[scan.at].into() {
-            cmds.push(Command::SetVfo { vfo: self.state.active_vfo, hz });
-        }
+        let (name, hz) = sdroxide_types::DAB_BAND_III[scan.at];
+        self.state.dab.channel = name.to_string();
+        cmds.push(Command::SetVfo { vfo: self.state.active_vfo, hz });
         cmds.push(Command::SetDabConfig(self.state.dab.clone()));
     }
 
@@ -3144,7 +3153,27 @@ impl SdroxideApp {
                 RadioEvent::AdsbStatus(st) => self.adsb_status = Some(st),
                 RadioEvent::Vdl2Status(st) => self.vdl2_status = Some(st),
                 RadioEvent::AisStatus(st) => self.ais_status = Some(st),
-                RadioEvent::DabStatus(st) => self.dab_status = Some(st),
+                RadioEvent::DabStatus(st) => {
+                    // Outside a sweep, a channel tuned by hand teaches the list
+                    // too: its stations are remembered, and it joins the found
+                    // channels, the moment the ensemble names them. The sweep
+                    // does its own remembering, block by block.
+                    let channel = self.state.dab.channel.clone();
+                    if self.dab_scan.is_none()
+                        && let Some(services) =
+                            crate::app::panels::dab::dab_scan_heard(&st, &channel)
+                    {
+                        let mut changed = self.state.dab.remember_stations(&channel, services);
+                        if !self.state.dab.found.contains(&channel) {
+                            self.state.dab.found.push(channel.clone());
+                            changed = true;
+                        }
+                        if changed {
+                            self.ctrl.send(Command::SetDabConfig(self.state.dab.clone()));
+                        }
+                    }
+                    self.dab_status = Some(st);
+                }
                 RadioEvent::Qo100Status(st) => self.qo100_status = Some(st),
                 RadioEvent::HfdlStatus(st) => {
                     // Feed the map's plot table before the log scrolls anything
