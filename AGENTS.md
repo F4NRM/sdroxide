@@ -87,9 +87,37 @@
 > sections below, but the work is somebody else's now: do not pick it up, and do
 > not open a handover for it. Its old `PHONE-UI-HANDOVER.md` was removed.
 >
-> **Every session, in order:** `git fetch upstream` and merge if it moved; read
-> the maintainer's comments on our open upstream PRs (answer only where he asked
-> something — silence is not a prompt to re-ping); check the fork's
+> ⛔ **DO NOT MERGE `upstream/main` INTO THIS FORK — WITHOUT EXCEPTION.**
+>
+> **Upstream is BEHIND this fork, not ahead of it. Merging it in is a regression,
+> not an update.** Measured 2026-10-12: the fork is at `2.0.9` /
+> `PROTO_VERSION 205`; `upstream/main` is at `1.6.10` / `PROTO_VERSION 179`. The
+> fork is **983 commits ahead** and 68 behind, so "68 behind" means *we have moved
+> past them*, never *they have work we need*.
+>
+> A trial merge produced **47 conflicted files**, and the conflicts are not
+> ordinary friction — upstream would **un-do fork work**:
+>
+> - **`Cargo.toml`**: upstream drops the vendored **`mfsk-core` patch** and the
+>   `vendor/mfsk-core` exclude. That patch fixes the **FT8 subtract
+>   out-of-bounds panic** which kills the decode worker mid-session (upstream has
+>   it only as jl1nie/mfsk-core#574 on a later base). Taking upstream's file
+>   **reinstates a crash-into-silence bug on the default mode.**
+> - it rewrites **`version = "2.0.9"` down to `"1.6.10"`**;
+> - **`PROTO_VERSION` 205 → 179** is a rewind of 26 released wire versions.
+>
+> **The maintainer and the operator handle every upstream merge, individually, by
+> hand — cherry-picking specific commits they have chosen. Never run
+> `git merge upstream/main`, never merge a tracking branch, and never resolve a
+> conflicted merge "by taking upstream's side" to make it go away.**
+>
+> To *read* upstream (to compare a fix, or check what they changed) is fine and
+> encouraged — `git log main..upstream/main`, `git show <sha>`, `git diff` are all
+> read-only and safe. Merging is not.
+>
+> **Every session, in order:** `git fetch upstream` (fetch is safe, merge is
+> **not**); read the maintainer's comments on our open upstream PRs (answer only
+> where he asked something — silence is not a prompt to re-ping); check the fork's
 > **Discussions** (issues are disabled there, so it is the support channel); look
 > only at upstream issues we have a PR for. The current PR list and the rest of
 > the workflow are in "The standing queue and how to check it" below. A tag or a
@@ -2247,7 +2275,8 @@ failing DLL name or a Windows/Radeon repro).
 
 **Each session, in order:**
 
-1. `git fetch upstream`; merge if it moved.
+1. `git fetch upstream` — **fetch only; never merge it (see the guard at the top
+   of this file).**
 2. Read the maintainer's comments on the open PRs above. Reply only where he
    asked something — silence is not a prompt to re-ping.
 3. Check the **fork's Discussions** (`madmedicnl/sdroxide-brown`, issues are
@@ -2658,15 +2687,15 @@ merged code still calls everything `sdroxide`.
   upstream has no interest in) stays in the fork. When an upstream PR *is*
   opened it is goodwill, never the reason for a decision, and the "split before
   opening / lead with the evidence" rules just below still apply.
-- **Merging upstream *into* the fork is separate, and still happens.** The
-  operator fetches and merges `upstream/main` to pick up its fixes (its
-  2026-10-08 burst is a good example — #640, #615, #600, #635, #622, #646,
-  #601, #625). That is plumbing, not contribution. (Earlier guidance to work
-  "upstream-first" is retired: most of the fork's general features already went
-  upstream — HD Radio, the CW straight key, audible alerts, station profiles,
-  AIS, the editor themes, the USB sound-card backend, the 11 m band, EiBi
-  labelling, decode CSV/ADIF export, ADIF/CHIRP import, the step-row snap. The
-  README's comparison table is what is still fork-only.)
+- ⛔ **Merging upstream *into* the fork does NOT happen any more.** This entry is
+  kept because it was once true, and the stale form of it is exactly the trap:
+  it told an agent to go and merge. **Measured 2026-10-12, upstream is behind
+  us, not ahead** — the fork is at `2.0.9` / `PROTO_VERSION 205`, upstream at
+  `1.6.10` / `179`, and a trial merge threw **47 conflicts** across files
+  including `Cargo.toml`, where taking upstream's side would drop the vendored
+  `mfsk-core` panic fix and the version. **See the guard at the top of this
+  file.** If a specific upstream fix is wanted, the maintainer cherry-picks that
+  one commit by hand; an agent must not merge the branch to get it.
 - **Open upstream PRs as one idea each, split before opening.** The maintainer
   has twice asked for a PR of ours to be split (**#507** and **#524**), and the
   pattern is consistent: he keeps the half whose correctness he can verify by
