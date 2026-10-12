@@ -4496,7 +4496,7 @@ impl SdroxideApp {
                 if chip.switchable
                     && chip.attached_to.is_none()
                     && self.radio_roster.len() > 1
-                    && crate::chrome::chip(ui, chip.enabled, RichText::new("LINK").size(11.0))
+                    && crate::chrome::chip_power_link(ui, chip.enabled, 11.0)
                         .on_hover_text(if chip.enabled {
                             crate::chrome::LINK_CLOSE_TIP
                         } else {
