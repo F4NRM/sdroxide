@@ -15284,15 +15284,27 @@ This needs the same **secure context** as audio
 will offer a plain bookmark at best, so the two reasons to put the server behind
 HTTPS — or to reach it over a tunnel, a VPN or Tailscale — are the same reason.
 
-**The screen stays awake** while the client is in front. A receiver is watched
-rather than read, and a tablet left alone blanks after half a minute; installed
-full screen that takes the whole application away and puts a lock screen in
-front of it. The client asks the browser to hold the screen on, gives that up
-whenever you switch away — a client in the background has no business keeping
-your screen lit — and asks again when you come back. A browser that does not
-support it, or one told not to by battery saver or a device policy, simply
-sleeps as it always did: this is a comfort, not a requirement, and nothing warns
-you about it.
+**The screen can stay awake** while the client is in front: tick **Settings →
+UI → Wake lock** (off by default, because it costs battery; kept with your
+profile on the server). A receiver is watched rather than read, and a tablet
+left alone blanks after half a minute; installed full screen that takes the
+whole application away and puts a lock screen in front of it. The client asks
+the browser to hold the screen on, gives that up whenever you switch away — a
+client in the background has no business keeping your screen lit — and asks
+again when you come back. The line beside the box says when the browser does
+not have it, or refused it.
+
+**The padlock locks the screen against stray fingers.** It sits on the phone
+and tablet strips, just after the **MEM** chip; the desktop layout has none.
+
+- **Tap it** and the screen is locked: frequency, band, mode, filters and the
+  waterfall stop answering a finger. Reception and audio carry on.
+- **Hold it for 3 seconds** to unlock. A ring fills round the padlock while
+  you hold; lifting early leaves the screen locked.
+- **After an unlock the padlock rests for 10 seconds.** A tap on it then does
+  not lock the screen again, so the finger that has just unlocked it cannot
+  lock it straight back. A tap in those 10 seconds shows
+  `UNLOCKED · lock in N s`; after them, a tap locks as usual.
 
 The home-screen icon is sdroxide's own, the same artwork the desktop
 application and the packaged builds use.
