@@ -963,6 +963,10 @@ pub struct SdroxideApp {
     /// `(channel, service id)`. Cleared from the memory too, and kept out of it
     /// until the next SCAN — which is when a cleared station comes back.
     dab_hidden: Vec<(String, String)>,
+    /// The last slideshow picture the station sent, ready to draw.
+    dab_slide: Option<egui::TextureHandle>,
+    /// The station list shows each station's programme type.
+    dab_show_pty: bool,
     /// Frame time of the last input event, for the inactivity stop.
     auto_last_activity: f64,
     /// Frame time before which the tick will not queue another command — the
@@ -1949,6 +1953,8 @@ impl SdroxideApp {
             dab_vu: Default::default(),
             dab_vu_at: None,
             dab_hidden: Vec::new(),
+            dab_slide: None,
+            dab_show_pty: false,
             auto_last_activity: 0.0,
             auto_cooldown_until: 0.0,
             auto_resume_at: None,
@@ -3311,8 +3317,46 @@ mod tests {
             subchannel: Some(3),
             bitrate: Some(br),
             protection: Some("EEP 3-A".into()),
+            pty: Some(
+                match id {
+                    "F201" => "News",
+                    "F203" => "Jazz",
+                    "F204" => "Pop Music",
+                    _ => "Varied",
+                }
+                .into(),
+            ),
         };
         app.state.dab.channel = "8B".into();
+        app.state.dab.presets = vec![
+            DabKnownStation { channel: "8B".into(), service_id: "F201".into(), label: "BFM BUSINESS".into() },
+            DabKnownStation { channel: "8B".into(), service_id: "F203".into(), label: "FIP".into() },
+        ];
+        // A stand-in for a slideshow picture: a station-logo-like card.
+        if std::env::var("DAB_NO_SLIDE").is_err() {
+            let (sw, sh) = (320usize, 240usize);
+            let mut px = Vec::with_capacity(sw * sh);
+            for y in 0..sh {
+                for x in 0..sw {
+                    let (fx, fy) = (x as f32 / sw as f32, y as f32 / sh as f32);
+                    let d = ((fx - 0.5).powi(2) * 1.8 + (fy - 0.45).powi(2)).sqrt();
+                    let ring = d < 0.28;
+                    let bar = fy > 0.78 && fy < 0.86 && fx > 0.2 && fx < 0.8;
+                    let c = if ring && d > 0.2 {
+                        egui::Color32::from_rgb(255, 255, 255)
+                    } else if ring {
+                        egui::Color32::from_rgb(230, 40, 60)
+                    } else if bar {
+                        egui::Color32::from_rgb(250, 200, 40)
+                    } else {
+                        egui::Color32::from_rgb((20.0 + 40.0 * fx) as u8, (30.0 + 30.0 * fy) as u8, (90.0 + 100.0 * fy) as u8)
+                    };
+                    px.push(c);
+                }
+            }
+            let img = egui::ColorImage { size: [sw, sh], source_size: egui::vec2(sw as f32, sh as f32), pixels: px };
+            app.dab_slide = Some(ctx.load_texture("dab_slide_preview", img, Default::default()));
+        }
         app.state.dab.service_id = "F201".into();
         app.state.dab.found = ["5C", "6A", "8B", "9D", "11C", "12B"].map(String::from).to_vec();
         app.state.dab.stations = [
@@ -3343,6 +3387,7 @@ mod tests {
             fibs: 33648,
             playing: Some("F201".into()),
             audio_rms_db: Some([-14.0, -17.0]),
+            dls: Some("BFM Business — Le journal de l'économie à 18h00 · Tél. 01 23 45 67 89".into()),
             ..Default::default()
         }));
         // Music: louder on the left, a recent peak held above it.

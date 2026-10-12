@@ -12546,6 +12546,7 @@ impl Engine {
                     subchannel: s.subchannel,
                     bitrate: s.bitrate,
                     protection: s.protection,
+                    pty: None,
                 })
                 .collect(),
             unavailable,

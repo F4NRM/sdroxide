@@ -29,7 +29,7 @@ fn dab_clear_offered(scanning: bool, found_len: usize) -> bool {
 /// One decimal rounded every block to the nearest 100 kHz, so 8B read `197.6`
 /// where the published frequency — and the one a DAB radio shows — is
 /// 197.648 MHz, and the operator had nothing to check the dial against.
-fn dab_mhz(hz: f64) -> String {
+pub(in crate::app) fn dab_mhz(hz: f64) -> String {
     format!("{:.3}", hz / 1e6)
 }
 
@@ -107,6 +107,7 @@ pub(in crate::app) fn dab_station_rows(
                 subchannel: None,
                 bitrate: None,
                 protection: None,
+                pty: None,
             });
         }
     }
@@ -311,25 +312,7 @@ impl SdroxideApp {
                     // Grouped on the left, at most half the panel: CHANNELS,
                     // STATIONS, STATION INFO and the VU meter, each a fixed
                     // width, and the right half left free.
-                    let (group, vu_w, compact) = dab_group_layout(width);
-                    let [w_ch, w_st, w_info] = dab_column_widths(group, vu_w);
-                    ui.horizontal_top(|ui| {
-                        ui.spacing_mut().item_spacing.x = DAB_COL_GAP;
-                        let col = |ui: &mut egui::Ui, w: f32, f: &mut dyn FnMut(&mut egui::Ui)| {
-                            ui.allocate_ui_with_layout(
-                                egui::vec2(w, avail_h),
-                                egui::Layout::top_down(egui::Align::Min),
-                                |ui| {
-                                    ui.set_width(w);
-                                    f(ui)
-                                },
-                            );
-                        };
-                        col(ui, w_ch, &mut |ui| self.dab_channels(ui, cmds, &st, avail_h - 60.0));
-                        col(ui, w_st, &mut |ui| self.dab_services(ui, cmds, &st, avail_h - 20.0));
-                        col(ui, w_info, &mut |ui| self.dab_info(ui, &st));
-                        self.dab_vu_meter(ui, &st, avail_h, vu_w, compact);
-                    });
+                    self.dab_receiver(ui, cmds, &st, width, avail_h);
                 } else {
                     // Stacked, the two lists share what is left of the panel:
                     // each asking for all of it would put the second one past
@@ -345,8 +328,31 @@ impl SdroxideApp {
         );
     }
 
+    /// Start the Band III sweep, or stop it where it is and keep what it found.
+    pub(in crate::app) fn dab_toggle_scan(&mut self, cmds: &mut Vec<Command>) {
+        if let Some(scan) = self.dab_scan.take() {
+            // A sweep stopped half way has still learned something, and
+            // discarding it would punish the operator for stopping early.
+            // Keep it and remember it, exactly as finishing does.
+            self.state.dab.found = scan.found;
+            cmds.push(Command::SetDabConfig(self.state.dab.clone()));
+        } else {
+            self.dab_scan =
+                Some(crate::app::frame::DabScan { at: 0, since: None, found: Vec::new() });
+            // A station cleared with ✕ comes back with the next sweep.
+            self.dab_hidden.clear();
+            // Start the sweep on the first block at once.
+            self.state.dab.channel = sdroxide_types::DAB_BAND_III[0].0.to_string();
+            cmds.push(Command::SetVfo {
+                vfo: self.state.active_vfo,
+                hz: sdroxide_types::DAB_BAND_III[0].1,
+            });
+            cmds.push(Command::SetDabConfig(self.state.dab.clone()));
+        }
+    }
+
     /// The VU meter column: the decoded audio's level, left and right.
-    fn dab_vu_meter(
+    pub(in crate::app) fn dab_vu_meter(
         &mut self,
         ui: &mut egui::Ui,
         st: &DabStatus,
@@ -401,25 +407,7 @@ impl SdroxideApp {
             })
             .clicked()
         {
-            if let Some(scan) = self.dab_scan.take() {
-                // A sweep stopped half way has still learned something, and
-                // discarding it would punish the operator for stopping early.
-                // Keep it and remember it, exactly as finishing does.
-                self.state.dab.found = scan.found;
-                cmds.push(Command::SetDabConfig(self.state.dab.clone()));
-            } else {
-                self.dab_scan =
-                    Some(crate::app::frame::DabScan { at: 0, since: None, found: Vec::new() });
-                // A station cleared with ✕ comes back with the next sweep.
-                self.dab_hidden.clear();
-                // Start the sweep on the first block at once.
-                self.state.dab.channel = sdroxide_types::DAB_BAND_III[0].0.to_string();
-                cmds.push(Command::SetVfo {
-                    vfo: self.state.active_vfo,
-                    hz: sdroxide_types::DAB_BAND_III[0].1,
-                });
-                cmds.push(Command::SetDabConfig(self.state.dab.clone()));
-            }
+            self.dab_toggle_scan(cmds);
         }
 
         // **Clear the list**, asked for on the fork's #18 as "Add clear list".
@@ -698,6 +686,7 @@ mod tests {
             subchannel: None,
             bitrate: None,
             protection: None,
+            pty: None,
         }
     }
 

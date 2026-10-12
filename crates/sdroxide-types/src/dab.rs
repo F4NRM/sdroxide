@@ -108,6 +108,10 @@ pub struct DabService {
     /// The protection profile ("EEP 3-A" and so on).
     #[serde(default)]
     pub protection: Option<String>,
+    /// The programme type the FIC names for it ("News", "Pop Music"), when it
+    /// does. Appended last.
+    #[serde(default)]
+    pub pty: Option<String>,
 }
 
 /// How the DAB receiver behaves. Owned by the engine (it lives in
@@ -142,6 +146,10 @@ pub struct DabSettings {
     /// Appended last: `DabSettings` rides the wire whole inside `RadioState`.
     #[serde(default)]
     pub stations: Vec<DabKnownStation>,
+    /// The operator's presets: stations starred to be one press away, in the
+    /// order they were starred. Appended last.
+    #[serde(default)]
+    pub presets: Vec<DabKnownStation>,
 }
 
 /// A station the receiver has heard named, and the channel it rides on.
@@ -223,6 +231,7 @@ impl Default for DabSettings {
             volume: 1.0,
             found: Vec::new(),
             stations: Vec::new(),
+            presets: Vec::new(),
         }
     }
 }
@@ -236,6 +245,7 @@ impl DabSettings {
         volume: 1.0,
         found: Vec::new(),
         stations: Vec::new(),
+        presets: Vec::new(),
     };
 }
 
@@ -271,6 +281,11 @@ pub struct DabStatus {
     /// Appended last: `DabStatus` rides the wire whole.
     #[serde(default)]
     pub audio_rms_db: Option<[f32; 2]>,
+    /// The playing service's Dynamic Label (DLS) — the line of text a station
+    /// sends with its audio: the song, the programme. `None` until it sends
+    /// one. Appended last.
+    #[serde(default)]
+    pub dls: Option<String>,
 }
 
 /// The rate a digital down-converter's decimation ladder settles on, without
