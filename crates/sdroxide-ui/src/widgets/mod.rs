@@ -6,6 +6,7 @@ pub mod memories;
 pub mod smeter;
 pub mod spectrum3d;
 pub mod spectrum_view;
+pub mod vu_meter;
 pub mod wide_spectrum;
 pub mod worldmap;
 

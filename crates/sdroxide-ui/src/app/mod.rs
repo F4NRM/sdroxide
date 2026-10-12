@@ -956,6 +956,13 @@ pub struct SdroxideApp {
     /// and when it arrived there. Session-only — a scan is an act, not a
     /// setting; what it *finds* goes in `state.dab.found` and is remembered.
     dab_scan: Option<crate::app::frame::DabScan>,
+    /// DAB: the VU meter's motion, and the frame clock it last stepped on.
+    dab_vu: crate::widgets::vu_meter::VuBallistics,
+    dab_vu_at: Option<f64>,
+    /// DAB: stations the operator has cleared with ✕ this session, as
+    /// `(channel, service id)`. Cleared from the memory too, and kept out of it
+    /// until the next SCAN — which is when a cleared station comes back.
+    dab_hidden: Vec<(String, String)>,
     /// Frame time of the last input event, for the inactivity stop.
     auto_last_activity: f64,
     /// Frame time before which the tick will not queue another command — the
@@ -1939,6 +1946,9 @@ impl SdroxideApp {
             digi_preview: None,
             auto_mode: false,
             dab_scan: None,
+            dab_vu: Default::default(),
+            dab_vu_at: None,
+            dab_hidden: Vec::new(),
             auto_last_activity: 0.0,
             auto_cooldown_until: 0.0,
             auto_resume_at: None,
@@ -3260,6 +3270,115 @@ mod tests {
             .min_by(|a, b| a.min.x.partial_cmp(&b.min.x).unwrap_or(std::cmp::Ordering::Equal));
         full.drop_without_applying_deltas();
         (rows, dock, dock_room)
+    }
+
+    /// Render the DAB panel to a PNG to look at: the four columns grouped on
+    /// the left and the VU meter, in the theme in force, on a station that is
+    /// playing. Writes `target/dab_preview.png` (or `$DAB_PREVIEW`); width from
+    /// `DAB_W` (default 1600), theme from `DAB_THEME` by its `Debug` name.
+    ///
+    /// ```sh
+    /// cargo test -p sdroxide-ui --release --lib dab_panel_preview -- --ignored --nocapture
+    /// ```
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    #[ignore = "writes a picture to look at; not an assertion"]
+    fn dab_panel_preview() {
+        use crate::multi::frame_test_lock;
+        use sdroxide_types::{DabKnownStation, DabService, DabStatus, Mode};
+        let _guard = frame_test_lock();
+        let dir = std::env::temp_dir().join(format!("sdroxide-dab-preview-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        unsafe { std::env::set_var("SDROXIDE_CONFIG_DIR", &dir) };
+
+        let w: f32 = std::env::var("DAB_W").ok().and_then(|v| v.parse().ok()).unwrap_or(1600.0);
+        let h = 900.0f32;
+        let theme = std::env::var("DAB_THEME").ok().and_then(|name| {
+            sdroxide_types::UiTheme::ALL.iter().find(|t| format!("{t:?}") == name).copied()
+        });
+
+        let controller: Box<dyn RadioController> = Box::new(RecordingController::default());
+        let ctx = egui::Context::default();
+        let mut app = SdroxideApp::new_tab(&ctx, None, None, controller, 0, true);
+        if let Some(t) = theme {
+            app.ui_settings.theme = t;
+        }
+        app.state.rx[0].mode = Mode::Dab;
+        let svc = |id: &str, label: &str, br: u16| DabService {
+            service_id: id.into(),
+            label: label.into(),
+            subchannel: Some(3),
+            bitrate: Some(br),
+            protection: Some("EEP 3-A".into()),
+        };
+        app.state.dab.channel = "8B".into();
+        app.state.dab.service_id = "F201".into();
+        app.state.dab.found = ["5C", "6A", "8B", "9D", "11C", "12B"].map(String::from).to_vec();
+        app.state.dab.stations = [
+            ("8B", "F201", "BFM BUSINESS"),
+            ("8B", "F202", "RADIO NOVA"),
+            ("8B", "F203", "FIP"),
+            ("8B", "F204", "SKYROCK"),
+            ("8B", "F207", "OUI FM"),
+        ]
+        .map(|(c, id, l)| DabKnownStation {
+            channel: c.into(),
+            service_id: id.into(),
+            label: l.into(),
+        })
+        .to_vec();
+        let center = sdroxide_types::DAB_BAND_III.iter().find(|(n, _)| *n == "8B").unwrap().1;
+        app.dab_status = Some(Box::new(DabStatus {
+            ensemble: Some("Nancy Metropole".into()),
+            services: vec![
+                svc("F201", "BFM BUSINESS", 96),
+                svc("F202", "RADIO NOVA", 88),
+                svc("F203", "FIP", 96),
+                svc("F204", "SKYROCK", 80),
+            ],
+            window_center_hz: center,
+            window_rate_hz: 2_500_000.0,
+            frames: 8412,
+            fibs: 33648,
+            playing: Some("F201".into()),
+            audio_rms_db: Some([-14.0, -17.0]),
+            ..Default::default()
+        }));
+        // Music: louder on the left, a recent peak held above it.
+        for _ in 0..40 {
+            app.dab_vu.step(Some([-10.0, -13.0]), 1.0 / 30.0);
+        }
+        for _ in 0..12 {
+            app.dab_vu.step(Some([-15.0, -18.0]), 1.0 / 30.0);
+        }
+
+        let mut tex = crate::test_raster::Textures::default();
+        let mut last = None;
+        for i in 0..3 {
+            let input = egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(w, h))),
+                time: Some(10.0 + i as f64 / 30.0),
+                ..Default::default()
+            };
+            let full = ctx.run_ui(input, |ui| {
+                app.ui(ui, &mut eframe::Frame::_new_kittest());
+            });
+            tex.apply(&full.textures_delta);
+            last = Some(full);
+        }
+        let img = crate::test_raster::rasterize(
+            &ctx,
+            last.unwrap(),
+            &tex,
+            egui::vec2(w, h),
+            crate::theme::BG_DEEP(),
+        );
+        let out = std::env::var("DAB_PREVIEW").unwrap_or_else(|_| {
+            format!("{}/../../target/dab_preview.png", env!("CARGO_MANIFEST_DIR"))
+        });
+        img.save(&out).expect("write the preview");
+        println!("wrote {out}");
     }
 
     /// #643: drive one frame at a chosen window width (env `DOCK_W`, default

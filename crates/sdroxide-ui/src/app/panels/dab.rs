@@ -44,6 +44,63 @@ use crate::theme;
 /// worth more full width than a third of a wide one.
 const DAB_SPLIT_WIDTH: f32 = 560.0;
 
+/// The four columns — CHANNELS, STATIONS, STATION INFO and the VU meter — sit
+/// together on the left and take **at most half** the panel's width, so the
+/// right half stays free. Never narrower than this, though, unless the panel
+/// itself is: four columns in less than this are clipped text.
+const DAB_GROUP_MIN: f32 = 600.0;
+
+/// How wide the group of columns is, for a panel `width` wide.
+pub(in crate::app) fn dab_group_width(width: f32) -> f32 {
+    (width * 0.5).max(DAB_GROUP_MIN.min(width))
+}
+
+/// The widths of CHANNELS, STATIONS and STATION INFO inside a group `group`
+/// wide, after the VU meter and the gaps have taken theirs.
+pub(in crate::app) fn dab_column_widths(group: f32) -> [f32; 3] {
+    let rest = (group - crate::widgets::vu_meter::WIDTH - 3.0 * DAB_COL_GAP).max(0.0);
+    [rest * 0.28, rest * 0.40, rest * 0.32]
+}
+
+const DAB_COL_GAP: f32 = 10.0;
+
+/// The status describes `channel` — the lane's window sits on that block —
+/// and not the one the lane has just left. A sweep retunes every few seconds
+/// and the first status after a retune is still the old block's, so without
+/// this a station heard on 8A would be remembered on 8B.
+pub(in crate::app) fn dab_status_is_for(st: &DabStatus, channel: &str) -> bool {
+    sdroxide_types::DAB_BAND_III
+        .iter()
+        .find(|(n, _)| *n == channel)
+        .is_some_and(|(_, hz)| (st.window_center_hz - hz).abs() < 1_000.0)
+}
+
+/// The stations the STATIONS column lists for `channel`: the ones the ensemble
+/// is naming now, then the ones remembered from before that it has not named
+/// yet — so a channel picked from the list shows its stations at once. Each
+/// once, by service id.
+pub(in crate::app) fn dab_station_rows(
+    live: &[DabService],
+    remembered: &[sdroxide_types::DabKnownStation],
+    channel: &str,
+    hidden: &[(String, String)],
+) -> Vec<DabService> {
+    let gone = |id: &str| hidden.iter().any(|(c, s)| c == channel && s == id);
+    let mut out: Vec<DabService> = live.iter().filter(|s| !gone(&s.service_id)).cloned().collect();
+    for k in remembered.iter().filter(|k| k.channel == channel) {
+        if !gone(&k.service_id) && !out.iter().any(|s| s.service_id == k.service_id) {
+            out.push(DabService {
+                service_id: k.service_id.clone(),
+                label: k.label.clone(),
+                subchannel: None,
+                bitrate: None,
+                protection: None,
+            });
+        }
+    }
+    out
+}
+
 /// The channels the picker offers: what a running scan has found *so far*,
 /// then what is already remembered, and a couple of common blocks before the
 /// first scan ever runs.
@@ -188,24 +245,63 @@ impl SdroxideApp {
             egui::Layout::top_down(egui::Align::Min),
             |ui| {
                 if dab_is_split(width) {
-                    ui.columns(3, |cols| {
-                        self.dab_channels(&mut cols[0], cmds, &st, avail_h);
-                        self.dab_services(&mut cols[1], cmds, &st, avail_h);
-                        self.dab_info(&mut cols[2], &st);
+                    // Grouped on the left, at most half the panel: CHANNELS,
+                    // STATIONS, STATION INFO and the VU meter, each a fixed
+                    // width, and the right half left free.
+                    let [w_ch, w_st, w_info] = dab_column_widths(dab_group_width(width));
+                    ui.horizontal_top(|ui| {
+                        ui.spacing_mut().item_spacing.x = DAB_COL_GAP;
+                        let col = |ui: &mut egui::Ui, w: f32, f: &mut dyn FnMut(&mut egui::Ui)| {
+                            ui.allocate_ui_with_layout(
+                                egui::vec2(w, avail_h),
+                                egui::Layout::top_down(egui::Align::Min),
+                                |ui| {
+                                    ui.set_width(w);
+                                    f(ui)
+                                },
+                            );
+                        };
+                        col(ui, w_ch, &mut |ui| self.dab_channels(ui, cmds, &st, avail_h - 60.0));
+                        col(ui, w_st, &mut |ui| self.dab_services(ui, cmds, &st, avail_h - 20.0));
+                        col(ui, w_info, &mut |ui| self.dab_info(ui, &st));
+                        self.dab_vu_meter(ui, &st, avail_h);
                     });
                 } else {
                     // Stacked, the two lists share what is left of the panel:
                     // each asking for all of it would put the second one past
                     // the bottom and lose its scrollbar. And the right-hand
-                    // column is dropped rather than given a third of a phone:
-                    // its contents are the service's numbers, which the
-                    // service's own row already carries, so nothing is lost
-                    // but the duplication.
+                    // columns are dropped rather than given a sliver of a
+                    // phone: the info is on the service's own row, and a meter
+                    // a finger wide says nothing.
                     let half = (avail_h / 2.0 - 4.0).max(60.0);
                     self.dab_channels(ui, cmds, &st, half);
                     self.dab_services(ui, cmds, &st, half);
                 }
             },
+        );
+    }
+
+    /// The VU meter column: the decoded audio's level, left and right.
+    fn dab_vu_meter(&mut self, ui: &mut egui::Ui, st: &DabStatus, avail_h: f32) {
+        let now = ui.input(|i| i.time);
+        let dt = self.dab_vu_at.map_or(0.0, |t| (now - t) as f32);
+        self.dab_vu_at = Some(now);
+        let input = st.playing.as_ref().and(st.audio_rms_db);
+        self.dab_vu.step(input, dt);
+        if input.is_some() || self.dab_vu.is_live() {
+            // The meter moves between status messages, so it asks for its own
+            // frames while there is anything to move.
+            crate::repaint::after_ms(ui.ctx(), 33);
+        }
+        let h = avail_h.clamp(160.0, 420.0);
+        crate::widgets::vu_meter::stereo(
+            ui,
+            &self.dab_vu,
+            egui::vec2(crate::widgets::vu_meter::WIDTH, h),
+        )
+        .on_hover_text(
+            "The level of the station playing, left and right, before the volume \
+             control. 0 VU is −18 dBFS; the red segments are the loud end.",
         );
     }
 
@@ -247,6 +343,8 @@ impl SdroxideApp {
             } else {
                 self.dab_scan =
                     Some(crate::app::frame::DabScan { at: 0, since: None, found: Vec::new() });
+                // A station cleared with ✕ comes back with the next sweep.
+                self.dab_hidden.clear();
                 // Start the sweep on the first block at once.
                 self.state.dab.channel = sdroxide_types::DAB_BAND_III[0].0.to_string();
                 cmds.push(Command::SetVfo {
@@ -281,6 +379,23 @@ impl SdroxideApp {
                 Some("channel list cleared — SCAN will find them again".into());
         }
 
+        // Where the sweep is, so a two-minute walk is not a silent one.
+        if let Some(scan) = self.dab_scan.as_ref() {
+            let n = sdroxide_types::DAB_BAND_III.len();
+            let at = scan.at.min(n - 1);
+            ui.add(
+                egui::ProgressBar::new((at + 1) as f32 / n as f32).desired_height(12.0).text(
+                    RichText::new(format!(
+                        "{} · {}/{n} · {} found",
+                        sdroxide_types::DAB_BAND_III[at].0,
+                        at + 1,
+                        scan.found.len()
+                    ))
+                    .size(9.0),
+                ),
+            );
+        }
+
         let channels = dab_channel_choices(
             &self.state.dab.found,
             self.dab_scan.as_ref().map(|s| s.found.as_slice()),
@@ -302,6 +417,18 @@ impl SdroxideApp {
                         None => name.clone(),
                     };
                     ui.horizontal(|ui| {
+                        if !scanning
+                            && ui
+                                .small_button(RichText::new("×").size(10.0))
+                                .on_hover_text(
+                                    "Clear this channel and the stations remembered on it. \
+                                     SCAN finds it again.",
+                                )
+                                .clicked()
+                        {
+                            self.state.dab.forget_channel(name);
+                            cmds.push(Command::SetDabConfig(self.state.dab.clone()));
+                        }
                         let r = crate::chrome::chip(ui, here, label).on_hover_text(
                             "Tune this block. A new channel carries a different service \
                              list, so the station chosen is dropped with it.",
@@ -352,7 +479,12 @@ impl SdroxideApp {
         list_h: f32,
     ) {
         ui.label(RichText::new("STATIONS").size(10.0).color(theme::CYAN_DIM()));
-        if st.services.is_empty() {
+        let channel = self.state.dab.channel.clone();
+        // What is named now leads; what was heard here before follows, so a
+        // channel picked from the list shows its stations at once.
+        let live: &[DabService] = if dab_status_is_for(st, &channel) { &st.services } else { &[] };
+        let rows = dab_station_rows(live, &self.state.dab.stations, &channel, &self.dab_hidden);
+        if rows.is_empty() {
             ui.add_space(2.0);
             ui.label(
                 RichText::new(if st.unavailable.is_some() {
@@ -371,20 +503,41 @@ impl SdroxideApp {
             .max_height(list_h)
             .min_scrolled_height(list_h)
             .show(ui, |ui| {
-                for s in &st.services {
+                for s in &rows {
                     let playing = st.playing.as_deref() == Some(s.service_id.as_str());
+                    let heard_now = live.iter().any(|l| l.service_id == s.service_id);
                     let label = if s.label.trim().is_empty() {
                         format!("({})", s.service_id)
                     } else {
                         s.label.clone()
                     };
-                    ui.horizontal_wrapped(|ui| {
+                    ui.horizontal(|ui| {
+                        if ui
+                            .small_button(RichText::new("×").size(10.0))
+                            .on_hover_text(
+                                "Clear this station from the list. The next SCAN brings it \
+                                 back if the ensemble still carries it.",
+                            )
+                            .clicked()
+                        {
+                            self.state.dab.forget_station(&channel, &s.service_id);
+                            self.dab_hidden.push((channel.clone(), s.service_id.clone()));
+                            cmds.push(Command::SetDabConfig(self.state.dab.clone()));
+                        }
                         if crate::chrome::chip(ui, playing, label).clicked() {
                             self.state.dab.service_id = s.service_id.clone();
                             cmds.push(Command::SetDabConfig(self.state.dab.clone()));
                         }
                     });
-                    ui.label(RichText::new(dab_service_extra(s)).size(9.0).color(theme::gray(140)));
+                    ui.label(
+                        RichText::new(if heard_now {
+                            dab_service_extra(s)
+                        } else {
+                            format!("{} · remembered", s.service_id)
+                        })
+                        .size(9.0)
+                        .color(theme::gray(140)),
+                    );
                 }
             });
     }
