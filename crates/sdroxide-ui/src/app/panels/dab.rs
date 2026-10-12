@@ -113,6 +113,57 @@ pub(in crate::app) fn dab_station_rows(
     out
 }
 
+/// A list chip at one width for its whole column, so a list reads as a
+/// column, with a small × sitting on its top-left corner that clears it.
+///
+/// The × lives on the chip rather than beside it: a button of its own in
+/// front of every row cost a column of width and pushed the chips out of line
+/// with the SCAN and CLEAR above them. It is registered after the chip, so a
+/// press on it is the ×'s and not the chip's. Returns the chip's response and
+/// whether the × was pressed.
+fn chip_with_clear(
+    ui: &mut egui::Ui,
+    selected: bool,
+    label: String,
+    width: f32,
+    clear_hover: &str,
+    show_clear: bool,
+) -> (egui::Response, bool) {
+    let h = crate::chrome::chip_height(ui, None);
+    let chip = crate::chrome::chip_sized(ui, selected, label, egui::vec2(width, h));
+    if !show_clear {
+        return (chip, false);
+    }
+    let c = chip.rect.left_top() + egui::vec2(7.0, 7.0);
+    let x = ui
+        .interact(
+            egui::Rect::from_center_size(c, egui::vec2(13.0, 13.0)),
+            chip.id.with("dab-clear"),
+            egui::Sense::click(),
+        )
+        .on_hover_text(clear_hover);
+    let hot = x.hovered();
+    let p = ui.painter();
+    p.circle_filled(c, 5.5, if hot { theme::ALERT() } else { theme::BG_DEEP() });
+    p.circle_stroke(
+        c,
+        5.5,
+        egui::Stroke::new(1.0, if hot { theme::ALERT() } else { theme::LINE_LIT() }),
+    );
+    p.text(
+        c,
+        egui::Align2::CENTER_CENTER,
+        "×",
+        egui::FontId::proportional(9.5),
+        if hot { theme::TEXT_STRONG() } else { theme::gray(170) },
+    );
+    (chip, x.clicked())
+}
+
+/// The widest a list chip grows: past this a wide panel's chips would be long
+/// bars with a short label floating in them.
+const DAB_CHIP_MAX_W: [f32; 2] = [170.0, 230.0];
+
 /// The channels the picker offers: what a running scan has found *so far*,
 /// then what is already remembered, and a couple of common blocks before the
 /// first scan ever runs.
@@ -432,24 +483,26 @@ impl SdroxideApp {
                         Some(hz) => format!("{name}  {}", dab_mhz(hz)),
                         None => name.clone(),
                     };
-                    ui.horizontal(|ui| {
-                        if !scanning
-                            && ui
-                                .small_button(RichText::new("×").size(10.0))
-                                .on_hover_text(
-                                    "Clear this channel and the stations remembered on it. \
-                                     SCAN finds it again.",
-                                )
-                                .clicked()
-                        {
-                            self.state.dab.forget_channel(name);
-                            cmds.push(Command::SetDabConfig(self.state.dab.clone()));
-                        }
-                        let r = crate::chrome::chip(ui, here, label).on_hover_text(
-                            "Tune this block. A new channel carries a different service \
-                             list, so the station chosen is dropped with it.",
-                        );
-                        if r.clicked() {
+                    let w = ui.available_width().min(DAB_CHIP_MAX_W[0]);
+                    let (r, cleared) = chip_with_clear(
+                        ui,
+                        here,
+                        label,
+                        w,
+                        "Clear this channel and the stations remembered on it. SCAN finds it \
+                         again.",
+                        !scanning,
+                    );
+                    if cleared {
+                        self.state.dab.forget_channel(name);
+                        cmds.push(Command::SetDabConfig(self.state.dab.clone()));
+                    }
+                    let r = r.on_hover_text(
+                        "Tune this block. A new channel carries a different service list, so \
+                         the station chosen is dropped with it.",
+                    );
+                    {
+                        if r.clicked() && !cleared {
                             // Picking a channel is the operator saying "stop
                             // here". A sweep left running retunes away on its
                             // very next tick (~100 ms), so the pick snapped
@@ -475,7 +528,7 @@ impl SdroxideApp {
                                 cmds.push(Command::SetVfo { vfo: self.state.active_vfo, hz });
                             }
                         }
-                    });
+                    }
                 }
             });
 
@@ -527,24 +580,24 @@ impl SdroxideApp {
                     } else {
                         s.label.clone()
                     };
-                    ui.horizontal(|ui| {
-                        if ui
-                            .small_button(RichText::new("×").size(10.0))
-                            .on_hover_text(
-                                "Clear this station from the list. The next SCAN brings it \
-                                 back if the ensemble still carries it.",
-                            )
-                            .clicked()
-                        {
-                            self.state.dab.forget_station(&channel, &s.service_id);
-                            self.dab_hidden.push((channel.clone(), s.service_id.clone()));
-                            cmds.push(Command::SetDabConfig(self.state.dab.clone()));
-                        }
-                        if crate::chrome::chip(ui, playing, label).clicked() {
-                            self.state.dab.service_id = s.service_id.clone();
-                            cmds.push(Command::SetDabConfig(self.state.dab.clone()));
-                        }
-                    });
+                    let w = ui.available_width().min(DAB_CHIP_MAX_W[1]);
+                    let (r, cleared) = chip_with_clear(
+                        ui,
+                        playing,
+                        label,
+                        w,
+                        "Clear this station from the list. The next SCAN brings it back if the \
+                         ensemble still carries it.",
+                        true,
+                    );
+                    if cleared {
+                        self.state.dab.forget_station(&channel, &s.service_id);
+                        self.dab_hidden.push((channel.clone(), s.service_id.clone()));
+                        cmds.push(Command::SetDabConfig(self.state.dab.clone()));
+                    } else if r.clicked() {
+                        self.state.dab.service_id = s.service_id.clone();
+                        cmds.push(Command::SetDabConfig(self.state.dab.clone()));
+                    }
                     ui.label(
                         RichText::new(if heard_now {
                             dab_service_extra(s)
