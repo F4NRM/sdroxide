@@ -3172,7 +3172,31 @@ impl SdroxideApp {
                             self.ctrl.send(Command::SetDabConfig(self.state.dab.clone()));
                         }
                     }
+                    // Another station playing: the last one's picture is not
+                    // this one's, so it goes until the new one sends its own.
+                    let was = self.dab_status.as_ref().and_then(|o| o.playing.clone());
+                    if was != st.playing {
+                        self.dab_slide = None;
+                    }
                     self.dab_status = Some(st);
+                }
+                RadioEvent::DabSlide(slide) => {
+                    let playing = self.dab_status.as_ref().and_then(|s| s.playing.as_deref());
+                    if playing == Some(slide.service_id.as_str()) {
+                        match crate::app::panels::dab_receiver::slide_image(&slide.data) {
+                            Some(img) => {
+                                self.dab_slide = Some(ctx.load_texture(
+                                    "dab_slide",
+                                    img,
+                                    egui::TextureOptions::LINEAR,
+                                ));
+                            }
+                            None => tracing::debug!(
+                                "DAB: a slideshow picture ({}) did not decode",
+                                slide.content_type
+                            ),
+                        }
+                    }
                 }
                 RadioEvent::Qo100Status(st) => self.qo100_status = Some(st),
                 RadioEvent::HfdlStatus(st) => {

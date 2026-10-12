@@ -311,6 +311,25 @@ pub struct DabStatus {
     pub dls: Option<String>,
 }
 
+/// A picture the playing DAB station broadcast in its slideshow (MOT
+/// SlideShow), as the station sent it: a JPEG or PNG at whatever size and
+/// shape it chose — 320x240 is the standard's, square is common.
+///
+/// Its own message rather than a field on [`DabStatus`]: the status goes out
+/// several times a second and a picture is tens of kilobytes, sent once when a
+/// new one arrives.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DabSlide {
+    /// The service that sent it, so a picture that arrives just after a
+    /// change of station is not shown on the next one.
+    pub service_id: String,
+    /// `image/jpeg` or `image/png`.
+    pub content_type: String,
+    /// The name the station gave the object, when it gave one.
+    pub name: Option<String>,
+    pub data: Vec<u8>,
+}
+
 /// The rate a digital down-converter's decimation ladder settles on, without
 /// building one — the pure arithmetic behind `sdroxide_dsp::Ddc::rate_for`,
 /// which calls this so the two are one.

@@ -23,6 +23,17 @@ const GAP: f32 = 10.0;
 /// One station row.
 const ROW_H: f32 = 22.0;
 
+/// Decode a slideshow picture as the station sent it — JPEG or PNG, any size
+/// — into an image the panel can draw. `None` when the bytes are not one.
+pub(in crate::app) fn slide_image(data: &[u8]) -> Option<egui::ColorImage> {
+    let img = image::load_from_memory(data).ok()?.to_rgba8();
+    let (w, h) = img.dimensions();
+    if w == 0 || h == 0 || w > 4096 || h > 4096 {
+        return None;
+    }
+    Some(egui::ColorImage::from_rgba_unmultiplied([w as usize, h as usize], &img))
+}
+
 /// Draw `tex` as large as fits in `frame`, centred, in its own proportions.
 fn paint_fitted(p: &egui::Painter, tex: &egui::TextureHandle, frame: Rect) -> Rect {
     let [w, h] = tex.size();
@@ -639,7 +650,22 @@ impl SdroxideApp {
 
 #[cfg(test)]
 mod tests {
-    use super::station_initials;
+    use super::{slide_image, station_initials};
+
+    /// A slideshow picture keeps the size the station sent it at, whatever
+    /// its shape, and bytes that are no picture are refused, not drawn.
+    #[test]
+    fn a_slide_decodes_at_the_size_the_station_sent() {
+        for (w, h) in [(320u32, 240u32), (200, 200)] {
+            let mut png = Vec::new();
+            image::RgbaImage::from_pixel(w, h, image::Rgba([10, 20, 200, 255]))
+                .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+                .unwrap();
+            let img = slide_image(&png).expect("a PNG slide");
+            assert_eq!(img.size, [w as usize, h as usize]);
+        }
+        assert!(slide_image(b"not a picture").is_none());
+    }
 
     #[test]
     fn the_slideshow_tile_names_the_station_until_a_picture_comes() {

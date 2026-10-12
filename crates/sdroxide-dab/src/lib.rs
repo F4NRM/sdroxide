@@ -37,7 +37,7 @@
 //! 2.048 Msps — so, like ADS-B, it cannot ride the 12 kHz `on_rx_iq` tap the
 //! narrow modes share. It is fed raw I/Q from a lane of its own.
 
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 
 use num_complex::Complex32;
 use thiserror::Error;
@@ -85,6 +85,115 @@ pub struct DabService {
     pub bitrate: Option<u16>,
     /// The protection profile (`EEP 3-A` and so on).
     pub protection: Option<String>,
+    /// The programme type the station signals (FIG 0/17): "News", "Pop
+    /// Music"… `None` when the ensemble has not said.
+    pub pty: Option<String>,
+}
+
+/// A picture the playing station sent in its slideshow (MOT SlideShow, in
+/// the programme-associated data of its audio): the bytes as broadcast — a
+/// JPEG or a PNG, at whatever size the station chose.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DabSlide {
+    /// `image/jpeg` or `image/png`.
+    pub content_type: String,
+    /// The name the station gave the object, when it gave one.
+    pub name: Option<String>,
+    pub data: Vec<u8>,
+}
+
+/// The programme type names for the international code (EN 300 401 / IEC
+/// 62106, the RDS table), by code 0–31. Code 0 is "no programme type" and is
+/// not shown.
+const PTY_NAMES: [&str; 32] = [
+    "",
+    "News",
+    "Current Affairs",
+    "Information",
+    "Sport",
+    "Education",
+    "Drama",
+    "Culture",
+    "Science",
+    "Varied",
+    "Pop Music",
+    "Rock Music",
+    "Easy Listening",
+    "Light Classical",
+    "Serious Classical",
+    "Other Music",
+    "Weather",
+    "Finance",
+    "Children's",
+    "Social Affairs",
+    "Religion",
+    "Phone In",
+    "Travel",
+    "Leisure",
+    "Jazz Music",
+    "Country Music",
+    "National Music",
+    "Oldies Music",
+    "Folk Music",
+    "Documentary",
+    "Alarm Test",
+    "Alarm",
+];
+
+/// The name for a programme-type code, or `None` for 0 and anything out of range.
+pub fn pty_name(code: u8) -> Option<&'static str> {
+    PTY_NAMES.get(code as usize).copied().filter(|n| !n.is_empty())
+}
+
+/// Read every FIG 0/17 (programme type) entry in one FIB into `out`, by
+/// service id. `dabradio` does not parse this FIG, so it is read here from the
+/// same FIB bytes, CRC already checked.
+///
+/// Layout (EN 300 401 §8.1.5): per service, a 16-bit SId; a flags byte whose
+/// third and fourth bits are the language and complementary-code flags (both
+/// zero in the current edition, set by older encoders); a language byte when
+/// flagged; the international code in the low five bits of the next byte; and
+/// a complementary-code byte when flagged. Only this ensemble's own services
+/// (OE = 0) with 16-bit ids (P/D = 0) — programme services — are read.
+fn parse_fig0_17(fib: &[u8], out: &mut HashMap<u32, u8>) {
+    let data = &fib[..fib.len().min(30)];
+    let mut pos = 0;
+    while pos < data.len() {
+        let fig_type = (data[pos] >> 5) & 0x07;
+        let len = (data[pos] & 0x1F) as usize;
+        if fig_type == 7 || len == 0 || pos + 1 + len > data.len() {
+            break;
+        }
+        let fig = &data[pos + 1..pos + 1 + len];
+        pos += 1 + len;
+        if fig_type != 0 || fig.is_empty() {
+            continue;
+        }
+        let oe = (fig[0] >> 6) & 1;
+        let pd = (fig[0] >> 5) & 1;
+        if fig[0] & 0x1F != 17 || oe != 0 || pd != 0 {
+            continue;
+        }
+        let body = &fig[1..];
+        let mut i = 0;
+        while i + 4 <= body.len() {
+            let sid = u32::from(body[i]) << 8 | u32::from(body[i + 1]);
+            let flags = body[i + 2];
+            let lang = (flags >> 5) & 1 == 1;
+            let cc = (flags >> 4) & 1 == 1;
+            let mut j = i + 3;
+            if lang {
+                j += 1;
+            }
+            let Some(&code) = body.get(j) else { break };
+            out.insert(sid, code & 0x1F);
+            j += 1;
+            if cc {
+                j += 1;
+            }
+            i = j;
+        }
+    }
 }
 
 /// The ensemble a lane is tuned to, and what it carries.
@@ -120,6 +229,9 @@ struct AudioPipe {
     mp2: Option<dabradio::audio::mp2::Mp2Decoder>,
     /// Logical frames waiting to be handed to the super-frame assembler.
     pending: VecDeque<Vec<u8>>,
+    /// DAB+: the station's text (DLS) and slideshow (MOT), carried in the
+    /// programme-associated data of each Access Unit.
+    pad: dabradio::pad::PadExtractor,
     /// Whether the AAC decoder has been configured from the super-frame's ASC.
     aac_configured: bool,
 }
@@ -142,6 +254,12 @@ pub struct DabReceiver {
     /// OFDM frames and FIBs read since the receiver started.
     frames: u64,
     fibs: u64,
+    /// Programme types by service id, from FIG 0/17.
+    ptys: HashMap<u32, u8>,
+    /// The playing station's latest text (DLS).
+    dls: Option<String>,
+    /// A slideshow picture not yet handed out.
+    slide: Option<DabSlide>,
 }
 
 impl DabReceiver {
@@ -175,6 +293,9 @@ impl DabReceiver {
             wanted: None,
             frames: 0,
             fibs: 0,
+            ptys: HashMap::new(),
+            dls: None,
+            slide: None,
         })
     }
 
@@ -213,6 +334,7 @@ impl DabReceiver {
                 let ratio = ((fibs.len() as f32 / 12.0) * 100.0).round().min(100.0) as u8;
                 self.ofdm.set_fic_decode_ratio(ratio);
                 for fib in fibs {
+                    parse_fig0_17(&fib, &mut self.ptys);
                     self.ensemble.parse_fib(&fib);
                     self.fibs += 1;
                 }
@@ -241,6 +363,10 @@ impl DabReceiver {
                 .services
                 .into_iter()
                 .map(|s| DabService {
+                    pty: parse_service_id(&s.service_id)
+                        .and_then(|sid| self.ptys.get(&sid))
+                        .and_then(|c| pty_name(*c))
+                        .map(str::to_string),
                     service_id: s.service_id,
                     label: s.label.unwrap_or_default(),
                     subchannel: s.subchannel_id,
@@ -277,6 +403,9 @@ impl DabReceiver {
         }
         self.wanted = Some(which.to_string());
         self.audio = None;
+        // Another station: the last one's text and picture are not this one's.
+        self.dls = None;
+        self.slide = None;
         self.ensemble.resolve_services();
         self.start_audio(which);
     }
@@ -285,6 +414,7 @@ impl DabReceiver {
     pub fn take_pcm(&mut self) -> Vec<f32> {
         let Some(pipe) = self.audio.as_mut() else { return Vec::new() };
         let mut pcm = Vec::new();
+        let mut pad = Vec::new();
         while let Some(frame) = pipe.pending.pop_front() {
             match pipe.coding {
                 DabCoding::DabPlus => {
@@ -312,6 +442,7 @@ impl DabReceiver {
                         && let Some(dec) = pipe.aac.as_mut()
                     {
                         for au in aus {
+                            pad.extend(pipe.pad.extract_all_from_au(&au));
                             pcm.extend(dec.decode_au(&au));
                         }
                     }
@@ -324,7 +455,33 @@ impl DabReceiver {
                 DabCoding::Unsupported => {}
             }
         }
+        for item in pad {
+            match item {
+                dabradio::pad::PadData::Dls(d) => {
+                    let t = d.text.trim();
+                    self.dls = (!t.is_empty()).then(|| t.to_string());
+                }
+                dabradio::pad::PadData::Mot(m) if !m.data.is_empty() => {
+                    self.slide = Some(DabSlide {
+                        content_type: m.content_type,
+                        name: m.content_name,
+                        data: m.data,
+                    });
+                }
+                dabradio::pad::PadData::Mot(_) => {}
+            }
+        }
         pcm
+    }
+
+    /// The playing station's latest text (DLS), if it has sent one.
+    pub fn dls(&self) -> Option<&str> {
+        self.dls.as_deref()
+    }
+
+    /// The slideshow picture the station sent since the last call, if any.
+    pub fn take_slide(&mut self) -> Option<DabSlide> {
+        self.slide.take()
     }
 
     /// The shape of the PCM [`Self::take_pcm`] hands out: `(sample_rate_hz,
@@ -387,6 +544,7 @@ impl DabReceiver {
             aac: None,
             mp2,
             pending: VecDeque::new(),
+            pad: dabradio::pad::PadExtractor::new(),
             aac_configured: false,
         });
     }
@@ -406,6 +564,44 @@ fn parse_service_id(s: &str) -> Option<u32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// One FIB carrying a FIG 0/17 for two services — one plain, one with the
+    /// language and complementary-code flags an older encoder sets — padded,
+    /// as the FIC sends it.
+    fn fib_with_pty() -> [u8; 32] {
+        let body: [u8; 10] = [
+            0xF2, 0x01, 0x00, 0x01, // F201: News
+            0xF2, 0x03, 0x30, 0x0F, 0x18, 0x00, // F203: L+CC flags, lang 0x0F, Jazz, CC
+        ];
+        let mut fib = [0u8; 32];
+        fib[0] = (1 + body.len()) as u8; // FIG type 0, length
+        fib[1] = 17; // C/N 0, OE 0, P/D 0, extension 17
+        fib[2..2 + body.len()].copy_from_slice(&body);
+        fib[2 + body.len()] = 0xFF; // end marker
+        fib
+    }
+
+    #[test]
+    fn the_programme_type_is_read_from_fig_0_17() {
+        let mut ptys = HashMap::new();
+        parse_fig0_17(&fib_with_pty(), &mut ptys);
+        assert_eq!(ptys.get(&0xF201).and_then(|c| pty_name(*c)), Some("News"));
+        assert_eq!(ptys.get(&0xF203).and_then(|c| pty_name(*c)), Some("Jazz Music"));
+        assert_eq!(ptys.len(), 2);
+    }
+
+    /// Another ensemble's services (OE = 1) are not this list's, and code 0
+    /// names nothing.
+    #[test]
+    fn other_ensembles_and_code_zero_name_nothing() {
+        let mut fib = fib_with_pty();
+        fib[1] |= 0x40;
+        let mut ptys = HashMap::new();
+        parse_fig0_17(&fib, &mut ptys);
+        assert!(ptys.is_empty());
+        assert_eq!(pty_name(0), None);
+        assert_eq!(pty_name(10), Some("Pop Music"));
+    }
 
     /// The whole chain against a real capture, when one is on hand: sync, FIC,
     /// the service list, then DAB+ audio through our faad2 — the path this crate

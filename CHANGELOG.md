@@ -24,10 +24,23 @@ and the [README](https://github.com/madmedicnl/sdroxide-brown#readme).
 ## [Unreleased]
 
 ### Fixed
+- **DAB remembers what it found** — channels, stations, stars and the chosen
+  station are kept on the server and survive a restart.
+- **DAB "playing" and the level** — the engine never said which station was
+  playing; the panel now shows it.
 - **SSTV decodes weak pictures** — a faint picture a phone could copy stayed on
   "no SSTV header yet". The header and sync pulses are now found by tone energy
   instead of one noisy frequency reading: header read down to about −3 dB SNR
   (was +10 dB), lock without a header the same, no false starts on noise.
+
+### Added
+- **DAB receiver panel** — station card, numbered station list with ★ presets
+  first, PREV / ★ / NEXT / PTY / SCAN bar, stereo VU meter (horizontal on a
+  phone), and the station's own slideshow picture on the right.
+- **DAB station text and programme type** — the DLS line and the PTY, from the
+  signal.
+- **DAB scan** — progress bar; keeps only channels that carry stations and
+  remembers those stations as it goes. × clears one channel or one station.
 
 ### Changed
 - **Auto mode on a PlutoSDR can run longer** — Settings → Radio → Auto mode is a
@@ -35,6 +48,9 @@ and the [README](https://github.com/madmedicnl/sdroxide-brown#readme).
   no inactivity stop. Other radios keep the 45-minute cap.
 
 ### Not proven
+- The DAB slideshow, DLS, PTY and level are unit-tested, not yet seen on the
+  air. Station logos (SPI) come in a later release; until then the card shows
+  the station's initials.
 - The weak-SSTV fix is measured on synthetic noise, not yet on an off-air
   recording.
 

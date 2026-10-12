@@ -1732,6 +1732,22 @@ fn deinterleave(pcm: &[f32], channels: usize, left: &mut Vec<f32>, right: &mut V
         i += channels;
     }
 }
+/// The level of one block of decoded DAB audio, left and right, in dBFS RMS
+/// — what the panel's VU meter reads. Taken from the planes as decoded,
+/// before the volume control, so the meter shows the programme and not the
+/// knob. Silence reads as a floor well below the meter's scale, not as
+/// minus infinity.
+fn stereo_rms_dbfs(left: &[f32], right: &[f32]) -> [f32; 2] {
+    let db = |p: &[f32]| {
+        if p.is_empty() {
+            return -120.0;
+        }
+        let ms = p.iter().map(|x| x * x).sum::<f32>() / p.len() as f32;
+        (10.0 * ms.max(1e-12).log10()).max(-120.0)
+    };
+    [db(left), db(right)]
+}
+
 /// Cap on the queued CW sidetone monitor, in samples — a second at 48 kHz.
 /// Bounds the queue if the speaker path stalls; the operator's own sending is
 /// at most a character or two ahead of what is playing.
@@ -2918,6 +2934,8 @@ struct Engine {
     /// same reason `adsb_cfg` is.
     dab_cfg: sdroxide_types::DabSettings,
     dab_idle_sent: Option<Option<String>>,
+    /// The decoded audio's level, left and right, from the last block played.
+    dab_level: Option<[f32; 2]>,
     /// QO-100 beacon decoder: a fixed downconversion onto
     /// [`sdroxide_types::QO100_BEACON_HZ`] plus a worker-thread demodulator,
     /// present only while the decoder is enabled. Simpler than the ISM
@@ -4402,6 +4420,7 @@ fn engine_thread(
         dab_in_rate: 0.0,
         dab_cfg,
         dab_idle_sent: None,
+        dab_level: None,
         qo100_ddc: None,
         qo100: None,
         qo100_buf: Vec::new(),
@@ -12536,6 +12555,22 @@ impl Engine {
         // with the receiver's own blocks — see `take_dab_audio_into`.
         let pcm = self.dab.as_mut().map(|d| d.take_pcm()).unwrap_or_default();
         self.play_dab_audio(&pcm);
+        // A picture the station sent in its slideshow: once, as it arrives,
+        // tagged with the station it came with.
+        let playing = self.dab.as_ref().and_then(|d| d.playing()).map(str::to_string);
+        if let Some(slide) = self.dab.as_mut().and_then(|d| d.take_slide())
+            && let Some(service_id) = playing.clone()
+        {
+            let _ = self.event_tx.send(RadioEvent::DabSlide(Box::new(sdroxide_types::DabSlide {
+                service_id,
+                content_type: slide.content_type,
+                name: slide.name,
+                data: slide.data,
+            })));
+        }
+        if playing.is_none() {
+            self.dab_level = None;
+        }
         let rx = self.dab.as_ref().expect("checked above");
         let e = rx.ensemble();
         let (frames, fibs) = rx.counters();
@@ -12550,9 +12585,15 @@ impl Engine {
                     subchannel: s.subchannel,
                     bitrate: s.bitrate,
                     protection: s.protection,
-                    pty: None,
+                    pty: s.pty,
                 })
                 .collect(),
+            // The station being decoded, its text and its level: the panel's
+            // "▶ playing", its DLS line and its VU meter all read these, and
+            // `playing` was never filled in, so none of them could show.
+            playing: playing.clone(),
+            dls: playing.as_ref().and(rx.dls()).map(str::to_string),
+            audio_rms_db: playing.as_ref().and(self.dab_level),
             unavailable,
             window_center_hz: self.dab_center_hz,
             window_rate_hz: self.dab_ddc.as_ref().map_or(0.0, |d| d.out_rate()),
@@ -17637,6 +17678,7 @@ impl Engine {
         self.dab_play_l.clear();
         self.dab_play_r.clear();
         deinterleave(pcm, channels, &mut self.dab_play_l, &mut self.dab_play_r);
+        self.dab_level = Some(stereo_rms_dbfs(&self.dab_play_l, &self.dab_play_r));
         let (mut left, mut right) = (Vec::new(), Vec::new());
         match self.dab_monitor_rs.as_mut() {
             Some(rs) => {
@@ -20245,7 +20287,21 @@ mod qo100_rate_tests {
 
 #[cfg(test)]
 mod dab_pacing_tests {
-    use super::{dab_fifo_cap, deinterleave, speaker_block};
+    use super::{dab_fifo_cap, deinterleave, speaker_block, stereo_rms_dbfs};
+
+    /// The VU meter's input: a full-scale sine is −3 dBFS RMS, half scale −9,
+    /// each ear on its own, and silence a floor rather than minus infinity.
+    #[test]
+    fn the_level_is_dbfs_rms_per_ear() {
+        let sine: Vec<f32> =
+            (0..4800).map(|i| (i as f32 * std::f32::consts::TAU * 1000.0 / 48_000.0).sin()).collect();
+        let half: Vec<f32> = sine.iter().map(|x| x * 0.5).collect();
+        let [l, r] = stereo_rms_dbfs(&sine, &half);
+        assert!((l + 3.01).abs() < 0.05, "full-scale sine read {l} dBFS");
+        assert!((r + 9.03).abs() < 0.05, "half-scale sine read {r} dBFS");
+        let [q, e] = stereo_rms_dbfs(&[0.0; 480], &[]);
+        assert_eq!((q, e), (-120.0, -120.0));
+    }
 
     /// The block a lane that replaces the demodulated audio has to fill. In
     /// DAB mode nothing demodulates, so `main_play` is empty and this is the
