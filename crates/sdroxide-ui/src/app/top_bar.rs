@@ -1045,6 +1045,26 @@ impl SdroxideApp {
                     ) {
                         cmds.push(Command::SetVfo { vfo: active, hz: hz - offset });
                     }
+                    // The dial is what is shown, because a typed or turned
+                    // frequency has to map back to it. When the mode works the
+                    // signal somewhere else, say so *here* rather than leaving
+                    // the operator to reconcile it with the panel: a number that
+                    // quietly disagrees with the chip they just clicked reads as
+                    // a fault, and the whole of it is usually a tone offset of a
+                    // couple of kHz.
+                    if offset != 0.0 {
+                        ui.label(
+                            RichText::new(format!("{:+.1}k", offset / 1e3))
+                                .size(10.0)
+                                .color(crate::theme::CYAN_DIM()),
+                        )
+                        .on_hover_text(format!(
+                            "This mode works the signal {} the dial. The number is the dial, \
+                             because that is what you tune; the signal is at {:.3} MHz.",
+                            if offset > 0.0 { "above" } else { "below" },
+                            (shown + offset) / 1e6
+                        ));
+                    }
                 });
                 let meter_h = ui.available_height();
                 ui.horizontal(|ui| {
@@ -2045,7 +2065,13 @@ impl SdroxideApp {
     /// alone: split has always left this readout on the dial, and this is not
     /// the place to change that.
     fn readout(&self) -> (f64, Option<Color32>, f64) {
-        readout_for(&self.state, self.tab_tx_on(), self.ui_settings.cw_qrg, self.cw_pitch_hz())
+        readout_for_audio(
+            &self.state,
+            self.tab_tx_on(),
+            self.ui_settings.cw_qrg,
+            self.cw_pitch_hz(),
+            self.digi_audio_hz(),
+        )
     }
 
     /// The band/mode chip's label, e.g. `20m · USB`.
@@ -7394,11 +7420,30 @@ fn vfo_chip_labels(tx_capable: bool) -> Vec<&'static str> {
 
 /// [`SdroxideApp::readout`]'s arithmetic, over the state alone — so what the
 /// readout says on the air can be tested without an app around it.
+/// What the frequency readout shows, and by how much it differs from the dial.
+///
+/// [`readout_for_audio`] with the digital mode's audio cursor supplied by the
+/// caller.
+#[cfg(test)]
 fn readout_for(
     state: &RadioState,
     tx_on: bool,
     cw_qrg: bool,
     cw_pitch_hz: f32,
+) -> (f64, Option<Color32>, f64) {
+    readout_for_audio(state, tx_on, cw_qrg, cw_pitch_hz, 0.0)
+}
+///
+/// The cursor lives in [`DigiStatus`], which is app state rather than
+/// [`RadioState`], and this function is deliberately pure over the radio state
+/// so the arithmetic can be tested without an app around it. Threading the
+/// number in keeps that property instead of reaching for the app.
+fn readout_for_audio(
+    state: &RadioState,
+    tx_on: bool,
+    cw_qrg: bool,
+    cw_pitch_hz: f32,
+    audio_hz: f32,
 ) -> (f64, Option<Color32>, f64) {
     let dial = state.active_freq_hz();
     // The transmit case first: while a repeater shift is putting RF somewhere
@@ -7415,6 +7460,25 @@ fn readout_for(
     // changed rather than jumping it by the pitch.
     if cw_qrg && state.rx[0].mode == Mode::Cw {
         return (dial + f64::from(cw_pitch_hz), None, f64::from(cw_pitch_hz));
+    }
+    // A digital mode is off the dial too, and unlike CW it is not a setting:
+    // the offset is a fact about the mode, so there is nothing to switch on. The
+    // dial is still what is *shown* — an edit has to map back to it — and the
+    // offset rides beside it, which is what turns "the readout disagrees with
+    // the chip I clicked" into a sentence that says by how much.
+    //
+    // The carrier-centred modes are excluded by `tunes_off_dial`: they key the
+    // carrier itself, so for them the dial genuinely is the frequency and an
+    // always-zero annotation would be noise. CW is excluded too, because the
+    // arm above has already reported its pitch.
+    let mode = state.rx[0].mode;
+    if mode.tunes_off_dial() && mode != Mode::Cw {
+        if audio_hz != 0.0 {
+            let offset = mode.on_air_hz(dial, audio_hz as f32) - dial;
+            if offset != 0.0 {
+                return (dial, None, offset);
+            }
+        }
     }
     (dial, None, 0.0)
 }
@@ -10538,6 +10602,55 @@ mod tests {
         // Only CW: the setting says nothing about any other mode.
         state.rx[0].mode = Mode::Usb;
         assert_eq!(readout_for(&state, false, true, 700.0), (14_050_000.0, None, 0.0));
+    }
+
+    /// A digital mode is also off the dial, and the readout has always shown
+    /// the bare dial — so an operator on 14.074 MHz in FT8 reads 14.074.000 and
+    /// the station is actually 1500 Hz above it. That is the same complaint as
+    /// the WEFAX one (#527), one mode class over, and it is not gated on a
+    /// setting: the offset is a fact about the mode, not a preference.
+    ///
+    /// The annotation is what is new. Showing the signal *instead of* the dial
+    /// would break the "an edit maps back to the dial" contract every wheel
+    /// turn and typed frequency relies on, so the dial stays the number and
+    /// carries the offset beside it.
+    #[test]
+    fn a_digital_mode_annotates_the_readout_with_its_tone_offset() {
+        let mut state = RadioState::default();
+        state.vfo_a_hz = 14_074_000.0;
+        state.vfo_b_hz = 14_074_000.0;
+        state.rx[0].mode = Mode::Ft8;
+
+        let (shown, ink, offset) = readout_for_audio(&state, false, false, 700.0, 1500.0);
+        assert_eq!(
+            shown, 14_074_000.0,
+            "the readout stays the dial, so an edit still maps back to it"
+        );
+        assert_eq!(
+            offset, 1500.0,
+            "FT8 transmits 1500 Hz above the dial and the readout must say so"
+        );
+        assert_eq!(ink, None, "an off-dial mode is a fact to explain, not an alert condition");
+        // It agrees with the one number everything else already uses.
+        assert_eq!(shown + offset, Mode::Ft8.on_air_hz(state.active_freq_hz(), 1500.0));
+
+        // CW is the same fact and is not double-counted: the setting above
+        // already covers it, so the digit read must not appear twice.
+        state.rx[0].mode = Mode::Cw;
+        let (_, _, cw_offset) = readout_for_audio(&state, false, true, 700.0, 1500.0);
+        assert_eq!(cw_offset, 700.0, "CW reports the pitch, once");
+
+        // A mode that sits on the dial says nothing: an offset that is always
+        // zero is noise on the readout.
+        state.rx[0].mode = Mode::Usb;
+        assert_eq!(
+            readout_for_audio(&state, false, false, 700.0, 1500.0),
+            (14_074_000.0, None, 0.0)
+        );
+        // No audio cursor yet — a mode that has not reported one annotates
+        // nothing rather than guessing at the default.
+        state.rx[0].mode = Mode::Ft8;
+        assert_eq!(readout_for(&state, false, false, 700.0), (14_074_000.0, None, 0.0));
     }
 
     /// The transmitter wins. A repeater shift has RF going somewhere else and

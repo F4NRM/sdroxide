@@ -2713,8 +2713,16 @@ impl SdroxideApp {
     /// keyed; RTTY reads a tone pair — a couple of kilohertz — below its mark.
     /// See [`Mode::on_air_hz`](sdroxide_types::Mode::on_air_hz).
     pub(in crate::app) fn on_air_freq_hz(&self) -> f64 {
-        let audio_hz = self.digi_status.as_ref().map_or(0.0, |s| s.audio_hz);
-        self.state.rx[0].mode.on_air_hz(self.state.rx_freq_hz(), audio_hz)
+        self.state.rx[0].mode.on_air_hz(self.state.rx_freq_hz(), self.digi_audio_hz())
+    }
+
+    /// The receiver's audio cursor in Hz — the digital tone offset, or the CW
+    /// pitch, as [`DigiStatus::audio_hz`](sdroxide_types::DigiStatus::audio_hz)
+    /// reports it. `0.0` before the digi engine has said anything, which is the
+    /// honest answer: no cursor is known, and a default invented here would put
+    /// an offset on the readout that nothing measured.
+    pub(in crate::app) fn digi_audio_hz(&self) -> f32 {
+        self.digi_status.as_ref().map_or(0.0, |s| s.audio_hz)
     }
 
     /// What this radio should be called while the operator hasn't named it:
