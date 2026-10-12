@@ -118,7 +118,8 @@
 > **Every session, in order:** `git fetch upstream` (fetch is safe, merge is
 > **not**); read the maintainer's comments on our open upstream PRs (answer only
 > where he asked something — silence is not a prompt to re-ping); check the fork's
-> **Discussions** (issues are disabled there, so it is the support channel); look
+> **Discussions** (see the support channel note below — the fork's issues are
+> **open**, and a bug report arriving as an issue is the normal case); look
 > only at upstream issues we have a PR for. The current PR list and the rest of
 > the workflow are in "The standing queue and how to check it" below. A tag or a
 > nightly runs the full gate before it is cut — see "Cutting a release".
@@ -2288,16 +2289,41 @@ failing DLL name or a Windows/Radeon repro).
    of this file).**
 2. Read the maintainer's comments on the open PRs above. Reply only where he
    asked something — silence is not a prompt to re-ping.
-3. Check the **fork's Discussions** (`madmedicnl/sdroxide-brown`, issues are
-   disabled there). That is now the support channel: downloads are growing, so
-   expect new threads and answer them rather than opening an upstream issue.
+3. Check the **fork's issues AND Discussions** — both are open, and a report
+   arrives as an issue more often than as a discussion. Downloads are growing,
+   so expect new threads and answer them rather than opening an upstream issue.
 4. New upstream issues: look only at ones we have not seen, or ones we already
    have a PR connected to. Skip the rest without comment.
 
 **Fork Discussions, re-counted 2026-10-06 — there are thirteen, not three.**
-This is the support channel now that downloads are growing, so answer here
-rather than opening an upstream issue. Issues are disabled on the fork, so a
-discussion is the only place a user can be answered.
+
+**The fork's ISSUES are open too, and this note was wrong until 2026-10-12.**
+It used to say *"Issues are disabled on the fork, so a discussion is the only
+place a user can be answered."* That was false, and it cost an afternoon: an
+agent read it, told the operator there was no support queue to check, and
+answered nobody — when there were five unanswered issues. Verified
+2026-10-12 with `gh repo view madmedicnl/sdroxide-brown --json
+hasIssuesEnabled` → **`true`**.
+
+**Check both, every session.** Issues are where reports arrive — a user opens
+one without thinking about which tab. Discussions are where the longer threads
+live. Re-count rather than trusting any number written here.
+
+**Open issues as of 2026-10-12** (re-measured; treat the list as perishable):
+
+| # | who | what | state |
+|---|---|---|---|
+| **#72** | drdatapi | RTL-SDR start frequency on QO-100 — an I.F. offset saved as the start frequency, so the dongle was asked for 6 GHz and did not open | **answered and fixed** (`ba565a56`): `set_center` refuses a centre above the tuner's ceiling and names it. The *saving* of an impossible start frequency is **not** fixed — asked of the reporter |
+| **#69** | bebepip | Import a broadcast schedule other than EiBi (Aoki / HFCC / own CSV) | **answered, not built.** The parser is hard-wired to EiBi's column layout and code tables; the display side is already source-neutral. Three questions put to the reporter (which source, replace or sit alongside, where entries appear). Called a real job, not promised as quick |
+| **#68** | bebepip | S-meter uncalibrated — S9+10 on pure noise | **answered and fixed** (`f45b00d9`): only the SDRplay and Pluto implemented `rx_gain_db`, so an RTL-SDR's whole tuner gain was added to the reading. His two numbers reproduce the fault exactly |
+| **#51** | drdatapi | DELETE button for recorded MP3s | answered — the **CLEAR** chip in the playback window |
+| **#28** | dig647 | Channel spacing, and DMR | spacing answered (6.25 / 12.5 kHz added). **DMR re-answered 2026-10-12**: Kevin's "the codec is a big project" was right in its conclusion and wrong in its reason. The codec is `mbelib-neo` (GPL-2.0-or-later, compatible, no licence wall), and the blocker is **US Patent 8,359,197**, which covers the AMBE+2 variant DMR uses until **2028-05-20**. A clean Rust crate exists for D-STAR and declines DMR for exactly that reason |
+
+**#68 and #72 are the shape worth keeping.** Both were reported by people who
+had never seen this code, and both were one line that had been assumed correct
+for months. In both cases the *numbers the reporter gave* named the mechanism —
+an S9+10 noise floor is a fixed excess over a real one, and 6 GHz is a fixed
+multiple of a 1.7 GHz ceiling — and each matched a specific line once read.
 
 - **#4** "Settings saved to the saved profile" (kevin2008-01, 22 comments) —
   the client-screen feature, which **is fixed** (see the store section below).
