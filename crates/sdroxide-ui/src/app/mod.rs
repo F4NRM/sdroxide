@@ -4097,4 +4097,117 @@ mod tests {
             win,
         );
     }
+
+    /// The S-Meter calib on Settings → Radio: the reading the operator is
+    /// shown moves by the calibration, and the squelch's own measure does not.
+    /// Fails without the correction with `left: -80.0, right: -92.0`.
+    #[test]
+    fn the_smeter_calibration_moves_the_reading_and_not_the_squelch() {
+        let _guard = crate::multi::frame_test_lock();
+        let events = std::rc::Rc::new(std::cell::RefCell::new(std::collections::VecDeque::new()));
+        let ctx = egui::Context::default();
+        let mut app = SdroxideApp::new_tab(
+            &ctx,
+            None,
+            None,
+            Box::new(SharedController(events.clone())),
+            0,
+            true,
+        );
+        let raw = sdroxide_types::Meters {
+            s_dbm: -80.0,
+            pa_temp_c: None,
+            adc_overload: None,
+            adc_peak_dbfs: -30.0,
+            adc_clip: 0.0,
+            tx: None,
+            stereo: false,
+            tone: None,
+            passband_dbfs: -50.0,
+            puresignal: None,
+        };
+        let shown = |app: &mut SdroxideApp, cal: i8| {
+            app.radio_cfg =
+                Some(sdroxide_types::RadioConfig { smeter_cal: cal, ..Default::default() });
+            events.borrow_mut().push_back(RadioEvent::Meters(raw));
+            app.drain_events(&ctx, 1.0);
+            app.meters.expect("the meters arrived")
+        };
+
+        // 0 is the meter exactly as measured: the reference.
+        let m = shown(&mut app, 0);
+        assert_eq!(m.s_dbm, -80.0, "no calibration, no change");
+
+        // Two S-units down for a meter that reads high.
+        let m = shown(&mut app, -2);
+        assert_eq!(m.s_dbm, -92.0, "the reading is lowered by two S-units");
+        assert_eq!(m.passband_dbfs, -50.0, "the squelch's measure is untouched");
+
+        // Five up for one that reads low.
+        let m = shown(&mut app, 5);
+        assert_eq!(m.s_dbm, -50.0, "the reading is raised by five S-units");
+        assert_eq!(m.passband_dbfs, -50.0, "the squelch's measure is untouched");
+    }
+
+    /// The S-Meter calib row is drawn on Settings → Radio, directly under
+    /// "Antenna is" and in the same column — where the operator asked for it.
+    #[test]
+    fn the_smeter_calibration_row_sits_under_antenna_is() {
+        let _guard = crate::multi::frame_test_lock();
+        let dir = std::env::temp_dir().join(format!("sdroxide-smcal-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        unsafe { std::env::set_var("SDROXIDE_CONFIG_DIR", &dir) };
+        /// A controller holding a radio configuration, as a local engine
+        /// does, so Settings → Radio has a radio to edit.
+        struct WithConfig;
+        impl RadioController for WithConfig {
+            fn send(&mut self, _cmd: Command) {}
+            fn poll_event(&mut self) -> Option<RadioEvent> {
+                None
+            }
+            fn radio_config(&self) -> Option<sdroxide_types::RadioConfig> {
+                Some(sdroxide_types::RadioConfig::default())
+            }
+        }
+        let ctx = egui::Context::default();
+        let mut app = SdroxideApp::new_tab(&ctx, None, None, Box::new(WithConfig), 0, true);
+        app.show_settings = true;
+        app.settings_tab = SettingsTab::Radio;
+        let input = || egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(1920.0, 1080.0),
+            )),
+            ..Default::default()
+        };
+        let mut found = (None, None, None);
+        // Two frames: a window lays out on its first and paints settled on its
+        // second.
+        for _ in 0..2 {
+            let out = ctx.run_ui(input(), |ui| {
+                app.ui(ui, &mut eframe::Frame::_new_kittest());
+            });
+            found = (None, None, None);
+            for cs in &out.shapes {
+                if let egui::Shape::Text(t) = &cs.shape {
+                    let r = t.visual_bounding_rect();
+                    match t.galley.text() {
+                        "Antenna is" => found.0 = Some(r),
+                        "S-Meter calib" => found.1 = Some(r),
+                        "0 (as measured)" => found.2 = Some(r),
+                        _ => {}
+                    }
+                }
+            }
+            out.drop_without_applying_deltas();
+        }
+        let (Some(antenna), Some(calib), Some(value)) = found else {
+            panic!("not drawn on Settings → Radio: {found:?}");
+        };
+        assert!(calib.min.y > antenna.max.y, "under Antenna is: {antenna:?} {calib:?}");
+        assert!(calib.min.y - antenna.max.y < 40.0, "the next row, not further down");
+        assert!((calib.min.x - antenna.min.x).abs() < 1.0, "in the same column");
+        assert!(value.min.x > calib.max.x, "the picker beside it shows 0 by default");
+    }
 }

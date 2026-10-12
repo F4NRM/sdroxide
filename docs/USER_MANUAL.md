@@ -1366,6 +1366,14 @@ link.
 The **S-meter** reads S0 (−127 dBm) through S9 (−73 dBm) and beyond, turning red
 past S9. It shows the S-unit (for example `S9+20`) and the level in dBm.
 
+**S-Meter calib** (Settings → Radio, under *Antenna is*) corrects a meter that
+reads too high or too low, per radio: −5 to +5 S-units of 6 dB, 0 being the
+meter as measured. A noise floor shown at S5 where it should be S2 wants −3.
+Only the reading moves — the needle, the S and dBm figures, the level a
+reception report starts from and the spoken S-meter. The signal, the squelch,
+recording and the decoders are not touched. It is saved with the radio on the
+machine it is attached to and takes effect at once.
+
 Where the dBm normally sits you may instead see **`OVL`** in red. That is the
 converter clipping: the signal reaching it is bigger than it can represent, and
 everything downstream is reading a distorted version of it. The dBm is taken

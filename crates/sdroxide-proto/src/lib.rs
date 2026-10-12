@@ -1807,8 +1807,14 @@ use sdroxide_types::{
 /// gains `pty` at its tail and `DabStatus` gains `audio_rms_db` and `dls` at
 /// its tail; `ServerMsg` gains `DabSlide(DabSlide)` last. `PROTO_VERSION`
 /// 205 → 206, `VERSION_BYTE` 0x19 → 0x1A. A downstream (fork) change.
-pub const PROTO_VERSION: u16 = 206;
-const VERSION_BYTE: u8 = 0x1A;
+///
+/// v207: the per-radio S-meter calibration. `RadioConfig` gains
+/// `smeter_cal: i8` at its tail (S-units, `-5..=5`, display only), and
+/// `RadioConfig` rides `ServerMsg::RadioConfig` and `Command::SetRadioConfig`
+/// whole. `PROTO_VERSION` 206 → 207, `VERSION_BYTE` 0x1A → 0x1B. A downstream
+/// (fork) change.
+pub const PROTO_VERSION: u16 = 207;
+const VERSION_BYTE: u8 = 0x1B;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ProtoError {
