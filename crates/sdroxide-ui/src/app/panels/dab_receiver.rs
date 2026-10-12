@@ -109,7 +109,9 @@ impl SdroxideApp {
 
         // The slideshow: the picture the station sends, else its initials.
         let dls_h = 40.0;
-        let art_h = (inner.height() - 22.0 - dls_h - 10.0).clamp(48.0, 150.0);
+        let art_h = (inner.height() - 22.0 - dls_h - 10.0)
+            .min(inner.width() * 0.42 * 0.75)
+            .clamp(48.0, 150.0);
         let art = Rect::from_min_size(
             inner.left_top() + Vec2::new(0.0, 22.0),
             Vec2::new(art_h * 4.0 / 3.0, art_h),
@@ -144,17 +146,37 @@ impl SdroxideApp {
         let tx = art.right() + 12.0;
         let wrap_w = (inner.right() - tx).max(40.0);
         let mut y = art.top();
-        let line = |text: String, font: FontId, color: Color32, y: &mut f32| {
-            let g = p.layout(text, font, color, wrap_w);
+        let floor = inner.bottom() - dls_h - 4.0;
+        // One line each, shrunk to fit the column and cut short past that,
+        // and nothing at all once the text above the DLS box runs out of room.
+        let line = |text: String, size: f32, color: Color32, y: &mut f32| {
+            let mut sz = size;
+            let mut g = p.layout_no_wrap(text.clone(), FontId::proportional(sz), color);
+            while g.size().x > wrap_w && sz > size * 0.7 {
+                sz -= 1.0;
+                g = p.layout_no_wrap(text.clone(), FontId::proportional(sz), color);
+            }
+            if *y + g.size().y > floor {
+                return;
+            }
+            let mut job = egui::text::LayoutJob::simple_singleline(
+                text,
+                FontId::proportional(sz),
+                color,
+            );
+            job.wrap = egui::text::TextWrapping::truncate_at_width(wrap_w);
+            let g = p.layout_job(job);
             let h = g.size().y;
             p.galley(Pos2::new(tx, *y), g, color);
             *y += h + 4.0;
         };
-        line(name, FontId::proportional(20.0), theme::TEXT_STRONG(), &mut y);
+        line(name, 20.0, theme::TEXT_STRONG(), &mut y);
         if let Some(e) = &st.ensemble {
-            line(e.clone(), FontId::proportional(12.0), theme::gray(170), &mut y);
+            line(e.clone(), 12.0, theme::gray(170), &mut y);
         }
-        if let Some(pty) = svc.and_then(|s| s.pty.clone()) {
+        if let Some(pty) = svc.and_then(|s| s.pty.clone())
+            && y + 20.0 <= floor
+        {
             let font = FontId::proportional(10.5);
             let g = p.layout_no_wrap(pty.to_uppercase(), font, theme::CYAN());
             let tag = Rect::from_min_size(Pos2::new(tx, y), g.size() + Vec2::new(12.0, 6.0));
@@ -165,7 +187,7 @@ impl SdroxideApp {
         let playing = svc.is_some_and(|s| st.playing.as_deref() == Some(s.service_id.as_str()));
         line(
             (if playing { "▶ playing" } else { "chosen" }).to_string(),
-            FontId::proportional(10.5),
+            10.5,
             if playing { theme::CYAN_DIM() } else { theme::gray(140) },
             &mut y,
         );
@@ -178,7 +200,7 @@ impl SdroxideApp {
                 tech.push(pr.clone());
             }
             tech.push(s.service_id.clone());
-            line(tech.join("  ·  "), FontId::proportional(10.0), theme::gray(130), &mut y);
+            line(tech.join("  ·  "), 10.0, theme::gray(130), &mut y);
         }
 
         // The station's own text (DLS), across the bottom of the card.
@@ -215,7 +237,9 @@ impl SdroxideApp {
             Stroke::new(1.0, theme::LINE()),
             egui::StrokeKind::Inside,
         );
-        let mut ui = ui.new_child(egui::UiBuilder::new().max_rect(rect.shrink(8.0)));
+        let mut ui = ui.new_child(egui::UiBuilder::new()
+                .max_rect(rect.shrink(8.0))
+                .layout(egui::Layout::top_down(egui::Align::Min)));
         let ui = &mut ui;
 
         // The channel picker: every block found, each with its own ×, and a

@@ -3406,10 +3406,11 @@ mod tests {
                 time: Some(10.0 + i as f64 / 30.0),
                 ..Default::default()
             };
-            let full = ctx.run_ui(input, |ui| {
+            let mut full = ctx.run_ui(input, |ui| {
                 app.ui(ui, &mut eframe::Frame::_new_kittest());
             });
             tex.apply(&full.textures_delta);
+            full.textures_delta.clear();
             last = Some(full);
         }
         let img = crate::test_raster::rasterize(
