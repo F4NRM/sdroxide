@@ -26,6 +26,29 @@ const BODY_MAP_H: u32 = 1024;
 const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 /// Reversed-Z: the far plane is 0, so that is what depth clears to.
 const DEPTH_CLEAR: f32 = 0.0;
+/// The empty sky behind the scene, as the colour seen on screen (sRGB, 0–255):
+/// a deep night blue rather than pure black. Lifted just enough that the stars,
+/// the orbits and the haze read as lying on something, while the corner panels
+/// — which paint their own darker backing — still stand clear of it.
+pub(super) const SKY_SRGB: [u8; 3] = [10, 15, 28];
+
+/// [`SKY_SRGB`] as a clear colour for a target of `format`. An `…Srgb` target
+/// encodes on write, so it is handed linear values; a plain `Unorm` target
+/// (egui's usual native surface) stores the value as given.
+fn sky_clear(format: wgpu::TextureFormat) -> wgpu::Color {
+    let c = |v: u8| {
+        let v = f64::from(v) / 255.0;
+        if !format.is_srgb() {
+            v
+        } else if v <= 0.040_45 {
+            v / 12.92
+        } else {
+            ((v + 0.055) / 1.055).powf(2.4)
+        }
+    };
+    wgpu::Color { r: c(SKY_SRGB[0]), g: c(SKY_SRGB[1]), b: c(SKY_SRGB[2]), a: 1.0 }
+}
+
 /// Offscreen targets are rounded up to this, so dragging a window edge
 /// reallocates a handful of times instead of sixty times a second.
 const ALLOC_STEP: u32 = 128;
@@ -1446,7 +1469,7 @@ impl CallbackTrait for SolarCallback {
                 depth_slice: None,
                 resolve_target: resolve,
                 ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(wgpu::Color { r: 0.004, g: 0.008, b: 0.018, a: 1.0 }),
+                    load: wgpu::LoadOp::Clear(sky_clear(r.blit_format)),
                     store: wgpu::StoreOp::Store,
                 },
             })],
@@ -1601,6 +1624,23 @@ mod tests {
     // Shader compilation and validation live in `tests/shaders.rs`, which
     // covers the waterfall shaders too and additionally checks the WebGL2
     // uniform-alignment rule.
+
+    /// The sky is the same colour on screen whether the target encodes sRGB on
+    /// write or stores the value as given — and it is a night blue, not black.
+    #[test]
+    fn the_sky_is_the_same_night_blue_on_either_target() {
+        use wgpu::TextureFormat::{Bgra8Unorm, Bgra8UnormSrgb};
+        let plain = super::sky_clear(Bgra8Unorm);
+        let srgb = super::sky_clear(Bgra8UnormSrgb);
+        let encode = |l: f64| {
+            if l <= 0.003_130_8 { l * 12.92 } else { 1.055 * l.powf(1.0 / 2.4) - 0.055 }
+        };
+        for (p, l) in [(plain.r, srgb.r), (plain.g, srgb.g), (plain.b, srgb.b)] {
+            assert!((p - encode(l)).abs() < 1e-6, "{p} vs {l}");
+        }
+        assert!(plain.b > plain.r && plain.b > plain.g, "blue leads: {plain:?}");
+        assert!(plain.b > 0.05, "lifted off black: {plain:?}");
+    }
 
     /// The vertex-buffer layouts in `build` hard-code these strides and
     /// offsets; if a struct grows, the attributes silently read the wrong
