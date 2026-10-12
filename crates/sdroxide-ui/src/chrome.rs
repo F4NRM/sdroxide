@@ -1643,6 +1643,50 @@ pub fn chip_link(ui: &mut Ui, selected: bool, size: egui::Vec2) -> Response {
     resp
 }
 
+/// The **LINK** chip with the power mark (⏻) in front of it, at `size` points
+/// of text: lit while the link is open, plain while it is closed, as
+/// [`chip`] is. The word stays LINK — what it switches is still sdroxide's
+/// link, see [`LINK_CLOSE_TIP`] — and the mark is there so the chip reads as
+/// the switch at a glance. Painted rather than typed for the reason
+/// [`chip_link`] gives; the label carries leading spaces that keep the room
+/// for it, so the chip is sized, outlined and inked by [`chip_impl`] under
+/// every chrome style exactly as a plain one is.
+pub fn chip_power_link(ui: &mut Ui, selected: bool, size: f32) -> Response {
+    let font = chip_font(ui, Some(size));
+    let mark_w = size * 0.95;
+    let space = text_width(ui, " ", font.clone()).max(1.0);
+    let pad = " ".repeat((mark_w / space).ceil() as usize);
+    let label = format!("{pad}LINK");
+    let label_w = text_width(ui, &label, font);
+    let resp = chip_impl(ui, selected, RichText::new(label).size(size), None, Sense::click(), None);
+    if ui.is_rect_visible(resp.rect) {
+        let v = ui.style().interact_selectable(&resp, selected);
+        let ink = if selected { theme::INK_ON_CYAN() } else { v.fg_stroke.color };
+        let left = resp.rect.center().x - label_w / 2.0;
+        let c = Pos2::new(left + size * 0.4, resp.rect.center().y);
+        paint_power_mark(ui.painter(), c, size * 0.36, ink);
+    }
+    resp
+}
+
+/// The IEC 60417-5009 power mark (⏻): a ring open at the top with a bar
+/// through the gap, centred on `c`, `r` the ring's radius.
+fn paint_power_mark(p: &egui::Painter, c: Pos2, r: f32, ink: Color32) {
+    let stroke = Stroke::new((r * 0.32).clamp(1.3, 2.0), ink);
+    // Angles from straight up, clockwise; the gap is the 80° either side of up
+    // the bar leaves room for.
+    let (from, to) = (40.0_f32.to_radians(), 320.0_f32.to_radians());
+    let steps = 24;
+    let ring: Vec<Pos2> = (0..=steps)
+        .map(|i| {
+            let a = from + (to - from) * i as f32 / steps as f32;
+            Pos2::new(c.x + r * a.sin(), c.y - r * a.cos())
+        })
+        .collect();
+    p.add(Shape::line(ring, stroke));
+    p.line_segment([Pos2::new(c.x, c.y - r * 1.2), Pos2::new(c.x, c.y - r * 0.15)], stroke);
+}
+
 /// The anti-touch padlock chip, at an exact size: closed and lit cyan while the
 /// screen is locked, open on the plain ground while it is not. `progress` is
 /// the unlock hold under way (a ring filling round the mark), `flash` the
