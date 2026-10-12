@@ -39,7 +39,10 @@ granted (`gh auth refresh -h github.com -s project`).
 ## Open (In Progress)
 
 - **Support queue, 2026-10-04.** What the fork's testers reported and where it
-  stands. Issues are disabled on the fork; reports arrive as Discussions.
+  stands. **Both channels are live** — the fork's issues and its discussions
+  are both open, and a report arrives as an issue about as often as a
+  discussion (this line said issues were disabled until 2026-10-12; it was
+  wrong, and it cost a session in which nobody checked).
   - **Discussion #5 — Olivia decode (kevin2008-01): RESOLVED.** Find the fault
     and fix in MORNING.md §1. In 1.9.16 the decoder decodes real Olivia; a
     known-text sample decoded by the reporter (Wikipedia's 32/1000) reproduces
@@ -53,9 +56,30 @@ granted (`gh auth refresh -h github.com -s project`).
       (`clear_rx_chip` → `DigiClearRx` → controller `clear_rx` → `text_rx`);
       most likely it was a symptom of the 1.9.15 decoder producing no text.
       Re-test on 1.9.16+; still broken with text on screen ⇒ real, check the
-      web-session path.
+      web-session path. **Path re-checked 2026-10-12 and confirmed complete
+      end to end:** `clear_rx_chip` → `Command::DigiClearRx` → the engine's
+      generic `d.clear_rx()`, which Olivia reaches through
+      `TextModemController` like every other keyboard mode, and the engine
+      calls `emit_digi_status()` immediately so the window empties without
+      waiting for the next poll. Nothing to fix here; it needs **Kevin's
+      re-test**, not code.
     - **Frequency memories capped at 3 in a new web session** (10 saved → 3
-      survive). Store/sync in the server session path.
+      survive). **Re-investigated 2026-10-12 and NOT reproduced.** The whole
+      path was traced — `EditMemory` is keyed on the channel's **id** rather
+      than its position, the engine edits in place, the server clones
+      `latest.memories` per session and replays on connect, and the client
+      applies it unconditionally (`frame.rs`: `RadioEvent::Memories(m) =>
+      self.memories = m`). Commands travel whole through
+      `ClientMsg::Command`, so there is no per-field mapping where ten could
+      become three. **No cap found anywhere.** The sibling bug on this list —
+      the decimal frequency being rounded — turned out to be **already fixed**
+      (`ea89c7e6`, issue #138: the editor uses six decimals so it stores what
+      it shows), which is a warning that this entry is stale rather than
+      accurate. Reported back to kevin2008-01 in
+      [discussion #18](https://github.com/madmedicnl/sdroxide-brown/discussions/18#discussioncomment-18890294)
+      asking whether it still happens on a current build, and whether the loss
+      is in the MEM window only or in `memories.json` too. **Do not write a
+      fix against an imagined mechanism — wait for his answer.**
     - **A decimal frequency is rounded** (7.038.5 MHz → 7.037). `MemoryChannel
       .freq_hz` is `f64`, so the save or display is rounding it.
   - **SSTV receive (operator, this bench): FIXED in 1.9.17.** The low end
