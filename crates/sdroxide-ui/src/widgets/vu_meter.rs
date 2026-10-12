@@ -19,17 +19,38 @@ pub const SCALE_VU: [i32; 16] = [8, 6, 4, 2, 0, -2, -4, -6, -8, -12, -16, -20, -
 /// colour.
 pub const RED_FROM_VU: i32 = 6;
 
-/// 0 VU sits at −18 dBFS RMS — the EBU alignment level. Broadcast audio lives
-/// a few dB either side of it, so the column moves through the middle of the
-/// scale on music and only reaches the red on genuinely loud passages.
-pub const ALIGN_DBFS: f32 = -18.0;
+/// 0 VU sits at −12 dBFS RMS. The EBU alignment level is −18, but DAB+
+/// stations are compressed loud: on the air (8D, Nancy) programme measured
+/// around −12 dBFS RMS and sat at +4…+6 against −18, so the column lived in
+/// the red. At −12 a station at full volume moves round 0 VU and only loud
+/// passages reach the red.
+pub const ALIGN_DBFS: f32 = -12.0;
+
+/// How far the meter drops between full volume and none, in dB. The meter
+/// reads the programme *as the operator hears it*: at full volume the
+/// station's own level, and at the bottom of the volume the column still
+/// moves, but only in the first few segments — the meter never goes dead
+/// while a station plays, so it stays a meter and not a volume gauge.
+pub const VOLUME_SPAN_DB: f32 = 34.0;
+
+/// The level the meter shows for a station measured at `dbfs` (left and
+/// right) and heard at `volume` (0..=1, the receiver's volume).
+pub fn heard_dbfs(dbfs: [f32; 2], volume: f32) -> [f32; 2] {
+    let shift = (volume.clamp(0.0, 1.0) - 1.0) * VOLUME_SPAN_DB;
+    [dbfs[0] + shift, dbfs[1] + shift]
+}
+
+/// One volume step for the wheel and the arrow keys.
+pub const VOLUME_STEP: f32 = 0.05;
 
 /// Below the bottom of the scale: the column is dark.
 const FLOOR_VU: f32 = -70.0;
 
-/// A VU meter's integration time: the reading takes about this long to reach
-/// 99 % of a step, rising and falling alike.
-const VU_TIME_S: f32 = 0.3;
+/// The integration time: the reading takes about this long to reach 99 % of
+/// a step, rising and falling alike. Quicker than a studio VU's 300 ms, so
+/// the column dances with the programme; the peak marker keeps its slower
+/// hold, which gives the column a little hold-and-fall above it.
+const VU_TIME_S: f32 = 0.12;
 
 /// How long the peak marker holds before it starts to fall, and how fast it
 /// falls then.
@@ -107,23 +128,103 @@ pub const WIDTH_COMPACT: f32 = 64.0;
 /// The engraving on the plate under the bars.
 pub const PLATE: &str = "Oxide Brown";
 
+/// What a drawn meter answers: its response — dragged, clicked, hovered —
+/// and where its bars are, which is the travel of the volume it sets.
+pub struct VuResponse {
+    pub response: egui::Response,
+    pub body: Rect,
+    pub horizontal: bool,
+}
+
+impl VuResponse {
+    /// The volume a pointer at `pos` asks for: the bottom of the column (the
+    /// left of the bar) is none, the top (the right) is full.
+    pub fn volume_at(&self, pos: Pos2) -> f32 {
+        let f = if self.horizontal {
+            (pos.x - self.body.left()) / self.body.width().max(1.0)
+        } else {
+            (self.body.bottom() - pos.y) / self.body.height().max(1.0)
+        };
+        f.clamp(0.0, 1.0)
+    }
+}
+
+/// The volume mark: a thin yellow line across the bars at the volume, with a
+/// small notch at its start, so the meter shows the knob it is.
+fn paint_volume_mark(p: &egui::Painter, body: Rect, volume: f32, horizontal: bool) {
+    let ink = theme::YELLOW();
+    let v = volume.clamp(0.0, 1.0);
+    if horizontal {
+        let x = body.left() + body.width() * v;
+        p.line_segment(
+            [Pos2::new(x, body.top() - 2.0), Pos2::new(x, body.bottom() + 2.0)],
+            Stroke::new(1.5, ink.gamma_multiply(0.8)),
+        );
+        p.add(egui::Shape::convex_polygon(
+            vec![
+                Pos2::new(x - 4.0, body.top() - 6.0),
+                Pos2::new(x + 4.0, body.top() - 6.0),
+                Pos2::new(x, body.top() - 1.0),
+            ],
+            ink,
+            Stroke::NONE,
+        ));
+    } else {
+        let y = body.bottom() - body.height() * v;
+        p.line_segment(
+            [Pos2::new(body.left() - 2.0, y), Pos2::new(body.right() + 2.0, y)],
+            Stroke::new(1.5, ink.gamma_multiply(0.8)),
+        );
+        p.add(egui::Shape::convex_polygon(
+            vec![
+                Pos2::new(body.right() + 1.0, y),
+                Pos2::new(body.right() + 6.0, y - 4.0),
+                Pos2::new(body.right() + 6.0, y + 4.0),
+            ],
+            ink,
+            Stroke::NONE,
+        ));
+    }
+}
+
+/// The sense a meter takes: a volume control when it has one to set.
+fn meter_sense(volume: Option<f32>) -> Sense {
+    if volume.is_some() { Sense::click_and_drag() } else { Sense::hover() }
+}
+
 /// Paint a stereo meter into a box `size` big, in the theme's colours.
 /// `compact` is the narrow form ([`WIDTH_COMPACT`]): one scale, no plate.
-pub fn stereo(ui: &mut egui::Ui, m: &VuBallistics, size: Vec2, compact: bool) -> egui::Response {
-    let (rect, resp) = ui.allocate_exact_size(size, Sense::hover());
+/// With a `volume`, the meter is the volume control too: its mark is drawn and
+/// it takes a drag, a click, the wheel and the arrow keys.
+pub fn stereo(
+    ui: &mut egui::Ui,
+    m: &VuBallistics,
+    size: Vec2,
+    compact: bool,
+    volume: Option<f32>,
+) -> VuResponse {
+    let (rect, resp) = ui.allocate_exact_size(size, meter_sense(volume));
+    let case = rect.shrink(1.0);
+    let title_h = 18.0;
+    let plate_h = if compact { 0.0 } else { 20.0 };
+    let pad = 6.0;
+    let body = Rect::from_min_max(
+        Pos2::new(case.left() + pad, case.top() + pad + title_h),
+        Pos2::new(
+            case.right() - pad,
+            case.bottom() - pad - plate_h - if compact { 12.0 } else { 18.0 },
+        ),
+    );
+    let out = VuResponse { response: resp, body, horizontal: false };
     if !ui.is_rect_visible(rect) {
-        return resp;
+        return out;
     }
     let p = ui.painter_at(rect);
 
     // The case: the theme's deep ground, framed like every other box.
-    let case = rect.shrink(1.0);
     p.rect_filled(case, 6.0, theme::BG_DEEP());
     p.rect_stroke(case, 6.0, Stroke::new(1.0, theme::LINE_LIT()), egui::StrokeKind::Inside);
 
-    let title_h = 18.0;
-    let plate_h = if compact { 0.0 } else { 20.0 };
-    let pad = 6.0;
     p.text(
         Pos2::new(case.center().x, case.top() + pad + title_h / 2.0 - 2.0),
         Align2::CENTER_CENTER,
@@ -133,13 +234,6 @@ pub fn stereo(ui: &mut egui::Ui, m: &VuBallistics, size: Vec2, compact: bool) ->
     );
 
     // The bars and their scale.
-    let body = Rect::from_min_max(
-        Pos2::new(case.left() + pad, case.top() + pad + title_h),
-        Pos2::new(
-            case.right() - pad,
-            case.bottom() - pad - plate_h - if compact { 12.0 } else { 18.0 },
-        ),
-    );
     let n = SCALE_VU.len();
     let pitch = body.height() / n as f32;
     let seg_h = (pitch * 0.72).max(2.0);
@@ -206,8 +300,16 @@ pub fn stereo(ui: &mut egui::Ui, m: &VuBallistics, size: Vec2, compact: bool) ->
         );
     }
 
+    if let Some(v) = volume {
+        paint_volume_mark(
+            &p,
+            Rect::from_x_y_ranges(left_x..=right_x + bar_w, body.y_range()),
+            v,
+            false,
+        );
+    }
     if compact {
-        return resp;
+        return out;
     }
     // The plate: a brushed-grey strip with the name engraved on it.
     let plate = Rect::from_min_max(
@@ -230,7 +332,7 @@ pub fn stereo(ui: &mut egui::Ui, m: &VuBallistics, size: Vec2, compact: bool) ->
     );
     p.text(plate.center(), Align2::CENTER_CENTER, PLATE, engrave, theme::gray(55));
 
-    resp
+    out
 }
 
 /// The height a horizontal meter wants: two bars and the scale under them.
@@ -239,13 +341,23 @@ pub const HEIGHT_HORIZONTAL: f32 = 46.0;
 /// The same stereo meter laid on its side, for a phone: L over R, quiet on the
 /// left and loud on the right, the scale underneath. A column would be a
 /// finger wide there; a bar across the screen is the width of the screen.
-pub fn stereo_horizontal(ui: &mut egui::Ui, m: &VuBallistics, size: Vec2) -> egui::Response {
-    let (rect, resp) = ui.allocate_exact_size(size, Sense::hover());
+pub fn stereo_horizontal(
+    ui: &mut egui::Ui,
+    m: &VuBallistics,
+    size: Vec2,
+    volume: Option<f32>,
+) -> VuResponse {
+    let (rect, resp) = ui.allocate_exact_size(size, meter_sense(volume));
+    let case = rect.shrink(1.0);
+    let body = Rect::from_min_max(
+        Pos2::new(case.left() + 6.0 + 26.0 + 10.0, case.top() + 6.0),
+        Pos2::new(case.right() - 6.0, case.bottom() - 6.0 - 11.0),
+    );
+    let out = VuResponse { response: resp, body, horizontal: true };
     if !ui.is_rect_visible(rect) {
-        return resp;
+        return out;
     }
     let p = ui.painter_at(rect);
-    let case = rect.shrink(1.0);
     p.rect_filled(case, 6.0, theme::BG_DEEP());
     p.rect_stroke(case, 6.0, Stroke::new(1.0, theme::LINE_LIT()), egui::StrokeKind::Inside);
 
@@ -260,10 +372,6 @@ pub fn stereo_horizontal(ui: &mut egui::Ui, m: &VuBallistics, size: Vec2) -> egu
         theme::TEXT_STRONG(),
     );
     let ch_w = 10.0;
-    let body = Rect::from_min_max(
-        Pos2::new(case.left() + pad + title_w + ch_w, case.top() + pad),
-        Pos2::new(case.right() - pad, case.bottom() - pad - 11.0),
-    );
     let n = SCALE_VU.len();
     let pitch = body.width() / n as f32;
     let seg_w = (pitch * 0.78).max(2.0);
@@ -317,12 +425,37 @@ pub fn stereo_horizontal(ui: &mut egui::Ui, m: &VuBallistics, size: Vec2) -> egu
             label_ink,
         );
     }
-    resp
+    if let Some(v) = volume {
+        paint_volume_mark(&p, body, v, true);
+    }
+    out
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The meter reads the station as heard: full volume is the station's
+    /// own level; none leaves the column moving in its first few segments,
+    /// never dark and never at the top.
+    #[test]
+    fn the_meter_follows_the_volume() {
+        let loud = [-12.0, -12.0];
+        assert_eq!(heard_dbfs(loud, 1.0), loud);
+        let quiet = VuBallistics::vu_of_dbfs(heard_dbfs(loud, 0.0)[0]);
+        let n = lit_segments(quiet);
+        assert!((2..=4).contains(&n), "at no volume a loud station lights {n} segments");
+        let half = lit_segments(VuBallistics::vu_of_dbfs(heard_dbfs(loud, 0.5)[0]));
+        assert!(half > n && half < lit_segments(0.0), "half volume sits between: {half}");
+    }
+
+    /// A loud DAB+ station at full volume moves round 0 VU, not in the red.
+    #[test]
+    fn a_dab_station_at_full_volume_is_not_pinned_in_the_red() {
+        let vu = VuBallistics::vu_of_dbfs(-12.0);
+        assert!(vu < RED_FROM_VU as f32, "{vu} VU is in the red");
+        assert!(vu > -4.0, "{vu} VU is too low for a loud station");
+    }
 
     #[test]
     fn the_alignment_level_reads_zero_vu() {
@@ -339,18 +472,18 @@ mod tests {
         assert_eq!(lit_segments(5.9), 11 + 3, "+6 is red and not reached at +5.9");
     }
 
-    /// The meter rises over about 300 ms, as a VU meter does, rather than
-    /// jumping — and settles on the level it is fed.
+    /// The column rises over about 120 ms rather than jumping — quick enough
+    /// to dance with the programme — and settles on the level it is fed.
     #[test]
-    fn the_column_rises_like_a_vu_meter_and_settles() {
+    fn the_column_rises_quickly_and_settles() {
         let mut m = VuBallistics::default();
         let tone = Some([ALIGN_DBFS; 2]);
         m.step(tone, 1.0 / 60.0);
-        assert!(m.level[0] < -50.0, "one frame does not reach the level: {}", m.level[0]);
-        for _ in 0..30 {
+        assert!(m.level[0] < -20.0, "one frame does not reach the level: {}", m.level[0]);
+        for _ in 0..12 {
             m.step(tone, 1.0 / 60.0);
         }
-        assert!(m.level[0] > -1.0, "after ~0.5 s the level is reached: {}", m.level[0]);
+        assert!(m.level[0] > -1.0, "after ~0.2 s the level is reached: {}", m.level[0]);
     }
 
     /// The peak marker stays where the loudest moment was for a while, then

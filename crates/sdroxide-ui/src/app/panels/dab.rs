@@ -308,7 +308,15 @@ impl SdroxideApp {
         let now = ui.input(|i| i.time);
         let dt = self.dab_vu_at.map_or(0.0, |t| (now - t) as f32);
         self.dab_vu_at = Some(now);
-        let input = st.playing.as_ref().and(st.audio_rms_db);
+        // The station as heard: the level the engine measured, brought down by
+        // the volume the operator has it at (a mute is no volume).
+        let rx = &self.state.rx[0];
+        let volume = if rx.muted { 0.0 } else { rx.volume };
+        let input = st
+            .playing
+            .as_ref()
+            .and(st.audio_rms_db)
+            .map(|l| crate::widgets::vu_meter::heard_dbfs(l, volume));
         self.dab_vu.step(input, dt);
         if input.is_some() || self.dab_vu.is_live() {
             // The meter moves between status messages, so it asks for its own
@@ -317,10 +325,12 @@ impl SdroxideApp {
         }
     }
 
-    /// The VU meter column: the decoded audio's level, left and right.
+    /// The VU meter column: the station's level as heard, left and right —
+    /// and the volume control, the same volume as the Vol slider.
     pub(in crate::app) fn dab_vu_meter(
         &mut self,
         ui: &mut egui::Ui,
+        cmds: &mut Vec<Command>,
         st: &DabStatus,
         avail_h: f32,
         vu_w: f32,
@@ -328,11 +338,93 @@ impl SdroxideApp {
     ) {
         self.dab_vu_step(ui, st);
         let h = avail_h.clamp(160.0, 420.0);
-        crate::widgets::vu_meter::stereo(ui, &self.dab_vu, egui::vec2(vu_w, h), compact)
-            .on_hover_text(
-                "The level of the station playing, left and right, before the volume \
-             control. 0 VU is −18 dBFS; the red segments are the loud end.",
-            );
+        let volume = self.state.rx[0].volume;
+        let out = crate::widgets::vu_meter::stereo(
+            ui,
+            &self.dab_vu,
+            egui::vec2(vu_w, h),
+            compact,
+            Some(volume),
+        );
+        self.dab_vu_volume(ui, cmds, out);
+    }
+
+    /// The meter as a volume control: drag or click along the bars (up, or to
+    /// the right on a phone), the wheel over it, or the arrow keys once it has
+    /// been clicked. Sets the main receiver's volume, the Vol slider's own,
+    /// and keeps working on a screen locked with the padlock — so the sound
+    /// can come down for the adverts without unlocking.
+    pub(in crate::app) fn dab_vu_volume(
+        &mut self,
+        ui: &mut egui::Ui,
+        cmds: &mut Vec<Command>,
+        out: crate::widgets::vu_meter::VuResponse,
+    ) {
+        use crate::widgets::vu_meter::VOLUME_STEP;
+        let resp = &out.response;
+        crate::touch_lock::allow_while_locked(ui.ctx(), resp.rect);
+        let cur = self.state.rx[0].volume;
+        let mut want: Option<f32> = None;
+        if (resp.dragged() || resp.clicked())
+            && let Some(pos) = resp.interact_pointer_pos()
+        {
+            want = Some(out.volume_at(pos));
+        }
+        if resp.clicked() || resp.drag_started() {
+            resp.request_focus();
+        }
+        if resp.hovered() {
+            let scroll: f32 = ui.input(|i| {
+                i.raw
+                    .events
+                    .iter()
+                    .map(|e| match e {
+                        egui::Event::MouseWheel { delta, .. } => delta.y + delta.x,
+                        _ => 0.0,
+                    })
+                    .sum()
+            });
+            if scroll != 0.0 {
+                want = Some(cur + VOLUME_STEP * scroll.signum());
+            }
+        }
+        if resp.has_focus() {
+            // The arrows are the dial's while nothing has focus; once the
+            // meter has it they set the volume instead, and do not move focus.
+            ui.memory_mut(|m| {
+                m.set_focus_lock_filter(
+                    resp.id,
+                    egui::EventFilter {
+                        horizontal_arrows: true,
+                        vertical_arrows: true,
+                        ..Default::default()
+                    },
+                )
+            });
+            let (up, down) = ui.input(|i| {
+                (
+                    i.key_pressed(egui::Key::ArrowUp) || i.key_pressed(egui::Key::ArrowRight),
+                    i.key_pressed(egui::Key::ArrowDown) || i.key_pressed(egui::Key::ArrowLeft),
+                )
+            });
+            if up {
+                want = Some(cur + VOLUME_STEP);
+            } else if down {
+                want = Some(cur - VOLUME_STEP);
+            }
+        }
+        resp.clone().on_hover_text(
+            "The station as you hear it, left and right — and the volume: drag or \
+             click along the bars, or use the wheel. Click it, then the arrow keys \
+             step it. Works on a screen locked with the padlock.",
+        );
+        if let Some(v) = want {
+            let v = v.clamp(0.0, 1.0);
+            if (v - cur).abs() > 1e-4 {
+                self.state.rx[0].volume = v; // optimistic echo, as the Vol slider does
+                cmds.push(Command::SetVolume { rx: sdroxide_types::RxId::Main, v });
+            }
+        }
     }
 }
 

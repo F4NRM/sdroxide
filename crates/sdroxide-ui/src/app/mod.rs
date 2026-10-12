@@ -3423,12 +3423,16 @@ mod tests {
             ),
             ..Default::default()
         }));
-        // Music: louder on the left, a recent peak held above it.
+        // A loud DAB+ station heard at the volume the preview asks for
+        // (DAB_VOL, default 0.6): a recent peak held above the column.
+        let vol: f32 = std::env::var("DAB_VOL").ok().and_then(|v| v.parse().ok()).unwrap_or(0.6);
+        app.state.rx[0].volume = vol;
+        let heard = |l| crate::widgets::vu_meter::heard_dbfs(l, vol);
         for _ in 0..40 {
-            app.dab_vu.step(Some([-10.0, -13.0]), 1.0 / 30.0);
+            app.dab_vu.step(Some(heard([-9.0, -11.0])), 1.0 / 30.0);
         }
-        for _ in 0..12 {
-            app.dab_vu.step(Some([-15.0, -18.0]), 1.0 / 30.0);
+        for _ in 0..6 {
+            app.dab_vu.step(Some(heard([-13.0, -15.0])), 1.0 / 30.0);
         }
 
         let mut tex = crate::test_raster::Textures::default();
