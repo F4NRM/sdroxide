@@ -54,6 +54,16 @@ pub enum Error {
     #[error("tuner PLL did not lock at {0:.6} MHz")]
     PllUnlocked(f64),
 
+    /// A centre frequency the tuner cannot reach at all.
+    ///
+    /// Distinct from [`Error::PllUnlocked`] on purpose. An unlocked PLL is a
+    /// fault worth investigating; this is a number that is wrong on its face
+    /// and is usually an I.F. offset saved as a tune frequency (issue #72). The
+    /// sentence names both, because the operator cannot tell them apart from
+    /// the symptom — the dongle simply does not open.
+    #[error("{0}")]
+    OutOfRange(String),
+
     #[error("USB error: {0}")]
     Usb(#[from] nusb::Error),
 }

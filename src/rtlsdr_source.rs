@@ -275,6 +275,29 @@ impl IqSource for RtlSdrSource {
         ]
     }
 
+    /// The gain the dongle is applying, so the S-meter stops adding it to the
+    /// reading (issue #68).
+    ///
+    /// A dongle with tuner gain on delivers samples tens of dB hotter than the
+    /// signal on the antenna, and the meter subtracts the front end's own gain
+    /// before showing dBm. That subtraction is `rx_gain_db().unwrap_or(0.0)`, so
+    /// a source that answers `None` has its whole gain added to the reading: an
+    /// RTL-SDR's noise floor came out at S9+10 — an ordinary floor, reported
+    /// ~30 dB too high. Only SDRplay and Pluto answered, so this was every
+    /// RTL-SDR.
+    ///
+    /// **`None` whenever AGC is running.** The trait asks for the gain of the
+    /// samples *being delivered now*, and under tuner or RTL digital AGC the
+    /// hardware moves it on its own: `gain_db` is the last value the *operator*
+    /// commanded and nothing rewrites it, so answering it would put a number on
+    /// screen that the antenna never saw — a meter that jumps on a strong
+    /// signal instead of reporting one. Manual gain is the only setting where
+    /// the commanded value is the applied value, and it is also the setting for
+    /// weak-signal work, where a correct S-number is the point.
+    fn rx_gain_db(&self) -> Option<f32> {
+        applied_gain_db(self.agc, self.gain_db)
+    }
+
     /// A dongle that has been unplugged, or whose thread has died, is reported
     /// as needing a reopen so the engine reconnects on its own — which is what
     /// makes replugging one Just Work rather than needing Apply pressed. Over
@@ -301,5 +324,113 @@ impl IqSource for RtlSdrSource {
             let where_ = if self.remote { " at the far end" } else { "" };
             format!("{}: bias tee is ON — ~4.5 V DC on the antenna coax{where_}", self.label)
         })
+    }
+}
+
+/// The gain the meter should subtract, given the AGC setting and the gain the
+/// dongle was last commanded to.
+///
+/// Split out from [`RtlSdrSource::rx_gain_db`] so the rule is testable without a
+/// dongle: it is a decision about two numbers, and the decision is the whole of
+/// issue #68.
+fn applied_gain_db(agc: RtlSdrAgc, commanded_db: f64) -> Option<f32> {
+    match agc {
+        // Manual: the commanded value is the applied value.
+        RtlSdrAgc::Manual => Some(commanded_db as f32),
+        // Tuner or RTL AGC: the hardware moves the gain itself and never tells
+        // us where it is, so there is no honest number to report. Answering the
+        // commanded value here would put a figure on the meter that the
+        // antenna never saw.
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+mod gain_tests {
+    use super::applied_gain_db;
+    use sdroxide_types::RtlSdrAgc;
+
+    /// The fault: a manual-gain RTL-SDR reported its whole tuner gain as signal,
+    /// so a normal noise floor read as S9+10 — about 30 dB too high (issue #68).
+    #[test]
+    fn manual_gain_is_reported_so_the_meter_can_subtract_it() {
+        assert_eq!(
+            applied_gain_db(RtlSdrAgc::Manual, 30.0),
+            Some(30.0),
+            "manual gain is known, so the meter must be able to subtract it"
+        );
+    }
+
+    /// Under AGC the hardware drives the gain and we never learn its value.
+    /// Claiming the commanded one would put a number on the meter that no
+    /// antenna ever saw, so every AGC setting must decline.
+    #[test]
+    fn no_agc_setting_reports_a_gain_it_does_not_know() {
+        for agc in [RtlSdrAgc::Tuner, RtlSdrAgc::Rtl, RtlSdrAgc::Both] {
+            assert_eq!(
+                applied_gain_db(agc, 30.0),
+                None,
+                "{agc:?} moves the gain itself; the commanded value is not the applied one"
+            );
+        }
+    }
+
+    /// Every AGC setting must answer, so a new one cannot silently fall through
+    /// to reporting the commanded gain.
+    #[test]
+    fn every_agc_setting_is_decided() {
+        assert_eq!(RtlSdrAgc::ALL.len(), 4, "the rule covers all four settings");
+        for agc in RtlSdrAgc::ALL {
+            let _ = applied_gain_db(agc, 20.0);
+        }
+    }
+
+    /// The scale the reporter's numbers imply: a noise floor reported at S9+10
+    /// is −63 dBm, which is what an RTL-SDR's samples read with ~30 dB of
+    /// un-subtracted gain on them. Subtracting the gain brings it down by five
+    /// S-units, to about S4, which is where a receiver's floor belongs. This is
+    /// the arithmetic behind issue #68 and it is worth pinning, because "the
+    /// meter looks wrong" is not otherwise checkable.
+    #[test]
+    fn subtracting_the_gain_lowers_the_floor_by_the_s_units_it_was_raised() {
+        use sdroxide_types::Meters;
+
+        let reading = |dbm: f32| {
+            let m = Meters {
+                s_dbm: dbm,
+                adc_peak_dbfs: f32::NEG_INFINITY,
+                pa_temp_c: None,
+                adc_clip: 0.0,
+                adc_overload: None,
+                tx: None,
+                stereo: false,
+                tone: None,
+                passband_dbfs: f32::NEG_INFINITY,
+                puresignal: None,
+            };
+            m.s_units()
+        };
+
+        // S9+10, as reported on the issue.
+        let (s, over) = reading(-63.0);
+        assert_eq!(s, 9);
+        assert_eq!(over, 10.0, "S9+10 is the reported reading");
+
+        let gain = applied_gain_db(RtlSdrAgc::Manual, 30.0).expect("manual gain");
+        let (corrected_s, _) = reading(-63.0 - gain);
+
+        // 30 dB is five S-units of 6 dB, but the *display* drops by four: S9+10 and S9
+        // are both shown as "S9" with an over-value beside it, so the starting
+        // reading carries no unit of its own to subtract. That is the meter's
+        // existing whole-S behaviour and not something this fix changes.
+        assert_eq!(
+            s as i32 - corrected_s as i32,
+            4,
+            "subtracting {gain} dB must lower the S-number"
+        );
+        assert!(
+            (1..=6).contains(&corrected_s),
+            "a noise floor belongs in single figures, not S{corrected_s}"
+        );
     }
 }
