@@ -108,6 +108,10 @@ pub struct DabService {
     /// The protection profile ("EEP 3-A" and so on).
     #[serde(default)]
     pub protection: Option<String>,
+    /// The programme type the FIC names for it ("News", "Pop Music"), when it
+    /// does. Appended last.
+    #[serde(default)]
+    pub pty: Option<String>,
 }
 
 /// How the DAB receiver behaves. Owned by the engine (it lives in
@@ -135,6 +139,110 @@ pub struct DabSettings {
     /// hardcoded list that only fits one country.
     #[serde(default)]
     pub found: Vec<String>,
+    /// The stations each found channel carries, remembered with the channel,
+    /// so a channel picked from the list shows its stations at once rather
+    /// than after the FIC has been read again — and so they survive a restart.
+    ///
+    /// Appended last: `DabSettings` rides the wire whole inside `RadioState`.
+    #[serde(default)]
+    pub stations: Vec<DabKnownStation>,
+    /// The operator's presets: stations starred to be one press away, in the
+    /// order they were starred. Appended last.
+    #[serde(default)]
+    pub presets: Vec<DabKnownStation>,
+}
+
+/// A station the receiver has heard named, and the channel it rides on.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DabKnownStation {
+    /// The block it was heard on ("8B").
+    pub channel: String,
+    /// The service id, which is what a pick sends.
+    pub service_id: String,
+    /// The programme name as the FIC gave it; may be empty.
+    pub label: String,
+}
+
+impl DabSettings {
+    /// The remembered stations on `channel`, in the order they were heard.
+    pub fn stations_on<'a>(
+        &'a self,
+        channel: &'a str,
+    ) -> impl Iterator<Item = &'a DabKnownStation> + 'a {
+        self.stations.iter().filter(move |s| s.channel == channel)
+    }
+
+    /// Fold what the ensemble on `channel` names into the memory. Returns
+    /// whether anything changed, so a caller sends the settings only then.
+    ///
+    /// A station already known keeps its place and takes a newer label (the
+    /// FIC often names a service a moment after it lists it); a new one is
+    /// added after the others on that channel.
+    pub fn remember_stations(&mut self, channel: &str, services: &[DabService]) -> bool {
+        if channel.is_empty() {
+            return false;
+        }
+        let mut changed = false;
+        for svc in services {
+            match self
+                .stations
+                .iter_mut()
+                .find(|k| k.channel == channel && k.service_id == svc.service_id)
+            {
+                Some(k) => {
+                    if !svc.label.trim().is_empty() && k.label != svc.label {
+                        k.label = svc.label.clone();
+                        changed = true;
+                    }
+                }
+                None => {
+                    self.stations.push(DabKnownStation {
+                        channel: channel.to_string(),
+                        service_id: svc.service_id.clone(),
+                        label: svc.label.clone(),
+                    });
+                    changed = true;
+                }
+            }
+        }
+        changed
+    }
+
+    /// Forget a whole channel: drop it from the found list and every station
+    /// remembered on it. A SCAN finds it again.
+    pub fn forget_channel(&mut self, channel: &str) {
+        self.found.retain(|c| c != channel);
+        self.stations.retain(|s| s.channel != channel);
+    }
+
+    /// Take a sweep's answer: it walked [`DAB_BAND_III`] up to block `at`
+    /// (the whole band when `at` is past its end) and decoded stations on the
+    /// blocks in `found`.
+    ///
+    /// Only blocks that named stations are kept — a block with nothing on it
+    /// is not a channel to offer. A block the sweep never reached (it was
+    /// stopped early) keeps what was known of it, so stopping is never a loss;
+    /// a block it did walk and found silent is dropped with its stations. The
+    /// presets are the operator's and are left alone. Band order.
+    pub fn apply_scan(&mut self, at: usize, found: &[String]) {
+        let old = std::mem::take(&mut self.found);
+        self.found = DAB_BAND_III
+            .iter()
+            .enumerate()
+            .filter(|(i, (name, _))| {
+                found.iter().any(|f| f == name) || (*i >= at && old.iter().any(|o| o == name))
+            })
+            .map(|(_, (name, _))| name.to_string())
+            .collect();
+        let kept = &self.found;
+        self.stations.retain(|s| kept.contains(&s.channel));
+    }
+
+    /// Forget one station on one channel. It comes back the next time the
+    /// ensemble is read — a SCAN, or tuning the channel again.
+    pub fn forget_station(&mut self, channel: &str, service_id: &str) {
+        self.stations.retain(|s| !(s.channel == channel && s.service_id == service_id));
+    }
 }
 
 impl Default for DabSettings {
@@ -145,6 +253,8 @@ impl Default for DabSettings {
             service_id: String::new(),
             volume: 1.0,
             found: Vec::new(),
+            stations: Vec::new(),
+            presets: Vec::new(),
         }
     }
 }
@@ -157,6 +267,8 @@ impl DabSettings {
         service_id: String::new(),
         volume: 1.0,
         found: Vec::new(),
+        stations: Vec::new(),
+        presets: Vec::new(),
     };
 }
 
@@ -185,6 +297,37 @@ pub struct DabStatus {
     /// A receiver too narrow to hold an ensemble decodes nothing and says so.
     #[serde(default)]
     pub degraded: Option<String>,
+    /// The decoded audio's level, left and right, in dBFS RMS over the last
+    /// status interval — measured before the volume control, so the meter
+    /// shows the programme and not the knob. `None` while nothing plays.
+    ///
+    /// Appended last: `DabStatus` rides the wire whole.
+    #[serde(default)]
+    pub audio_rms_db: Option<[f32; 2]>,
+    /// The playing service's Dynamic Label (DLS) — the line of text a station
+    /// sends with its audio: the song, the programme. `None` until it sends
+    /// one. Appended last.
+    #[serde(default)]
+    pub dls: Option<String>,
+}
+
+/// A picture the playing DAB station broadcast in its slideshow (MOT
+/// SlideShow), as the station sent it: a JPEG or PNG at whatever size and
+/// shape it chose — 320x240 is the standard's, square is common.
+///
+/// Its own message rather than a field on [`DabStatus`]: the status goes out
+/// several times a second and a picture is tens of kilobytes, sent once when a
+/// new one arrives.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DabSlide {
+    /// The service that sent it, so a picture that arrives just after a
+    /// change of station is not shown on the next one.
+    pub service_id: String,
+    /// `image/jpeg` or `image/png`.
+    pub content_type: String,
+    /// The name the station gave the object, when it gave one.
+    pub name: Option<String>,
+    pub data: Vec<u8>,
 }
 
 /// The rate a digital down-converter's decimation ladder settles on, without
@@ -237,6 +380,44 @@ pub fn dab_widening_helps(device_rate: f64) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn known(channel: &str, id: &str) -> DabKnownStation {
+        DabKnownStation { channel: channel.into(), service_id: id.into(), label: id.into() }
+    }
+
+    fn idx(name: &str) -> usize {
+        DAB_BAND_III.iter().position(|(n, _)| *n == name).unwrap()
+    }
+
+    /// A whole sweep keeps exactly the blocks that named stations, in band
+    /// order, and drops a block it walked and found silent with its stations.
+    /// The presets are not the sweep's to touch.
+    #[test]
+    fn a_full_sweep_keeps_only_the_blocks_that_named_stations() {
+        let mut d = DabSettings {
+            found: vec!["12C".into(), "5A".into()],
+            stations: vec![known("5A", "A"), known("12C", "C"), known("8B", "B")],
+            presets: vec![known("5A", "A")],
+            ..DabSettings::default()
+        };
+        d.apply_scan(DAB_BAND_III.len(), &["12C".into(), "8B".into()]);
+        assert_eq!(d.found, vec!["8B".to_string(), "12C".to_string()]);
+        assert_eq!(d.stations, vec![known("12C", "C"), known("8B", "B")]);
+        assert_eq!(d.presets, vec![known("5A", "A")], "a sweep cleared a preset");
+    }
+
+    /// Stopping a sweep half way loses nothing it never looked at.
+    #[test]
+    fn a_stopped_sweep_keeps_what_it_never_reached() {
+        let mut d = DabSettings {
+            found: vec!["5A".into(), "12C".into()],
+            stations: vec![known("5A", "A"), known("12C", "C")],
+            ..DabSettings::default()
+        };
+        d.apply_scan(idx("8B"), &["7D".into()]);
+        assert_eq!(d.found, vec!["7D".to_string(), "12C".to_string()]);
+        assert_eq!(d.stations, vec![known("12C", "C")]);
+    }
 
     /// 2.5 Msps is the reference (confirmed on a Pluto), and it is reachable:
     /// a 2.5 or 5 Msps receiver lands the lane on it, so nothing is advised.

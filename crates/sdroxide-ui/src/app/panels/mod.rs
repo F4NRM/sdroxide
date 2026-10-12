@@ -27,6 +27,7 @@ pub(in crate::app) mod aprs;
 pub(in crate::app) mod atchat;
 pub(in crate::app) mod cw;
 pub(in crate::app) mod dab;
+pub(in crate::app) mod dab_receiver;
 pub(in crate::app) mod decodes;
 pub(in crate::app) mod dsc;
 pub(in crate::app) mod fsq;

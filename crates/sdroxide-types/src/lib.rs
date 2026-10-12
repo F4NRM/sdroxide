@@ -154,8 +154,9 @@ pub use contest::{
 };
 pub use controller::{AudioDevices, PeerRadio, RadioController, RadioEvent};
 pub use dab::{
-    DAB_BAND_III, DAB_BANDWIDTH_HZ, DAB_GOOD_RATE_HZ, DAB_SAMPLE_RATE, DabService, DabSettings,
-    DabStatus, dab_channel_at, dab_widening_helps, dab_window_rate, ddc_rate_for,
+    DAB_BAND_III, DAB_BANDWIDTH_HZ, DAB_GOOD_RATE_HZ, DAB_SAMPLE_RATE, DabKnownStation, DabService,
+    DabSettings, DabSlide, DabStatus, dab_channel_at, dab_widening_helps, dab_window_rate,
+    ddc_rate_for,
 };
 pub use digi::{
     ACARS_MESSAGE_MAX, AcarsMessage, AcarsStatus, CONTEST_SERIAL_MAX, ClockHealth, ContestMode,

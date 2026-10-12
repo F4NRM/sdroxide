@@ -458,6 +458,10 @@ pub enum RadioEvent {
     /// station's recordings directory. The engine's, so it rides
     /// `ServerMsg::Recordings` to a remote client.
     Recordings(crate::RecordingListing),
+    /// A slideshow picture the playing DAB station sent. Sent once per new
+    /// picture, apart from [`RadioEvent::DabStatus`], which goes out several
+    /// times a second. The engine's, so it rides `ServerMsg::DabSlide`.
+    DabSlide(Box<crate::DabSlide>),
 }
 
 /// Snapshot of the frontend's switchable sound devices (native clients).

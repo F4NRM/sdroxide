@@ -1801,8 +1801,14 @@ use sdroxide_types::{
 /// `keep_screen_on: bool` at its tail, so the screen a profile carries changes
 /// layout. `PROTO_VERSION` 204 → 205, `VERSION_BYTE` 0x18 → 0x19. A
 /// downstream (fork) change.
-pub const PROTO_VERSION: u16 = 205;
-const VERSION_BYTE: u8 = 0x19;
+///
+/// v206: the DAB receiver panel. `DabSettings` gains `stations` and `presets`
+/// at its tail, which changes the layout of every state frame; `DabService`
+/// gains `pty` at its tail and `DabStatus` gains `audio_rms_db` and `dls` at
+/// its tail; `ServerMsg` gains `DabSlide(DabSlide)` last. `PROTO_VERSION`
+/// 205 → 206, `VERSION_BYTE` 0x19 → 0x1A. A downstream (fork) change.
+pub const PROTO_VERSION: u16 = 206;
+const VERSION_BYTE: u8 = 0x1A;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ProtoError {
@@ -2344,6 +2350,12 @@ pub enum ServerMsg {
     ///
     /// Appended last, for the usual reason.
     Recordings(sdroxide_types::RecordingListing),
+
+    /// `RadioEvent::DabSlide`: a slideshow picture the playing DAB station
+    /// sent, once per new picture.
+    ///
+    /// Appended last, for the usual reason.
+    DabSlide(Box<sdroxide_types::DabSlide>),
 }
 
 /// What [`ServerMsg::ClientSettings`] carries.
@@ -2542,6 +2554,42 @@ mod tests {
         });
         let frame = ServerMsg::State(state);
         assert_eq!(decode::<ServerMsg>(&encode(&frame).unwrap()).unwrap(), frame);
+
+        // v206, the DAB receiver: the panel's memory at the tail of the state,
+        // the programme type, level and station text at the tails of the
+        // status, and the slideshow picture as a message of its own.
+        let known = sdroxide_types::DabKnownStation {
+            channel: "8B".into(),
+            service_id: "0xF201".into(),
+            label: "BFM BUSINESS".into(),
+        };
+        let mut state = sdroxide_types::RadioState::default();
+        state.dab.stations = vec![known.clone()];
+        state.dab.presets = vec![known];
+        let frame = ServerMsg::State(state);
+        assert_eq!(decode::<ServerMsg>(&encode(&frame).unwrap()).unwrap(), frame);
+        let status = ServerMsg::DabStatus(Box::new(sdroxide_types::DabStatus {
+            services: vec![sdroxide_types::DabService {
+                service_id: "0xF201".into(),
+                label: "BFM BUSINESS".into(),
+                subchannel: Some(3),
+                bitrate: Some(96),
+                protection: Some("EEP 3-A".into()),
+                pty: Some("News".into()),
+            }],
+            playing: Some("0xF201".into()),
+            audio_rms_db: Some([-14.0, -17.5]),
+            dls: Some("Le journal de l'économie".into()),
+            ..Default::default()
+        }));
+        assert_eq!(decode::<ServerMsg>(&encode(&status).unwrap()).unwrap(), status);
+        let slide = ServerMsg::DabSlide(Box::new(sdroxide_types::DabSlide {
+            service_id: "0xF201".into(),
+            content_type: "image/jpeg".into(),
+            name: Some("slide1.jpg".into()),
+            data: vec![0xFF, 0xD8, 0xFF, 0xE0, 0, 16],
+        }));
+        assert_eq!(decode::<ServerMsg>(&encode(&slide).unwrap()).unwrap(), slide);
 
         // The CW paddle contacts, and both closed at once — the case that
         // matters, since it is the one where two contacts share an element.

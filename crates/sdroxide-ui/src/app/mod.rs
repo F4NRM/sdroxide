@@ -956,6 +956,19 @@ pub struct SdroxideApp {
     /// and when it arrived there. Session-only — a scan is an act, not a
     /// setting; what it *finds* goes in `state.dab.found` and is remembered.
     dab_scan: Option<crate::app::frame::DabScan>,
+    /// DAB: the VU meter's motion, and the frame clock it last stepped on.
+    dab_vu: crate::widgets::vu_meter::VuBallistics,
+    dab_vu_at: Option<f64>,
+    /// DAB: stations the operator has cleared with ✕ this session, as
+    /// `(channel, service id)`. Cleared from the memory too, and kept out of it
+    /// until the next SCAN — which is when a cleared station comes back.
+    dab_hidden: Vec<(String, String)>,
+    /// The last slideshow picture the station sent, ready to draw.
+    dab_slide: Option<egui::TextureHandle>,
+    /// The station's logo, as the station broadcasts it.
+    dab_logo: Option<egui::TextureHandle>,
+    /// The station list shows each station's programme type.
+    dab_show_pty: bool,
     /// Frame time of the last input event, for the inactivity stop.
     auto_last_activity: f64,
     /// Frame time before which the tick will not queue another command — the
@@ -1939,6 +1952,12 @@ impl SdroxideApp {
             digi_preview: None,
             auto_mode: false,
             dab_scan: None,
+            dab_vu: Default::default(),
+            dab_vu_at: None,
+            dab_hidden: Vec::new(),
+            dab_slide: None,
+            dab_logo: None,
+            dab_show_pty: false,
             auto_last_activity: 0.0,
             auto_cooldown_until: 0.0,
             auto_resume_at: None,
@@ -3262,6 +3281,184 @@ mod tests {
         (rows, dock, dock_room)
     }
 
+    /// Render the DAB panel to a PNG to look at: the four columns grouped on
+    /// the left and the VU meter, in the theme in force, on a station that is
+    /// playing. Writes `target/dab_preview.png` (or `$DAB_PREVIEW`); width from
+    /// `DAB_W` (default 1600), theme from `DAB_THEME` by its `Debug` name.
+    ///
+    /// ```sh
+    /// cargo test -p sdroxide-ui --release --lib dab_panel_preview -- --ignored --nocapture
+    /// ```
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    #[ignore = "writes a picture to look at; not an assertion"]
+    fn dab_panel_preview() {
+        use crate::multi::frame_test_lock;
+        use sdroxide_types::{DabKnownStation, DabService, DabStatus, Mode};
+        let _guard = frame_test_lock();
+        let dir = std::env::temp_dir().join(format!("sdroxide-dab-preview-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        unsafe { std::env::set_var("SDROXIDE_CONFIG_DIR", &dir) };
+
+        let w: f32 = std::env::var("DAB_W").ok().and_then(|v| v.parse().ok()).unwrap_or(1600.0);
+        let h: f32 = std::env::var("DAB_H").ok().and_then(|v| v.parse().ok()).unwrap_or(900.0);
+        let theme = std::env::var("DAB_THEME").ok().and_then(|name| {
+            sdroxide_types::UiTheme::ALL.iter().find(|t| format!("{t:?}") == name).copied()
+        });
+
+        let controller: Box<dyn RadioController> = Box::new(RecordingController::default());
+        let ctx = egui::Context::default();
+        let mut app = SdroxideApp::new_tab(&ctx, None, None, controller, 0, true);
+        if let Some(t) = theme {
+            app.ui_settings.theme = t;
+        }
+        app.state.rx[0].mode = Mode::Dab;
+        let svc = |id: &str, label: &str, br: u16| DabService {
+            service_id: id.into(),
+            label: label.into(),
+            subchannel: Some(3),
+            bitrate: Some(br),
+            protection: Some("EEP 3-A".into()),
+            pty: Some(
+                match id {
+                    "F201" => "News",
+                    "F203" => "Jazz",
+                    "F204" => "Pop Music",
+                    _ => "Varied",
+                }
+                .into(),
+            ),
+        };
+        app.state.dab.channel = "8B".into();
+        app.state.dab.presets = vec![
+            DabKnownStation {
+                channel: "8B".into(),
+                service_id: "F201".into(),
+                label: "BFM BUSINESS".into(),
+            },
+            DabKnownStation {
+                channel: "8B".into(),
+                service_id: "F203".into(),
+                label: "FIP".into(),
+            },
+        ];
+        // A stand-in for a slideshow picture: a station-logo-like card.
+        let load = |var: &str| {
+            std::env::var(var).ok().map(|path| {
+                let img = image::open(&path).expect("read the preview picture").to_rgba8();
+                let (iw, ih) = img.dimensions();
+                let img =
+                    egui::ColorImage::from_rgba_unmultiplied([iw as usize, ih as usize], &img);
+                ctx.load_texture(var, img, Default::default())
+            })
+        };
+        app.dab_logo = load("DAB_LOGO");
+        if let Some(t) = load("DAB_SLIDE") {
+            app.dab_slide = Some(t);
+        } else if std::env::var("DAB_NO_SLIDE").is_err() {
+            let (sw, sh) = (320usize, 240usize);
+            let mut px = Vec::with_capacity(sw * sh);
+            for y in 0..sh {
+                for x in 0..sw {
+                    let (fx, fy) = (x as f32 / sw as f32, y as f32 / sh as f32);
+                    let d = ((fx - 0.5).powi(2) * 1.8 + (fy - 0.45).powi(2)).sqrt();
+                    let ring = d < 0.28;
+                    let bar = fy > 0.78 && fy < 0.86 && fx > 0.2 && fx < 0.8;
+                    let c = if ring && d > 0.2 {
+                        egui::Color32::from_rgb(255, 255, 255)
+                    } else if ring {
+                        egui::Color32::from_rgb(230, 40, 60)
+                    } else if bar {
+                        egui::Color32::from_rgb(250, 200, 40)
+                    } else {
+                        egui::Color32::from_rgb(
+                            (20.0 + 40.0 * fx) as u8,
+                            (30.0 + 30.0 * fy) as u8,
+                            (90.0 + 100.0 * fy) as u8,
+                        )
+                    };
+                    px.push(c);
+                }
+            }
+            let img = egui::ColorImage {
+                size: [sw, sh],
+                source_size: egui::vec2(sw as f32, sh as f32),
+                pixels: px,
+            };
+            app.dab_slide = Some(ctx.load_texture("dab_slide_preview", img, Default::default()));
+        }
+        app.state.dab.service_id = "F201".into();
+        app.state.dab.found = ["5C", "6A", "8B", "9D", "11C", "12B"].map(String::from).to_vec();
+        app.state.dab.stations = [
+            ("8B", "F201", "BFM BUSINESS"),
+            ("8B", "F202", "RADIO NOVA"),
+            ("8B", "F203", "FIP"),
+            ("8B", "F204", "SKYROCK"),
+            ("8B", "F207", "OUI FM"),
+        ]
+        .map(|(c, id, l)| DabKnownStation {
+            channel: c.into(),
+            service_id: id.into(),
+            label: l.into(),
+        })
+        .to_vec();
+        let center = sdroxide_types::DAB_BAND_III.iter().find(|(n, _)| *n == "8B").unwrap().1;
+        app.dab_status = Some(Box::new(DabStatus {
+            ensemble: Some("Nancy Metropole".into()),
+            services: vec![
+                svc("F201", "BFM BUSINESS", 96),
+                svc("F202", "RADIO NOVA", 88),
+                svc("F203", "FIP", 96),
+                svc("F204", "SKYROCK", 80),
+            ],
+            window_center_hz: center,
+            window_rate_hz: 2_500_000.0,
+            frames: 8412,
+            fibs: 33648,
+            playing: Some("F201".into()),
+            audio_rms_db: Some([-14.0, -17.0]),
+            dls: Some(
+                "BFM Business — Le journal de l'économie à 18h00 · Tél. 01 23 45 67 89".into(),
+            ),
+            ..Default::default()
+        }));
+        // Music: louder on the left, a recent peak held above it.
+        for _ in 0..40 {
+            app.dab_vu.step(Some([-10.0, -13.0]), 1.0 / 30.0);
+        }
+        for _ in 0..12 {
+            app.dab_vu.step(Some([-15.0, -18.0]), 1.0 / 30.0);
+        }
+
+        let mut tex = crate::test_raster::Textures::default();
+        let mut last = None;
+        for i in 0..3 {
+            let input = egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(w, h))),
+                time: Some(10.0 + i as f64 / 30.0),
+                ..Default::default()
+            };
+            let mut full = ctx.run_ui(input, |ui| {
+                app.ui(ui, &mut eframe::Frame::_new_kittest());
+            });
+            tex.apply(&full.textures_delta);
+            full.textures_delta.clear();
+            last = Some(full);
+        }
+        let img = crate::test_raster::rasterize(
+            &ctx,
+            last.unwrap(),
+            &tex,
+            egui::vec2(w, h),
+            crate::theme::BG_DEEP(),
+        );
+        let out = std::env::var("DAB_PREVIEW").unwrap_or_else(|_| {
+            format!("{}/../../target/dab_preview.png", env!("CARGO_MANIFEST_DIR"))
+        });
+        img.save(&out).expect("write the preview");
+        println!("wrote {out}");
+    }
     /// #643: drive one frame at a chosen window width (env `DOCK_W`, default
     /// 960) and mode (env `MODE`, by its `Debug` name) and print the largest
     /// shapes, flagging any ink past the window's right edge or across the
