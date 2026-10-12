@@ -7650,9 +7650,42 @@ pub struct RadioConfig {
     /// ATS Mini control link. Appended last, as the wire requires; the
     /// sound-card device it listens on is the radio-wide `radio_audio_in`.
     pub atsmini: AtsMiniConfig,
+    /// The S-meter's calibration for this radio, in S-units: what the
+    /// operator adds to the reading because their meter reads high or low.
+    /// `0` — the default, and what every `radio.json` written before this
+    /// existed loads as — is the meter exactly as it reads today.
+    ///
+    /// **Display only.** It moves what the operator is *shown* — the needle,
+    /// the S and dBm readouts, the level a reception report is pre-filled
+    /// with, the spoken S-meter — and nothing else: the squelch, the
+    /// auto-record gate and the decoders all compare against
+    /// [`Meters::passband_dbfs`](crate::Meters::passband_dbfs), which this
+    /// never touches, so changing the meter's calibration cannot open or close
+    /// a squelch behind the operator's back. Held to
+    /// [`SMETER_CAL_MIN`]`..=`[`SMETER_CAL_MAX`]; see [`Self::smeter_cal_db`].
+    ///
+    /// Per radio, and on the server with the rest of `radio.json`, because it
+    /// is a property of the hardware and its antenna, not of who is signed in.
+    /// Appended last, as the wire requires.
+    pub smeter_cal: i8,
 }
 
+/// The lowest S-meter calibration offered, in S-units.
+pub const SMETER_CAL_MIN: i8 = -5;
+/// The highest S-meter calibration offered, in S-units.
+pub const SMETER_CAL_MAX: i8 = 5;
+/// One S-unit, in dB — the IARU step the meter is drawn in.
+pub const DB_PER_S_UNIT: f32 = 6.0;
+
 impl RadioConfig {
+    /// The S-meter calibration in dB, to be added to
+    /// [`Meters::s_dbm`](crate::Meters::s_dbm): [`Self::smeter_cal`] S-units of
+    /// [`DB_PER_S_UNIT`] each, held to the offered range so a hand-edited
+    /// `radio.json` cannot throw the needle off its scale.
+    pub fn smeter_cal_db(&self) -> f32 {
+        f32::from(self.smeter_cal.clamp(SMETER_CAL_MIN, SMETER_CAL_MAX)) * DB_PER_S_UNIT
+    }
+
     /// The converter offset that is actually in force at `dial_hz`, to be
     /// changed in place.
     ///
@@ -9126,5 +9159,21 @@ mod tests {
         assert!(Rx888Config::ADC_RATES.contains(&80_000_000.0));
         assert_eq!(Rx888Config::ddc_out_rate_hz(80_000_000.0, 256), dab);
         assert!(Rx888Config::width_works_on_vhf(80_000_000.0, 256));
+    }
+
+    /// The S-meter calibration is S-units of 6 dB, 0 by default — which is
+    /// what a `radio.json` written before it existed loads as — and held to
+    /// the offered range whatever a hand-edited file says.
+    #[test]
+    fn the_smeter_calibration_is_s_units_and_held_to_its_range() {
+        let old: RadioConfig = serde_json::from_str("{}").expect("an old radio.json loads");
+        assert_eq!(old.smeter_cal, 0);
+        assert_eq!(old.smeter_cal_db(), 0.0);
+        let cal = |steps| RadioConfig { smeter_cal: steps, ..Default::default() }.smeter_cal_db();
+        assert_eq!(cal(-2), -12.0);
+        assert_eq!(cal(5), 30.0);
+        assert_eq!(cal(-5), -30.0);
+        assert_eq!(cal(40), 30.0, "a hand-edited file cannot go past +5");
+        assert_eq!(cal(-40), -30.0, "nor past -5");
     }
 }
