@@ -15291,15 +15291,27 @@ This needs the same **secure context** as audio
 will offer a plain bookmark at best, so the two reasons to put the server behind
 HTTPS — or to reach it over a tunnel, a VPN or Tailscale — are the same reason.
 
-**The screen stays awake** while the client is in front. A receiver is watched
-rather than read, and a tablet left alone blanks after half a minute; installed
-full screen that takes the whole application away and puts a lock screen in
-front of it. The client asks the browser to hold the screen on, gives that up
-whenever you switch away — a client in the background has no business keeping
-your screen lit — and asks again when you come back. A browser that does not
-support it, or one told not to by battery saver or a device policy, simply
-sleeps as it always did: this is a comfort, not a requirement, and nothing warns
-you about it.
+**The screen can stay awake** while the client is in front: tick **Settings →
+UI → Wake lock** (off by default, because it costs battery; kept with your
+profile on the server). A receiver is watched rather than read, and a tablet
+left alone blanks after half a minute; installed full screen that takes the
+whole application away and puts a lock screen in front of it. The client asks
+the browser to hold the screen on, gives that up whenever you switch away — a
+client in the background has no business keeping your screen lit — and asks
+again when you come back. The line beside the box says when the browser does
+not have it, or refused it.
+
+**The padlock locks the screen against stray fingers.** It sits on the phone
+and tablet strips, just after the **MEM** chip; the desktop layout has none.
+
+- **Tap it** and the screen is locked: frequency, band, mode, filters and the
+  waterfall stop answering a finger. Reception and audio carry on.
+- **Hold it for 3 seconds** to unlock. A ring fills round the padlock while
+  you hold; lifting early leaves the screen locked.
+- **After an unlock the padlock rests for 10 seconds.** A tap on it then does
+  not lock the screen again, so the finger that has just unlocked it cannot
+  lock it straight back. A tap in those 10 seconds shows
+  `UNLOCKED · lock in N s`; after them, a tap locks as usual.
 
 The home-screen icon is sdroxide's own, the same artwork the desktop
 application and the packaged builds use.
@@ -16279,6 +16291,7 @@ and not the station's.
 | `adsb.json` | JSON | ADS-B decoder ([§3.13](#313-ads-b-aircraft-on-1090-mhz)): the two timeouts, how many history dots to keep, how far ahead the speed vectors reach, and the ceiling on the aircraft table. Restored at startup, and — like `ism.json` — a receiver that cannot feed the decoder forces it off without disturbing what you picked. |
 | `vdl2.json` | JSON | VDL2 decoder ([§3.15](#315-vdl2-what-the-aircraft-are-saying)): which of the fourteen channels to listen on, the burst threshold in dB, how much log and how many stations to keep, and how long a silent station stays on the list. Restored at startup, and — like `adsb.json` — a receiver that cannot feed the decoder forces it off without disturbing what you picked. |
 | `ais.json` | JSON | AIS decoder ([§3.16](#316-ais-ships-on-162-mhz)): which of the two channels to listen on, the slot threshold in dB, the two timeouts, how many minutes of trail to keep, how far ahead the vectors reach, and the ceiling on the vessel table. Restored at startup, and — like `adsb.json` — a receiver that cannot feed the decoder forces it off without disturbing what you picked. |
+| `dab.json` | JSON | DAB receiver: the channels a SCAN found, the stations heard on each, your ★ presets, the channel and station chosen, and the volume. Written whenever the panel changes it and restored at startup, so a scan is not lost to a restart. Delete it to start the list from nothing. |
 | `ism.json` | JSON | ISM decoder: whether it runs, which device families it listens for, the burst threshold in dB, and whether the rtl_433 decoders are on, which band they watch and how wide a window they get. Restored at startup, and — like `skimmer.json` — a narrowband (audio-mode) radio forces it off without disturbing what you picked. |
 | `rtl433_flex.conf` | text | Your own ISM decoders, in rtl_433's "flex" syntax ([§5.5](#55-adding-your-own-decoders-flex-specs)). Written with a commented example the first time the ISM decoder runs, and never rewritten afterwards — like `bandplan.json`, it is yours to edit. A specification that does not pass its check is listed in the ISM window and skipped; the rest still load. **RELOAD DECODERS** in the ISM window applies an edit without a restart. |
 | `input.json` | JSON | Control inputs: keyboard bindings, panadapter mouse behaviour, mouse-button bindings, and the MIDI controller mapping. Belongs to the machine running the user interface, not the engine. |

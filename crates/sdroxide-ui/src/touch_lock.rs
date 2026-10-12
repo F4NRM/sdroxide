@@ -15,6 +15,18 @@
 //! filling round it while the finger stays down; lifting early cancels it.
 //! A brush of the screen cannot hold one spot for three seconds.
 //!
+//! After an unlock the padlock **rests for 10 s** before a tap locks again.
+//! The finger that held it is still on the glass when the screen unlocks, and
+//! a phone's browser can report it again as a fresh press (a long press is a
+//! gesture of its own there); without the rest, that press was a tap on an
+//! unlocked padlock and the screen locked again before the finger lifted.
+//!
+//! One exception, asked for by the operator: a control can declare itself
+//! **usable while locked** ([`allow_while_locked`]) — the DAB panel's VU meter,
+//! which is also its volume, so the sound can come down for the adverts
+//! without unlocking. A press, a touch, a drag or the wheel over that control
+//! gets through; anywhere else the screen stays locked.
+//!
 //! The state is per window and session-only: it lives in the context's
 //! temporary memory, so every radio tab in the shell shares one lock and a
 //! restart always starts unlocked. If the padlock stops being drawn — the
@@ -28,6 +40,9 @@ use eframe::egui::{
 /// How long the padlock must be held to unlock.
 pub const UNLOCK_HOLD_S: f64 = 3.0;
 
+/// How long the padlock rests after an unlock before a tap locks again.
+pub const RELOCK_PAUSE_S: f64 = 10.0;
+
 /// How long the "unlocked" flash, and the hint after a tap on a locked
 /// padlock, stay on screen.
 const FLASH_S: f64 = 0.8;
@@ -40,6 +55,10 @@ struct State {
     /// view, where each radio's strip carries its own.
     rects: Vec<Rect>,
     rects_pass: u64,
+    /// Controls that stay usable while locked, and the pass they were drawn
+    /// on — gone with the control when it stops being drawn.
+    allowed: Vec<Rect>,
+    allowed_pass: u64,
     /// When the current hold on a locked padlock began.
     hold_since: Option<f64>,
     /// A hold that already unlocked: ignored until the finger lifts, so the
@@ -74,21 +93,46 @@ fn padlock_live(s: &State, pass: u64) -> bool {
     !s.rects.is_empty() && pass <= s.rects_pass + 3
 }
 
+/// Mark `rect` as a control that keeps working while the screen is locked.
+/// Called every frame the control is drawn; it lapses when it stops being.
+pub fn allow_while_locked(ctx: &Context, rect: Rect) {
+    let mut s = state(ctx);
+    let pass = ctx.cumulative_pass_nr();
+    if s.allowed_pass != pass {
+        s.allowed.clear();
+        s.allowed_pass = pass;
+    }
+    s.allowed.push(rect);
+    store(ctx, s);
+}
+
+/// Where a press may land on a locked screen at `pass`: the padlock, and the
+/// controls allowed while locked if they were drawn recently — the same few
+/// passes of slack the padlock gets.
+fn open_rects(s: &State, pass: u64) -> Vec<Rect> {
+    let mut open = s.rects.clone();
+    if pass <= s.allowed_pass + 3 {
+        open.extend(s.allowed.iter().copied());
+    }
+    open
+}
+
 /// Whether one input event reaches egui while the screen is locked.
 ///
-/// Presses only on the padlock; releases always, so a button or key held when
-/// the lock fell is not left stuck down. Movement is harmless and keeps hover
-/// alive. Everything that can change a setting — a wheel, a pinch, a touch, a
-/// key, text, a paste — is dropped.
-fn keep_while_locked(event: &Event, padlock: &[Rect]) -> bool {
+/// Presses only on the padlock or a control allowed while locked; releases
+/// always, so a button or key held when the lock fell is not left stuck down.
+/// Movement is harmless and keeps hover alive. The wheel only over an allowed
+/// control (`pointer` is where the pointer last was). Everything else that can
+/// change a setting — a pinch, a touch elsewhere, a key, text, a paste — is
+/// dropped.
+fn keep_while_locked(event: &Event, open: &[Rect], pointer: Option<Pos2>) -> bool {
+    let inside = |p: Pos2| open.iter().any(|r| r.contains(p));
     match event {
-        Event::PointerButton { pos, pressed, .. } => {
-            !*pressed || padlock.iter().any(|r| r.contains(*pos))
-        }
+        Event::PointerButton { pos, pressed, .. } => !*pressed || inside(*pos),
         Event::Touch { phase, pos, .. } => {
-            matches!(phase, TouchPhase::End | TouchPhase::Cancel)
-                || padlock.iter().any(|r| r.contains(*pos))
+            matches!(phase, TouchPhase::End | TouchPhase::Cancel) || inside(*pos)
         }
+        Event::MouseWheel { .. } => pointer.is_some_and(inside),
         Event::Key { pressed, .. } => !*pressed,
         Event::PointerMoved(_)
         | Event::MouseMoved(_)
@@ -116,9 +160,16 @@ pub fn filter(ctx: &Context, raw: &mut egui::RawInput) {
         store(ctx, s);
         return;
     }
-    raw.events.retain(|e| keep_while_locked(e, &s.rects));
+    let open = open_rects(&s, ctx.cumulative_pass_nr());
+    let pointer = ctx.input(|i| i.pointer.latest_pos());
+    raw.events.retain(|e| keep_while_locked(e, &open, pointer));
     raw.dropped_files.clear();
     raw.hovered_files.clear();
+}
+
+/// Whether the padlock is still resting after the unlock at `unlocked_at`.
+fn relock_paused(unlocked_at: Option<f64>, now: f64) -> bool {
+    unlocked_at.is_some_and(|t| now - t < RELOCK_PAUSE_S)
 }
 
 /// Where a hold stands: 0 at the press, 1 when it unlocks.
@@ -166,6 +217,10 @@ pub fn padlock(ui: &mut Ui, size: egui::Vec2) -> Response {
         if resp.clicked() {
             s.hint_at = Some(now);
         }
+    } else if resp.clicked() && relock_paused(s.unlocked_at, now) {
+        // Resting after an unlock: the press is the finger that unlocked, or a
+        // tap too soon after it. Say why nothing happened.
+        s.hint_at = Some(now);
     } else if resp.clicked() && !s.spent {
         s.locked = true;
         s.hint_at = None;
@@ -181,7 +236,8 @@ pub fn padlock(ui: &mut Ui, size: egui::Vec2) -> Response {
     } else {
         "Lock the screen against stray touches: frequency, band, mode, filters and the \
          waterfall stop answering a finger. Reception and audio carry on. Hold for 3 seconds \
-         to unlock."
+         to unlock. After an unlock the padlock rests for 10 seconds before a tap locks it \
+         again, so the finger that unlocked it cannot lock it straight back."
     });
 
     // The caption under the padlock while something is happening.
@@ -191,6 +247,12 @@ pub fn padlock(ui: &mut Ui, size: egui::Vec2) -> Response {
         Some("UNLOCKED".to_owned())
     } else if s.locked && s.hint_at.is_some_and(|t| now - t < HINT_S) {
         Some("LOCKED · hold 3 s".to_owned())
+    } else if !s.locked
+        && relock_paused(s.unlocked_at, now)
+        && s.hint_at.is_some_and(|t| now - t < HINT_S)
+    {
+        let left = s.unlocked_at.map_or(0.0, |t| RELOCK_PAUSE_S - (now - t));
+        Some(format!("UNLOCKED · lock in {:.0} s", left.ceil().max(1.0)))
     } else {
         None
     };
@@ -306,10 +368,10 @@ mod tests {
 
     #[test]
     fn a_locked_screen_takes_a_press_only_on_the_padlock() {
-        assert!(keep_while_locked(&press(120.0, 30.0, true), &pad()));
-        assert!(!keep_while_locked(&press(400.0, 300.0, true), &pad()));
+        assert!(keep_while_locked(&press(120.0, 30.0, true), &pad(), None));
+        assert!(!keep_while_locked(&press(400.0, 300.0, true), &pad(), None));
         // A release anywhere still arrives, so nothing is left held down.
-        assert!(keep_while_locked(&press(400.0, 300.0, false), &pad()));
+        assert!(keep_while_locked(&press(400.0, 300.0, false), &pad(), None));
     }
 
     #[test]
@@ -344,7 +406,7 @@ mod tests {
             Event::Text("7".into()),
             Event::Paste("7074".into()),
         ] {
-            assert!(!keep_while_locked(&dropped, &pad()), "{dropped:?} got through");
+            assert!(!keep_while_locked(&dropped, &pad(), None), "{dropped:?} got through");
         }
         for kept in [
             touch(TouchPhase::End),
@@ -353,8 +415,50 @@ mod tests {
             Event::PointerMoved(pos2(400.0, 300.0)),
             Event::PointerGone,
         ] {
-            assert!(keep_while_locked(&kept, &pad()), "{kept:?} was dropped");
+            assert!(keep_while_locked(&kept, &pad(), None), "{kept:?} was dropped");
         }
+    }
+
+    /// The operator's exception: on a locked screen the VU meter still takes
+    /// a finger and the wheel — so the sound can come down for the adverts —
+    /// while a press anywhere else stays dropped.
+    #[test]
+    fn a_control_allowed_while_locked_takes_a_finger_and_the_wheel() {
+        let meter = Rect::from_min_size(pos2(20.0, 500.0), vec2(300.0, 46.0));
+        let open = [pad(), vec![meter]].concat();
+        let touch = |phase, x, y| Event::Touch {
+            device_id: TouchDeviceId(0),
+            id: TouchId(1),
+            phase,
+            pos: pos2(x, y),
+            force: None,
+        };
+        let wheel = Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Line,
+            delta: vec2(0.0, 1.0),
+            phase: TouchPhase::Move,
+            modifiers: Modifiers::NONE,
+        };
+        assert!(keep_while_locked(&touch(TouchPhase::Start, 100.0, 520.0), &open, None));
+        assert!(keep_while_locked(&touch(TouchPhase::Move, 200.0, 520.0), &open, None));
+        assert!(keep_while_locked(&press(150.0, 520.0, true), &open, None));
+        assert!(keep_while_locked(&wheel, &open, Some(pos2(150.0, 520.0))));
+        // Off the meter, the lock holds.
+        assert!(!keep_while_locked(&touch(TouchPhase::Start, 400.0, 300.0), &open, None));
+        assert!(!keep_while_locked(&press(400.0, 300.0, true), &open, None));
+        assert!(!keep_while_locked(&wheel, &open, Some(pos2(400.0, 300.0))));
+        assert!(!keep_while_locked(&wheel, &open, None));
+    }
+
+    /// The exception lapses with the control: a meter not drawn any more
+    /// opens nothing.
+    #[test]
+    fn an_allowed_control_lapses_when_it_is_no_longer_drawn() {
+        let meter = Rect::from_min_size(pos2(20.0, 500.0), vec2(300.0, 46.0));
+        let s = State { rects: pad(), allowed: vec![meter], allowed_pass: 50, ..State::default() };
+        assert!(open_rects(&s, 51).contains(&meter), "drawn just now: open");
+        assert!(!open_rects(&s, 60).contains(&meter), "not drawn for ten passes: shut");
+        assert!(open_rects(&s, 60).contains(&pad()[0]), "the padlock is always the way out");
     }
 
     #[test]
@@ -363,6 +467,14 @@ mod tests {
         assert!(hold_progress(10.0, 11.5) < 1.0);
         assert!(hold_progress(10.0, 12.99) < 1.0);
         assert_eq!(hold_progress(10.0, 13.0), 1.0);
+    }
+
+    #[test]
+    fn the_padlock_rests_ten_seconds_after_an_unlock() {
+        assert!(!relock_paused(None, 5.0), "never unlocked: nothing to rest from");
+        assert!(relock_paused(Some(100.0), 100.0));
+        assert!(relock_paused(Some(100.0), 109.9));
+        assert!(!relock_paused(Some(100.0), 110.0));
     }
 
     #[test]

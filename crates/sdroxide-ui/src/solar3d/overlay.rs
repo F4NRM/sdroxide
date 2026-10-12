@@ -879,7 +879,7 @@ fn scene(ui: &mut egui::Ui, st: &mut SolarUi, data: Option<&SolarData>) {
     }
     // The bottom-right stack, from the corner up: the date, then the award key
     // above whatever the date left.
-    let date_rect = date_readout(ui, st, rect, sim_now);
+    let date_rect = date_readout(ui, rect, sim_now, st.sim_offset_s != 0.0);
     award_panel(ui, st, rect, date_rect.map_or(rect.bottom() - MARGIN, |r| r.top() - 8.0));
     clouds_note(ui, st, data, rect, sim_now as i64);
     impact_banner(ui, data, rect, sim_now as i64);
@@ -1642,49 +1642,42 @@ fn hhmm(unix: i64) -> String {
     format!("{h:02}:{m:02}Z")
 }
 
-/// A dot-matrix UTC clock in the top-left corner, with the same instant in the
-/// operator's own zone on a smaller second row.
+/// A dot-matrix clock in the top-left corner: the operator's own zone on the
+/// large first row, the same instant in UTC on a smaller second row.
 ///
-/// UTC leads because everything else in the window is UTC: the ephemeris, the
-/// DONKI timestamps, the arrival estimates and the FT8 slot boundaries. Local
-/// time is the row underneath because "is that pass at a civilised hour?" is a
-/// question about the wall clock in the shack, and doing that subtraction in
-/// your head is how a pass gets missed.
+/// Local time leads because the first thing read off this clock is the wall
+/// clock in the shack — "is that pass at a civilised hour?" — and doing that
+/// subtraction in your head is how a pass gets missed. UTC stays on screen,
+/// directly underneath, because everything else in the window is UTC: the
+/// ephemeris, the DONKI timestamps, the arrival estimates and the FT8 slot
+/// boundaries.
 fn clock(ui: &egui::Ui, rect: egui::Rect, sim_now: f64, scrubbed: bool) -> Option<egui::Rect> {
     use super::dotmatrix;
 
-    let hms = |unix: i64| {
-        let (_, _, _, h, m, s) = sdroxide_types::utc_ymd_hms(unix);
-        format!("{h:02}:{m:02}:{s:02}")
-    };
-    let utc = sim_now as i64;
-    let text = hms(utc);
-    // The scrubbed instant, not the wall clock: two clocks side by side that
-    // disagreed about when "now" is would read as one of them being broken.
-    let local_text = hms(utc + crate::time::local_offset_seconds());
+    let rows = clock_rows(sim_now as i64, crate::time::local_offset_seconds(), scrubbed);
+    let [(label, text), (small_label, small_text)] = rows;
 
     // Scale with the window, but never so large it competes with the scene —
     // and the panel's own paddings scale with the dots, so the whole box grows
     // and shrinks as one piece.
     let pitch = (rect.width() * 0.004_25).clamp(1.3, 3.5);
     let size = dotmatrix::size(&text, pitch);
-    let local_pitch = pitch * 0.58;
-    let local_size = dotmatrix::size(&local_text, local_pitch);
+    let small_pitch = pitch * 0.58;
+    let small_size = dotmatrix::size(&small_text, small_pitch);
     let label_pitch = pitch * 0.42;
-    let label = if scrubbed { "-- SIM" } else { "UTC" };
     let label_size = dotmatrix::size(label, label_pitch);
-    let local_label_size = dotmatrix::size("LOC", label_pitch);
+    let small_label_size = dotmatrix::size(small_label, label_pitch);
 
-    // Both labels share one column to the right of the digits, so UTC and LOC
+    // Both labels share one column to the right of the digits, so LOC and UTC
     // line up however wide the two readouts come out.
     const GAP: f32 = 5.0;
-    let label_x = size.x.max(local_size.x) + GAP;
+    let label_x = size.x.max(small_size.x) + GAP;
     let row_gap = 3.5;
 
     let pad = egui::vec2(6.0, 4.5);
     let panel = egui::Rect::from_min_size(
         rect.left_top() + egui::vec2(MARGIN, MARGIN),
-        egui::vec2(label_x + label_size.x.max(local_label_size.x), size.y + row_gap + local_size.y)
+        egui::vec2(label_x + label_size.x.max(small_label_size.x), size.y + row_gap + small_size.y)
             + pad * 2.0,
     );
     if !rect.contains_rect(panel) {
@@ -1715,24 +1708,39 @@ fn clock(ui: &egui::Ui, rect: egui::Rect, sim_now: f64, scrubbed: bool) -> Optio
         on.gamma_multiply(0.6),
         egui::Color32::TRANSPARENT,
     );
-    let local_y = size.y + row_gap;
+    let small_y = size.y + row_gap;
     dotmatrix::draw(
         p,
-        origin + egui::vec2(0.0, local_y),
-        &local_text,
-        local_pitch,
+        origin + egui::vec2(0.0, small_y),
+        &small_text,
+        small_pitch,
         on.gamma_multiply(0.72),
         off,
     );
     dotmatrix::draw(
         p,
-        origin + egui::vec2(label_x, local_y + local_size.y - local_label_size.y),
-        "LOC",
+        origin + egui::vec2(label_x, small_y + small_size.y - small_label_size.y),
+        small_label,
         label_pitch,
         on.gamma_multiply(0.6),
         egui::Color32::TRANSPARENT,
     );
     Some(panel)
+}
+
+/// The clock's two rows, top first: `(label, HH:MM:SS)`, local over UTC.
+///
+/// Both are the scrubbed instant, not the wall clock: two clocks side by side
+/// that disagreed about when "now" is would read as one of them being broken.
+/// While the timeline is scrubbed the UTC row's label reads `-- SIM` (the
+/// border turns yellow as well), so a simulated instant is never mistaken for
+/// the real one.
+fn clock_rows(utc: i64, local_off: i64, scrubbed: bool) -> [(&'static str, String); 2] {
+    let hms = |unix: i64| {
+        let (_, _, _, h, m, s) = sdroxide_types::utc_ymd_hms(unix);
+        format!("{h:02}:{m:02}:{s:02}")
+    };
+    [("LOC", hms(utc + local_off)), (if scrubbed { "-- SIM" } else { "UTC" }, hms(utc))]
 }
 
 /// A `size`-sized box tucked against the right edge of `rect`, with its base on
@@ -1741,7 +1749,8 @@ fn bottom_right(rect: egui::Rect, bottom: f32, size: egui::Vec2) -> egui::Rect {
     egui::Rect::from_min_size(egui::pos2(rect.right() - MARGIN - size.x, bottom - size.y), size)
 }
 
-/// The calendar date and time the clock belongs to, UTC over local, in the
+/// The calendar date and time the clock belongs to, local over UTC (the
+/// clock's own order), in the
 /// bottom-right corner.
 ///
 /// The clock deliberately shows only `HH:MM:SS`, which is all you need until
@@ -1754,9 +1763,13 @@ fn bottom_right(rect: egui::Rect, bottom: f32, size: egui::Vec2) -> egui::Rect {
 /// Out of the way rather than beside the clock: the date is checked once and
 /// then ignored, while the top of the view is where the menu chips and the space
 /// weather live. Returns the box it drew, so the award key can stack above it.
-fn date_readout(ui: &egui::Ui, st: &SolarUi, rect: egui::Rect, sim_now: f64) -> Option<egui::Rect> {
+fn date_readout(
+    ui: &egui::Ui,
+    rect: egui::Rect,
+    sim_now: f64,
+    scrubbed: bool,
+) -> Option<egui::Rect> {
     let utc = sim_now as i64;
-    let scrubbed = st.sim_offset_s != 0.0;
     // Date and time together: the clock above shows only `HH:MM:SS`, so this is
     // the one place the day a pass or an opening falls on is legible, and a time
     // beside it saves reading two boxes to place one instant.
@@ -1767,7 +1780,7 @@ fn date_readout(ui: &egui::Ui, st: &SolarUi, rect: egui::Rect, sim_now: f64) -> 
     // The scrubbed instant, like the clock: two readouts of "now" that disagreed
     // would read as one of them being broken.
     let local_off = crate::time::local_offset_seconds();
-    let rows = [("UTC", stamp(utc)), ("LOC", stamp(utc + local_off))];
+    let rows = date_rows(utc, local_off, stamp);
 
     let font = egui::FontId::proportional(11.5);
     let label_font = egui::FontId::proportional(9.5);
@@ -1813,6 +1826,16 @@ fn date_readout(ui: &egui::Ui, st: &SolarUi, rect: egui::Rect, sim_now: f64) -> 
         y += row_h;
     }
     Some(panel)
+}
+
+/// The date readout's rows, top first — local over UTC, the same order as the
+/// clock, so the two boxes cannot read their zones in opposite orders.
+fn date_rows(
+    utc: i64,
+    local_off: i64,
+    stamp: impl Fn(i64) -> String,
+) -> [(&'static str, String); 2] {
+    [("LOC", stamp(utc + local_off)), ("UTC", stamp(utc))]
 }
 
 /// The find box, under the clock.
@@ -2955,6 +2978,146 @@ fn interact(ui: &egui::Ui, st: &mut SolarUi, resp: &egui::Response) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The clock leads with local time and puts UTC underneath, and the date
+    /// box in the opposite corner reads its zones in the same order.
+    #[test]
+    fn local_time_leads_and_utc_follows() {
+        // 2026-10-12 00:57:59 UTC, two hours east.
+        let utc = 1_791_766_679;
+        let [top, bottom] = clock_rows(utc, 7_200, false);
+        assert_eq!(top, ("LOC", "02:57:59".to_string()), "the large row is the wall clock");
+        assert_eq!(bottom, ("UTC", "00:57:59".to_string()));
+
+        let [top, bottom] = date_rows(utc, 7_200, |u| u.to_string());
+        assert_eq!(top, ("LOC", (utc + 7_200).to_string()));
+        assert_eq!(bottom, ("UTC", utc.to_string()));
+    }
+
+    /// Renders the two time readouts over the sky colour to a PNG, so the
+    /// order and the backdrop can be looked at rather than only asserted:
+    ///
+    /// `TZ=Europe/Paris SDROXIDE_CLOCK_PNG=/tmp/clock.png cargo test -p
+    /// sdroxide-ui --release --lib -- --ignored the_clock_renders`
+    ///
+    /// A small software rasteriser over egui's own tessellation — the panels
+    /// are rectangles, dots and glyphs, so nearest-texel sampling is enough to
+    /// see where the ink lands.
+    #[test]
+    #[ignore = "writes a PNG; run by hand"]
+    fn the_clock_renders() {
+        let Ok(path) = std::env::var("SDROXIDE_CLOCK_PNG") else { return };
+        let (w, h) = (1000usize, 320usize);
+        let ppp = 2.0f32;
+        let view =
+            egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(w as f32 / ppp, h as f32 / ppp));
+        // 2026-10-12 00:57:59 UTC, the instant in the operator's screenshot.
+        let sim_now = 1_791_766_679.0;
+        let ctx = egui::Context::default();
+        let input = egui::RawInput {
+            screen_rect: Some(view),
+            viewports: std::iter::once((
+                egui::ViewportId::ROOT,
+                egui::ViewportInfo { native_pixels_per_point: Some(ppp), ..Default::default() },
+            ))
+            .collect(),
+            ..Default::default()
+        };
+        let mut tex: Option<egui::ColorImage> = None;
+        let mut out = None;
+        // Twice, so the font atlas is settled before the frame that is kept.
+        for _ in 0..2 {
+            let o = ctx.run_ui(input.clone(), |ui| {
+                let sky = super::super::gpu::SKY_SRGB;
+                ui.painter().rect_filled(view, 0, egui::Color32::from_rgb(sky[0], sky[1], sky[2]));
+                assert!(clock(ui, view, sim_now, false).is_some(), "the clock fits");
+                assert!(date_readout(ui, view, sim_now, false).is_some(), "the date fits");
+            });
+            for (id, deltas) in &o.textures_delta.set {
+                if *id != egui::TextureId::default() {
+                    continue;
+                }
+                for delta in deltas {
+                    let egui::ImageData::Color(img) = &delta.image;
+                    match (&mut tex, delta.pos) {
+                        (Some(t), Some([x0, y0])) => {
+                            for y in 0..img.size[1] {
+                                for x in 0..img.size[0] {
+                                    t[(x0 + x, y0 + y)] = img[(x, y)];
+                                }
+                            }
+                        }
+                        _ => tex = Some(egui::ColorImage::clone(img)),
+                    }
+                }
+            }
+            out = Some(o);
+        }
+        let out = out.unwrap();
+        let tex = tex.expect("font atlas");
+        let prims = ctx.tessellate(out.shapes, ppp);
+
+        let mut px = vec![[0f32; 3]; w * h];
+        for prim in prims {
+            let egui::epaint::Primitive::Mesh(mesh) = prim.primitive else { continue };
+            let clip = prim.clip_rect;
+            for tri in mesh.indices.chunks_exact(3) {
+                let v = [0, 1, 2].map(|i| mesh.vertices[tri[i] as usize]);
+                let p = v.map(|v| v.pos.to_vec2() * ppp);
+                let area = (p[1] - p[0]).x * (p[2] - p[0]).y - (p[1] - p[0]).y * (p[2] - p[0]).x;
+                if area.abs() < 1e-6 {
+                    continue;
+                }
+                let lo = p[0].min(p[1]).min(p[2]);
+                let hi = p[0].max(p[1]).max(p[2]);
+                let x0 = (lo.x.floor().max(clip.min.x * ppp)).max(0.0) as usize;
+                let y0 = (lo.y.floor().max(clip.min.y * ppp)).max(0.0) as usize;
+                let x1 = (hi.x.ceil().min(clip.max.x * ppp)).min(w as f32) as usize;
+                let y1 = (hi.y.ceil().min(clip.max.y * ppp)).min(h as f32) as usize;
+                for y in y0..y1 {
+                    for x in x0..x1 {
+                        let q = egui::vec2(x as f32 + 0.5, y as f32 + 0.5);
+                        let e = |a: egui::Vec2, b: egui::Vec2| {
+                            ((b - a).x * (q - a).y - (b - a).y * (q - a).x) / area
+                        };
+                        let (b0, b1, b2) = (e(p[1], p[2]), e(p[2], p[0]), e(p[0], p[1]));
+                        if b0 < 0.0 || b1 < 0.0 || b2 < 0.0 {
+                            continue;
+                        }
+                        let mix = |f: &dyn Fn(&egui::epaint::Vertex) -> f32| {
+                            b0 * f(&v[0]) + b1 * f(&v[1]) + b2 * f(&v[2])
+                        };
+                        let uv = egui::vec2(mix(&|v| v.uv.x), mix(&|v| v.uv.y));
+                        let tx = ((uv.x * tex.size[0] as f32) as usize).min(tex.size[0] - 1);
+                        let ty = ((uv.y * tex.size[1] as f32) as usize).min(tex.size[1] - 1);
+                        let t = tex[(tx, ty)].to_array().map(|c| c as f32 / 255.0);
+                        let c =
+                            [0, 1, 2, 3].map(|i| mix(&|v| v.color.to_array()[i] as f32 / 255.0));
+                        // Premultiplied over, in gamma space — what egui assumes.
+                        let a = c[3] * t[3];
+                        let dst = &mut px[y * w + x];
+                        for i in 0..3 {
+                            dst[i] = c[i] * t[i] + dst[i] * (1.0 - a);
+                        }
+                    }
+                }
+            }
+        }
+        let bytes: Vec<u8> =
+            px.iter().flat_map(|c| c.map(|v| (v.clamp(0.0, 1.0) * 255.0).round() as u8)).collect();
+        image::RgbImage::from_raw(w as u32, h as u32, bytes)
+            .unwrap()
+            .save(&path)
+            .expect("write the PNG");
+    }
+
+    /// Scrubbing the timeline still marks the UTC row as simulated.
+    #[test]
+    fn a_scrubbed_clock_says_so() {
+        let [top, bottom] = clock_rows(0, 3_600, true);
+        assert_eq!(top.0, "LOC");
+        assert_eq!(bottom.0, "-- SIM");
+    }
 
     /// The date box sits in the corner itself, and the award key stacks on top
     /// of whatever it left rather than over it.

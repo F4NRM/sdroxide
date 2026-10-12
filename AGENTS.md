@@ -304,6 +304,15 @@ be locked with no way out. Desktop tier: no padlock. Guard:
 `app::touch_lock_tests` (verified failing with the filter removed: `+ tuned
 through the lock`).
 
+**After an unlock the padlock rests for 10 s** (`RELOCK_PAUSE_S`, Kevin's
+report 2026-10-12: on phone and tablet the 3 s hold unlocked and the same
+finger locked it again before it lifted). The old guard, `spent`, cleared the
+moment the press was no longer seen as down, which a phone's browser can do
+mid-hold; the pause does not depend on how the press is reported. Guard:
+`an_unlock_is_not_undone_by_the_finger_that_made_it`, verified failing on the
+old code with `the padlock locked again under the finger`. A tap during the
+pause says `UNLOCKED · lock in N s` rather than doing nothing silently.
+
 Its partner is **Wake lock** (Settings → UI, under Simple UI,
 `UiSettings::keep_screen_on`, off by default; **in `ClientScreen` since v205**,
 at Kevin's request, so it is remembered with the profile on the server rather

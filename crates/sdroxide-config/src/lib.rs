@@ -2114,6 +2114,20 @@ pub fn save_ais_config(cfg: &sdroxide_types::AisSettings) -> Result<(), ConfigEr
     save_json("ais.json", cfg)
 }
 
+/// The DAB panel's memory: the channels a scan found, the stations on each,
+/// the starred presets and the station chosen. A fact about where the receiver
+/// is, which costs a two-minute sweep to learn again, so it is kept on the
+/// machine running the radio and read back at every start. Kept apart from the
+/// live `RadioState.dab` for the same reason AIS's is: a front end that cannot
+/// feed the lane forces the live one off, and that must not overwrite this.
+pub fn load_dab_config() -> sdroxide_types::DabSettings {
+    load_json::<sdroxide_types::DabSettings>("dab.json")
+}
+
+pub fn save_dab_config(cfg: &sdroxide_types::DabSettings) -> Result<(), ConfigError> {
+    save_json("dab.json", cfg)
+}
+
 pub fn load_vdl2_config() -> sdroxide_types::Vdl2Settings {
     load_json::<sdroxide_types::Vdl2Settings>("vdl2.json").sane()
 }

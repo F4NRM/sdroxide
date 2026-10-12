@@ -20,7 +20,7 @@ use sdroxide_types::{Command, DabService, DabStatus};
 /// sweep's findings straight back over the clearing, is the inert control this
 /// fork keeps having to unpick. Both cases return false, so the chip is simply
 /// not there rather than sitting there doing nothing.
-fn dab_clear_offered(scanning: bool, found_len: usize) -> bool {
+pub(in crate::app) fn dab_clear_offered(scanning: bool, found_len: usize) -> bool {
     !scanning && found_len > 0
 }
 
@@ -29,7 +29,7 @@ fn dab_clear_offered(scanning: bool, found_len: usize) -> bool {
 /// One decimal rounded every block to the nearest 100 kHz, so 8B read `197.6`
 /// where the published frequency — and the one a DAB radio shows — is
 /// 197.648 MHz, and the operator had nothing to check the dial against.
-fn dab_mhz(hz: f64) -> String {
+pub(in crate::app) fn dab_mhz(hz: f64) -> String {
     format!("{:.3}", hz / 1e6)
 }
 
@@ -43,6 +43,73 @@ use crate::theme;
 /// and a row of nothing — the two lists are the whole panel, and they are both
 /// worth more full width than a third of a wide one.
 const DAB_SPLIT_WIDTH: f32 = 560.0;
+
+/// The receiver — the station card, the station list and the VU meter — sits
+/// together on the left and take **at most half** the panel's width, so the
+/// right half stays free. Never narrower than this, though, unless the panel
+/// itself is: four columns in less than this are clipped text.
+const DAB_GROUP_MIN: f32 = 600.0;
+
+/// How the grouped columns are laid out for a panel `width` wide: the group's
+/// width, the VU meter's width, and whether the meter is the compact one.
+///
+/// Half the panel when that holds the full meter. When it does not, the meter
+/// narrows and loses its plate first; only then does the group take more than
+/// half, and never less than [`DAB_GROUP_MIN`] less what the narrow meter saved.
+pub(in crate::app) fn dab_group_layout(width: f32) -> (f32, f32, bool) {
+    use crate::widgets::vu_meter::{WIDTH, WIDTH_COMPACT};
+    let half = width * 0.5;
+    if half >= DAB_GROUP_MIN {
+        (half, WIDTH, false)
+    } else {
+        let floor = (DAB_GROUP_MIN - (WIDTH - WIDTH_COMPACT)).min(width);
+        (half.max(floor), WIDTH_COMPACT, true)
+    }
+}
+
+/// The status describes `channel` — the lane's window sits on that block —
+/// and not the one the lane has just left. A sweep retunes every few seconds
+/// and the first status after a retune is still the old block's, so without
+/// this a station heard on 8A would be remembered on 8B.
+pub(in crate::app) fn dab_status_is_for(st: &DabStatus, channel: &str) -> bool {
+    sdroxide_types::DAB_BAND_III
+        .iter()
+        .find(|(n, _)| *n == channel)
+        .is_some_and(|(_, hz)| (st.window_center_hz - hz).abs() < 1_000.0)
+}
+
+/// The stations the STATIONS column lists for `channel`: the ones the ensemble
+/// is naming now, then the ones remembered from before that it has not named
+/// yet — so a channel picked from the list shows its stations at once. Each
+/// once, by service id.
+pub(in crate::app) fn dab_station_rows(
+    live: &[DabService],
+    remembered: &[sdroxide_types::DabKnownStation],
+    channel: &str,
+    hidden: &[(String, String)],
+    presets: &[sdroxide_types::DabKnownStation],
+) -> Vec<DabService> {
+    let gone = |id: &str| hidden.iter().any(|(c, s)| c == channel && s == id);
+    let mut out: Vec<DabService> = live.iter().filter(|s| !gone(&s.service_id)).cloned().collect();
+    for k in remembered.iter().filter(|k| k.channel == channel) {
+        if !gone(&k.service_id) && !out.iter().any(|s| s.service_id == k.service_id) {
+            out.push(DabService {
+                service_id: k.service_id.clone(),
+                label: k.label.clone(),
+                subchannel: None,
+                bitrate: None,
+                protection: None,
+                pty: None,
+            });
+        }
+    }
+    // The starred stations first, then the rest, each keeping its own order.
+    let starred = |s: &DabService| {
+        presets.iter().any(|k| k.channel == channel && k.service_id == s.service_id)
+    };
+    out.sort_by_key(|s| !starred(s));
+    out
+}
 
 /// The channels the picker offers: what a running scan has found *so far*,
 /// then what is already remembered, and a couple of common blocks before the
@@ -96,12 +163,20 @@ pub(in crate::app) fn dab_focus_service<'a>(
     st.services.iter().find(|s| s.service_id == id)
 }
 
-/// Whether a block is carrying a multiplex, and so worth offering as a channel.
-///
-/// Services are the test, not the ensemble's name. A multiplex whose FIC
-/// carries services but no ensemble label is a station the operator can plainly
-/// see, and a sweep that required a name walked past it — the reported "the scan
-/// found a station on a channel yet did not put the channel in the list".
+/// The stations a sweep has heard on `channel`: the status has to be that
+/// block's — a sweep retunes every few seconds, and a status still describing
+/// the block before would credit its stations to the wrong channel — and it
+/// has to name at least one. An ensemble label with no stations is a block
+/// worth listening to a little longer, not one to offer yet.
+pub(in crate::app) fn dab_scan_heard<'a>(
+    st: &'a DabStatus,
+    channel: &str,
+) -> Option<&'a [DabService]> {
+    (dab_status_is_for(st, channel) && !st.services.is_empty()).then_some(st.services.as_slice())
+}
+
+/// Whether the block carries an ensemble at all, stations named or not: the
+/// sweep then stays a little longer for the FIC to name them.
 pub(in crate::app) fn dab_block_has_multiplex(st: &DabStatus) -> bool {
     st.ensemble.is_some() || !st.services.is_empty()
 }
@@ -188,264 +263,168 @@ impl SdroxideApp {
             egui::Layout::top_down(egui::Align::Min),
             |ui| {
                 if dab_is_split(width) {
-                    ui.columns(3, |cols| {
-                        self.dab_channels(&mut cols[0], cmds, &st, avail_h);
-                        self.dab_services(&mut cols[1], cmds, &st, avail_h);
-                        self.dab_info(&mut cols[2], &st);
-                    });
+                    // Grouped on the left, at most half the panel: CHANNELS,
+                    // STATIONS, STATION INFO and the VU meter, each a fixed
+                    // width, and the right half left free.
+                    self.dab_receiver(ui, cmds, &st, width, avail_h);
                 } else {
                     // Stacked, the two lists share what is left of the panel:
                     // each asking for all of it would put the second one past
                     // the bottom and lose its scrollbar. And the right-hand
-                    // column is dropped rather than given a third of a phone:
-                    // its contents are the service's numbers, which the
-                    // service's own row already carries, so nothing is lost
-                    // but the duplication.
-                    let half = (avail_h / 2.0 - 4.0).max(60.0);
-                    self.dab_channels(ui, cmds, &st, half);
-                    self.dab_services(ui, cmds, &st, half);
+                    // columns are dropped rather than given a sliver of a
+                    // phone: the info is on the service's own row, and a meter
+                    // a finger wide says nothing.
+                    self.dab_receiver_stacked(ui, cmds, &st, width, avail_h);
                 }
             },
         );
     }
 
-    /// Left column: the blocks this scan found, and the sweep that finds them.
-    ///
-    /// `list_h` is the height the list is allowed, so the scroll area is bounded
-    /// by its own rect rather than by whatever height happens to be left over —
-    /// which is what gives it a working scrollbar.
-    fn dab_channels(
+    /// Start the Band III sweep, or stop it where it is and keep what it found.
+    pub(in crate::app) fn dab_toggle_scan(&mut self, cmds: &mut Vec<Command>) {
+        if let Some(scan) = self.dab_scan.take() {
+            // A sweep stopped half way has still learned something, and
+            // discarding it would punish the operator for stopping early.
+            // Keep it and remember it, exactly as finishing does.
+            self.state.dab.apply_scan(scan.at, &scan.found);
+            cmds.push(Command::SetDabConfig(self.state.dab.clone()));
+        } else {
+            self.dab_scan =
+                Some(crate::app::frame::DabScan { at: 0, since: None, found: Vec::new() });
+            // A station cleared with ✕ comes back with the next sweep.
+            self.dab_hidden.clear();
+            // Start the sweep on the first block at once.
+            self.state.dab.channel = sdroxide_types::DAB_BAND_III[0].0.to_string();
+            cmds.push(Command::SetVfo {
+                vfo: self.state.active_vfo,
+                hz: sdroxide_types::DAB_BAND_III[0].1,
+            });
+            cmds.push(Command::SetDabConfig(self.state.dab.clone()));
+        }
+    }
+
+    /// Move the meter on by this frame's time.
+    pub(in crate::app) fn dab_vu_step(&mut self, ui: &egui::Ui, st: &DabStatus) {
+        let now = ui.input(|i| i.time);
+        let dt = self.dab_vu_at.map_or(0.0, |t| (now - t) as f32);
+        self.dab_vu_at = Some(now);
+        // The station as heard: the level the engine measured, brought down by
+        // the volume the operator has it at (a mute is no volume).
+        let rx = &self.state.rx[0];
+        let volume = if rx.muted { 0.0 } else { rx.volume };
+        let input = st
+            .playing
+            .as_ref()
+            .and(st.audio_rms_db)
+            .map(|l| crate::widgets::vu_meter::heard_dbfs(l, volume));
+        self.dab_vu.step(input, dt);
+        if input.is_some() || self.dab_vu.is_live() {
+            // The meter moves between status messages, so it asks for its own
+            // frames while there is anything to move.
+            crate::repaint::after_ms(ui.ctx(), 33);
+        }
+    }
+
+    /// The VU meter column: the station's level as heard, left and right —
+    /// and the volume control, the same volume as the Vol slider.
+    pub(in crate::app) fn dab_vu_meter(
         &mut self,
         ui: &mut egui::Ui,
         cmds: &mut Vec<Command>,
         st: &DabStatus,
-        list_h: f32,
+        avail_h: f32,
+        vu_w: f32,
+        compact: bool,
     ) {
-        ui.label(RichText::new("CHANNELS").size(10.0).color(theme::CYAN_DIM()));
+        self.dab_vu_step(ui, st);
+        let h = avail_h.clamp(160.0, 420.0);
+        let volume = self.state.rx[0].volume;
+        let out = crate::widgets::vu_meter::stereo(
+            ui,
+            &self.dab_vu,
+            egui::vec2(vu_w, h),
+            compact,
+            Some(volume),
+        );
+        self.dab_vu_volume(ui, cmds, out);
+    }
 
-        // The sweep, and a toggle. Sweeping every Band III block is how an
-        // operator learns which carry a transmission where they are; the ones
-        // that do become the list below. While it runs the chip is the way out,
-        // so it has to be live — it used to carry `&& !scanning`, which made a
-        // button reading SCANNING… inert.
-        let scanning = self.dab_scan.is_some();
-        if crate::chrome::chip(ui, scanning, if scanning { "SCANNING…" } else { "SCAN" })
-            .on_hover_text(if scanning {
-                "Stop the sweep here. The channels it has already found stay in the list."
-            } else {
-                "Walk every Band III block and keep the ones that carry an ensemble. \
-                 What is found becomes the list below, and is remembered."
-            })
-            .clicked()
+    /// The meter as a volume control: drag or click along the bars (up, or to
+    /// the right on a phone), the wheel over it, or the arrow keys once it has
+    /// been clicked. Sets the main receiver's volume, the Vol slider's own,
+    /// and keeps working on a screen locked with the padlock — so the sound
+    /// can come down for the adverts without unlocking.
+    pub(in crate::app) fn dab_vu_volume(
+        &mut self,
+        ui: &mut egui::Ui,
+        cmds: &mut Vec<Command>,
+        out: crate::widgets::vu_meter::VuResponse,
+    ) {
+        use crate::widgets::vu_meter::VOLUME_STEP;
+        let resp = &out.response;
+        crate::touch_lock::allow_while_locked(ui.ctx(), resp.rect);
+        let cur = self.state.rx[0].volume;
+        let mut want: Option<f32> = None;
+        if (resp.dragged() || resp.clicked())
+            && let Some(pos) = resp.interact_pointer_pos()
         {
-            if let Some(scan) = self.dab_scan.take() {
-                // A sweep stopped half way has still learned something, and
-                // discarding it would punish the operator for stopping early.
-                // Keep it and remember it, exactly as finishing does.
-                self.state.dab.found = scan.found;
-                cmds.push(Command::SetDabConfig(self.state.dab.clone()));
-            } else {
-                self.dab_scan =
-                    Some(crate::app::frame::DabScan { at: 0, since: None, found: Vec::new() });
-                // Start the sweep on the first block at once.
-                self.state.dab.channel = sdroxide_types::DAB_BAND_III[0].0.to_string();
-                cmds.push(Command::SetVfo {
-                    vfo: self.state.active_vfo,
-                    hz: sdroxide_types::DAB_BAND_III[0].1,
-                });
-                cmds.push(Command::SetDabConfig(self.state.dab.clone()));
+            want = Some(out.volume_at(pos));
+        }
+        if resp.clicked() || resp.drag_started() {
+            resp.request_focus();
+        }
+        if resp.hovered() {
+            let scroll: f32 = ui.input(|i| {
+                i.raw
+                    .events
+                    .iter()
+                    .map(|e| match e {
+                        egui::Event::MouseWheel { delta, .. } => delta.y + delta.x,
+                        _ => 0.0,
+                    })
+                    .sum()
+            });
+            if scroll != 0.0 {
+                want = Some(cur + VOLUME_STEP * scroll.signum());
             }
         }
-
-        // **Clear the list**, asked for on the fork's #18 as "Add clear list".
-        //
-        // The CHANNELS list is what the sweep found and it is *remembered*, so
-        // it only ever grows: every ensemble the receiver has ever come across
-        // stays, with nothing to remove one. That is the right default for a
-        // listener — re-scanning costs minutes — and the wrong one with no way
-        // out, so this is the way out.
-        //
-        // Two rules, both so the chip can never be the inert thing this fork
-        // keeps finding: it is **only offered when there is something to clear**,
-        // and it is **not offered during a sweep**, where stopping would write
-        // the sweep's findings straight back over the clearing. Pressing SCAN
-        // finds them again, which is why this needs no confirmation.
-        if dab_clear_offered(scanning, self.state.dab.found.len())
-            && crate::chrome::chip(ui, false, "CLEAR")
-                .on_hover_text("Forget the channels found so far. SCAN will find them again.")
-                .clicked()
-        {
-            self.state.dab.found.clear();
-            cmds.push(Command::SetDabConfig(self.state.dab.clone()));
-            self.client_settings_status =
-                Some("channel list cleared — SCAN will find them again".into());
+        if resp.has_focus() {
+            // The arrows are the dial's while nothing has focus; once the
+            // meter has it they set the volume instead, and do not move focus.
+            ui.memory_mut(|m| {
+                m.set_focus_lock_filter(
+                    resp.id,
+                    egui::EventFilter {
+                        horizontal_arrows: true,
+                        vertical_arrows: true,
+                        ..Default::default()
+                    },
+                )
+            });
+            let (up, down) = ui.input(|i| {
+                (
+                    i.key_pressed(egui::Key::ArrowUp) || i.key_pressed(egui::Key::ArrowRight),
+                    i.key_pressed(egui::Key::ArrowDown) || i.key_pressed(egui::Key::ArrowLeft),
+                )
+            });
+            if up {
+                want = Some(cur + VOLUME_STEP);
+            } else if down {
+                want = Some(cur - VOLUME_STEP);
+            }
         }
-
-        let channels = dab_channel_choices(
-            &self.state.dab.found,
-            self.dab_scan.as_ref().map(|s| s.found.as_slice()),
+        resp.clone().on_hover_text(
+            "The station as you hear it, left and right — and the volume: drag or \
+             click along the bars, or use the wheel. Click it, then the arrow keys \
+             step it. Works on a screen locked with the padlock.",
         );
-        egui::ScrollArea::vertical()
-            .id_salt("dab_channels_scroll")
-            .auto_shrink([false, false])
-            .max_height(list_h)
-            .min_scrolled_height(list_h)
-            .show(ui, |ui| {
-                for name in &channels {
-                    let here = self.state.dab.channel == *name;
-                    let freq = sdroxide_types::DAB_BAND_III
-                        .iter()
-                        .find(|(n, _)| n == name)
-                        .map(|(_, hz)| *hz);
-                    let label = match freq {
-                        Some(hz) => format!("{name}  {}", dab_mhz(hz)),
-                        None => name.clone(),
-                    };
-                    ui.horizontal(|ui| {
-                        let r = crate::chrome::chip(ui, here, label).on_hover_text(
-                            "Tune this block. A new channel carries a different service \
-                             list, so the station chosen is dropped with it.",
-                        );
-                        if r.clicked() {
-                            // Picking a channel is the operator saying "stop
-                            // here". A sweep left running retunes away on its
-                            // very next tick (~100 ms), so the pick snapped
-                            // straight back and read as a dead control — the one
-                            // thing a channel pick must never do. This was the
-                            // reported bug: no way out of a scan but waiting out
-                            // all 38 blocks.
-                            self.dab_scan = None;
-                            self.state.dab.channel = name.clone();
-                            // The service id belonged to the ensemble being
-                            // left. Carried across it is not a harmless default:
-                            // the receiver holds a request its FIC can never
-                            // resolve, and the channel would sit silent with a
-                            // station lit that does not exist here.
-                            self.state.dab.service_id.clear();
-                            cmds.push(Command::SetDabConfig(self.state.dab.clone()));
-                            // Put the dial on the channel, as the ADS-B lane
-                            // does with 1090 MHz: the decoder is fed from a
-                            // window there, and an operator who picked a channel
-                            // should see the receiver move to it rather than
-                            // have to tune twice.
-                            if let Some(hz) = freq {
-                                cmds.push(Command::SetVfo { vfo: self.state.active_vfo, hz });
-                            }
-                        }
-                    });
-                }
-            });
-
-        // What the receiver is doing, in the column that owns the choice.
-        if let Some(why) = st.degraded.as_ref().filter(|_| st.services.is_empty()) {
-            ui.label(RichText::new(why).color(theme::YELLOW()).size(10.0));
+        if let Some(v) = want {
+            let v = v.clamp(0.0, 1.0);
+            if (v - cur).abs() > 1e-4 {
+                self.state.rx[0].volume = v; // optimistic echo, as the Vol slider does
+                cmds.push(Command::SetVolume { rx: sdroxide_types::RxId::Main, v });
+            }
         }
-    }
-
-    /// Middle column: the ensemble's services, the one playing marked, each a
-    /// press to listen.
-    fn dab_services(
-        &mut self,
-        ui: &mut egui::Ui,
-        cmds: &mut Vec<Command>,
-        st: &DabStatus,
-        list_h: f32,
-    ) {
-        ui.label(RichText::new("STATIONS").size(10.0).color(theme::CYAN_DIM()));
-        if st.services.is_empty() {
-            ui.add_space(2.0);
-            ui.label(
-                RichText::new(if st.unavailable.is_some() {
-                    "the receiver cannot hold a DAB ensemble here"
-                } else {
-                    "nothing decoded yet — the FIC takes a moment after the channel is in tune"
-                })
-                .size(10.0)
-                .weak(),
-            );
-            return;
-        }
-        egui::ScrollArea::vertical()
-            .id_salt("dab_services_scroll")
-            .auto_shrink([false, false])
-            .max_height(list_h)
-            .min_scrolled_height(list_h)
-            .show(ui, |ui| {
-                for s in &st.services {
-                    let playing = st.playing.as_deref() == Some(s.service_id.as_str());
-                    let label = if s.label.trim().is_empty() {
-                        format!("({})", s.service_id)
-                    } else {
-                        s.label.clone()
-                    };
-                    ui.horizontal_wrapped(|ui| {
-                        if crate::chrome::chip(ui, playing, label).clicked() {
-                            self.state.dab.service_id = s.service_id.clone();
-                            cmds.push(Command::SetDabConfig(self.state.dab.clone()));
-                        }
-                    });
-                    ui.label(RichText::new(dab_service_extra(s)).size(9.0).color(theme::gray(140)));
-                }
-            });
-    }
-
-    /// Right column: the chosen station's own numbers, and the decoder's state.
-    ///
-    /// A service list says *what* is on the air and not one of its numbers, so
-    /// the numbers a listener would otherwise have to look up — the programme's
-    /// bitrate, its protection profile, which sub-channel it rides in — are
-    /// given a home of their own instead of being the small grey afterthought
-    /// under a list that is also the only way to play something.
-    fn dab_info(&self, ui: &mut egui::Ui, st: &DabStatus) {
-        ui.label(RichText::new("STATION INFO").size(10.0).color(theme::CYAN_DIM()));
-        let Some(s) = dab_focus_service(st, &self.state.dab.service_id) else {
-            ui.add_space(2.0);
-            ui.label(
-                RichText::new(if st.services.is_empty() {
-                    "no station yet"
-                } else {
-                    "no station chosen — press one in the list"
-                })
-                .size(10.0)
-                .weak(),
-            );
-            return;
-        };
-
-        ui.add_space(2.0);
-        let name =
-            if s.label.trim().is_empty() { format!("({})", s.service_id) } else { s.label.clone() };
-        ui.label(RichText::new(name).strong());
-
-        let playing = st.playing.as_deref() == Some(s.service_id.as_str());
-        ui.label(
-            RichText::new(if playing { "● playing" } else { "chosen" })
-                .size(10.0)
-                .color(if playing { theme::CYAN_DIM() } else { theme::gray(140) }),
-        );
-
-        ui.add_space(4.0);
-        let row = |ui: &mut egui::Ui, k: &str, v: String| {
-            ui.horizontal_wrapped(|ui| {
-                ui.label(RichText::new(format!("{k}:")).size(10.0).color(theme::gray(140)));
-                ui.label(RichText::new(v).size(10.0));
-            });
-        };
-        row(ui, "Service", s.service_id.clone());
-        if let Some(b) = s.bitrate {
-            row(ui, "Bitrate", format!("{b} kbps"));
-        }
-        if let Some(p) = &s.protection {
-            row(ui, "Protection", p.clone());
-        }
-        if let Some(c) = s.subchannel {
-            row(ui, "Sub-channel", c.to_string());
-        }
-        if let Some(e) = &st.ensemble {
-            row(ui, "Ensemble", e.clone());
-        }
-        row(ui, "Channel", self.state.dab.channel.clone());
-        row(ui, "Decoder", format!("{} frames · {} fibs", st.frames, st.fibs));
     }
 }
 
@@ -456,6 +435,40 @@ mod tests {
         dab_service_extra,
     };
     use sdroxide_types::{DabService, DabStatus};
+
+    fn on(block: &str, services: Vec<DabService>) -> DabStatus {
+        let hz = sdroxide_types::DAB_BAND_III.iter().find(|(n, _)| *n == block).unwrap().1;
+        DabStatus { services, window_center_hz: hz, ..Default::default() }
+    }
+
+    /// The sweep credits stations to the block the status is about, and only
+    /// when it names some: a status still describing the previous block, or
+    /// one with no stations yet, puts nothing on the list.
+    #[test]
+    fn a_sweep_credits_stations_only_to_their_own_block() {
+        let st = on("8B", vec![svc("0xF201")]);
+        assert_eq!(super::dab_scan_heard(&st, "8B").map(|s| s.len()), Some(1));
+        assert!(super::dab_scan_heard(&st, "8C").is_none(), "stale status credited to 8C");
+        assert!(super::dab_scan_heard(&on("8B", vec![]), "8B").is_none());
+    }
+
+    /// The starred stations lead the list, and the rest keep their order.
+    #[test]
+    fn the_starred_stations_come_first() {
+        let k = |id: &str| sdroxide_types::DabKnownStation {
+            channel: "8B".into(),
+            service_id: id.into(),
+            label: id.into(),
+        };
+        let live = vec![svc("A"), svc("B"), svc("C"), svc("D")];
+        let rows = super::dab_station_rows(&live, &[], "8B", &[], &[k("C"), k("A")]);
+        let ids: Vec<&str> = rows.iter().map(|s| s.service_id.as_str()).collect();
+        assert_eq!(ids, ["A", "C", "B", "D"]);
+        // A star on another channel's station does not move this one.
+        let other = sdroxide_types::DabKnownStation { channel: "11C".into(), ..k("D") };
+        let rows = super::dab_station_rows(&live, &[], "8B", &[], &[other]);
+        assert_eq!(rows[0].service_id, "A");
+    }
 
     /// Kevin's report: 8B read `197.6` where the block is 197.648 MHz.
     #[test]
@@ -476,6 +489,7 @@ mod tests {
             subchannel: None,
             bitrate: None,
             protection: None,
+            pty: None,
         }
     }
 
@@ -579,6 +593,26 @@ mod tests {
 #[cfg(test)]
 mod clear_list_tests {
     use super::dab_clear_offered;
+
+    /// The receiver takes half the panel when the full meter fits there;
+    /// below that the meter narrows and drops its plate before the group
+    /// grows past half.
+    #[test]
+    fn the_columns_keep_to_half_the_panel_and_the_meter_narrows_first() {
+        use super::dab_group_layout;
+        use crate::widgets::vu_meter::{WIDTH, WIDTH_COMPACT};
+        for w in [1200.0, 1600.0, 1920.0] {
+            let (group, vu, compact) = dab_group_layout(w);
+            assert_eq!(group, w * 0.5, "{w} pt: the group is half the panel");
+            assert_eq!((vu, compact), (WIDTH, false), "{w} pt: the full meter fits");
+        }
+        for w in [700.0, 900.0, 1100.0] {
+            let (group, vu, compact) = dab_group_layout(w);
+            assert_eq!((vu, compact), (WIDTH_COMPACT, true), "{w} pt: the narrow meter");
+            assert!(group <= w, "{w} pt: never wider than the panel");
+        }
+        assert_eq!(dab_group_layout(1100.0).0, 552.0, "the narrow meter's saving is kept");
+    }
 
     /// Kevin's "Add clear list" on the fork's #18. The CHANNELS list is
     /// remembered and only ever grows, so it needs a way out — and the chip must

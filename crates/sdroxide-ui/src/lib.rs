@@ -52,6 +52,8 @@ mod tooltip_copy;
 mod touch_lock;
 mod view;
 mod sound_welcome;
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod test_raster;
 mod wake_lock;
 pub mod waterfall_gpu;
 mod wefax;

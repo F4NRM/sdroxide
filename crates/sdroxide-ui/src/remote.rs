@@ -402,6 +402,7 @@ impl RemoteController {
                 .push_back(RadioEvent::ClientBindings { profile: r.profile, bindings: r.bindings }),
             ServerMsg::KnownCalls(r) => self.pending.push_back(RadioEvent::KnownCalls(r)),
             ServerMsg::Recordings(l) => self.pending.push_back(RadioEvent::Recordings(l)),
+            ServerMsg::DabSlide(s) => self.pending.push_back(RadioEvent::DabSlide(s)),
             ServerMsg::ClientAcks(a) => self.pending.push_back(RadioEvent::ClientAcks(a)),
             // Dropped rather than decoded while another tab holds the page's
             // single output: the work saved is the point on a browser tab
