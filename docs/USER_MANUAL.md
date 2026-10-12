@@ -6243,6 +6243,13 @@ text.
 tune where the station you want says it will be, and leave the audio cursor
 where the signals are — the decoder searches the passband itself.
 
+**Where in the audio it sits.** Like the reference, JTTY is centred at
+**1500 Hz**, its four tones running 1500–1594 Hz — a 127 Hz signal inside a
+normal SSB passband. So in **USB** with the cursor near 1500 Hz it is where you
+would expect; it will not appear at the bottom of the passband, and a receiver
+or filter set to cut below about 1400 Hz will pass the audio but lose the
+signal. This build sends and receives at that centre.
+
 ## 4. Skimmers
 
 The skimmers decode many signals at once across a wide (~192 kHz) window and

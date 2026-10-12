@@ -55,6 +55,14 @@ pub const JTTY_BAUD: f32 = 31.25;
 pub const JTTY_NSPS: usize = 192;
 /// Tone spacing in Hz — equal to the baud rate, as the reference tone grid is.
 pub const JTTY_TONE_SPACING_HZ: f32 = 31.25;
+/// Audio centre of the signal: the **lowest** of the four tones, in Hz.
+///
+/// The reference places JTTY at 1500 Hz, so the four tones run
+/// 1500 / 1531.25 / 1562.5 / 1593.75 Hz — 127 Hz wide in a normal SSB
+/// passband, the same place WSJT-X uses. This is a frequency, **not** the tone
+/// spacing: passing the spacing here put the signal at 31…125 Hz, below the
+/// 100 Hz filter edge, so it could neither be heard nor decoded on the air.
+pub const JTTY_BASE_HZ: f32 = 1500.0;
 /// Symbols per frame: 13 sync + 46 coded.
 pub const JTTY_SYNC_SYMBOLS: usize = 13;
 /// Coded symbols per frame (one per information bit pair).
@@ -1300,7 +1308,11 @@ pub fn synthesize_frame(tones: &[u8], f0: f32) -> Vec<f32> {
 /// The complex analytic signal of a real 6 kHz buffer (positive frequencies
 /// only), the reference's `ana64a`. A Hilbert transform via FFT: zero the
 /// negative-frequency half and double the positive one.
-fn analytic_signal(x: &[f32]) -> Vec<Complex32> {
+///
+/// Public so a caller scanning many candidate frames can compute it once and
+/// hand it to [`find_sync_near_in`] — the FFT is the mode's dominant cost and
+/// is over the whole window.
+pub fn analytic_signal(x: &[f32]) -> Vec<Complex32> {
     use rustfft::FftPlanner;
     let n = x.len().next_power_of_two();
     let mut planner = FftPlanner::<f32>::new();
@@ -1365,10 +1377,10 @@ pub fn find_sync(x: &[f32], ftol: f32) -> Option<JttySync> {
     let nsps = JTTY_NSPS;
     let max_start = x.len() - JTTY_FRAME_SYMBOLS * nsps;
     let step = nsps / 4; // quarter-symbol start granularity
-    // The primary audio base is the tone spacing (so the four tones sit at
-    // 31.25…125 Hz) — the convention the reference's own synthesizer uses.
-    // Sweep a modest window either side.
-    let f0_centre = JTTY_TONE_SPACING_HZ;
+    // The audio base is the signal's centre (1500 Hz), swept either side for
+    // tuning error. The tone *spacing* is not the base: at 31.25 Hz the whole
+    // signal sat below the filter edge.
+    let f0_centre = JTTY_BASE_HZ;
     let f0_step = 5.0f32;
     let f0_lo = (f0_centre - ftol).max(1.0);
     let f0_hi = f0_centre + ftol;
@@ -1441,13 +1453,30 @@ pub fn find_sync_near(
     window: usize,
     min_hits: usize,
 ) -> Option<JttySync> {
+    let c = analytic_signal(x);
+    find_sync_near_in(&c, x.len(), f0, from, window, min_hits)
+}
+
+/// [`find_sync_near`] against an analytic signal the caller already has.
+///
+/// A frame-by-frame scan calls this once per frame found, and the FFT is over
+/// the whole window every time — the dominant cost of the mode. Computing it
+/// once in the caller and passing it here is what keeps a selected JTTY off a
+/// permanently busy core.
+pub fn find_sync_near_in(
+    c: &[Complex32],
+    len: usize,
+    f0: f32,
+    from: usize,
+    window: usize,
+    min_hits: usize,
+) -> Option<JttySync> {
     let nsps = JTTY_NSPS;
     let frame = JTTY_FRAME_SYMBOLS * nsps;
-    if from + frame > x.len() {
+    if from + frame > len {
         return None;
     }
-    let c = analytic_signal(x);
-    let end = (from + window).min(x.len() - frame);
+    let end = (from + window).min(len - frame);
     let tone_ref = tone_references(f0);
     let step = nsps / 8;
     let mut start = from;
@@ -1695,10 +1724,9 @@ mod tests {
         let mut frame_tones = Vec::new();
         frame_tones.extend_from_slice(&JTTY_SYNC);
         frame_tones.extend_from_slice(&coded);
-        // The reference works in a candidate-centred baseband with the lowest
-        // tone at the symbol rate; here synth with f0 at the tone spacing so
-        // the four tones sit at 31.25/62.5/93.75/125 Hz.
-        let audio = synthesize_frame(&frame_tones, JTTY_TONE_SPACING_HZ);
+        // Synthesized at the signal's audio centre, where the reference puts
+        // it, so the four tones sit at 1500/1531.25/1562.5/1593.75 Hz.
+        let audio = synthesize_frame(&frame_tones, JTTY_BASE_HZ);
         // Pad so the sync search has room either side.
         let mut buf = vec![0.0f32; JTTY_NSPS * 4];
         buf.extend_from_slice(&audio);
@@ -1707,10 +1735,74 @@ mod tests {
         assert!(sync.is_some(), "sync not found");
         let sync = sync.unwrap();
         assert!(sync.sync_hits > 6, "only {} sync tones matched", sync.sync_hits);
+        // The base the search settled on is the signal's audio centre, and it
+        // must be one an SSB receiver can pass. This is the assertion that
+        // failed when the tone spacing was used as the base: the round-trip
+        // above still passed, because it searched at whatever it synthesised
+        // at, so a signal at 31…125 Hz read back perfectly and was inaudible.
+        assert!(
+            sync.f0 > 1000.0 && sync.f0 < 2000.0,
+            "JTTY sat at {} Hz, below a passband a receiver can pass",
+            sync.f0
+        );
         // End to end: payload energies -> FEC -> the source bits.
         let energies = payload_energies(&buf, &sync);
         let decoded = decode_tones(&energies, 32, 2).expect("payload decode");
         assert_eq!(decoded.payload, payload, "source bits round-tripped");
+    }
+
+    /// The four tones sit where the reference puts them: at the audio centre
+    /// plus one spacing each, 127 Hz wide inside a normal SSB passband.
+    ///
+    /// A DFT of the synthesized burst is the measurement — it reads the
+    /// frequency that was actually produced rather than the argument that
+    /// was passed in. The frequencies probed are **literal**, not read back
+    /// from `JTTY_BASE_HZ`: a test that asks the constant where the constant
+    /// points answers "yes" whatever the constant is, which is how a signal at
+    /// 31…125 Hz passed a round-trip test in the first place.
+    #[test]
+    fn the_tones_sit_at_the_reference_audio_centre() {
+        // One tone held for many symbols, so its energy dominates the DFT.
+        let tones = vec![0u8; JTTY_SYNC_SYMBOLS + JTTY_CODED_SYMBOLS];
+        let audio = synthesize_frame(&tones, JTTY_BASE_HZ);
+        let power_at = |hz: f32| -> f64 {
+            let w: f64 = std::f64::consts::TAU * hz as f64 / JTTY_RATE;
+            let (mut re, mut im) = (0.0f64, 0.0f64);
+            for (k, &s) in audio.iter().enumerate() {
+                let ph = w * k as f64;
+                re += s as f64 * ph.cos();
+                im += s as f64 * ph.sin();
+            }
+            (re * re + im * im) / audio.len() as f64
+        };
+        // Tone 0 is what we synthesized, so its energy must be at the
+        // reference's 1500 Hz…
+        let at_1500 = power_at(1500.0);
+        // …and must dominate tone 1 at one spacing above it.
+        let at_1531 = power_at(1531.25);
+        // The old mistake put everything down at the spacing itself.
+        let at_31 = power_at(31.25);
+        assert!(
+            at_1500 > at_1531 * 10.0,
+            "tone 0 should dominate tone 1: {} at 1500 Hz vs {} at 1531.25 Hz",
+            at_1500,
+            at_1531
+        );
+        assert!(
+            at_1500 > at_31 * 10.0,
+            "the signal must not live at the tone spacing: {} at 1500 Hz vs {} at 31.25 Hz",
+            at_1500,
+            at_31
+        );
+        // And the four tones stay inside a 127 Hz band about the centre, which
+        // is what the reference's occupied bandwidth says.
+        let top = power_at(1593.75);
+        assert!(
+            at_1500 > top * 10.0,
+            "tone 0 should dominate the highest tone: {} vs {}",
+            at_1500,
+            top
+        );
     }
 
     /// The packer round-trips through our own decoder: a message packs to
