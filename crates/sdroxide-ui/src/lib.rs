@@ -537,15 +537,12 @@ mod v3dv_tests {
     }
 }
 
-<<<<<<< HEAD
 /// The application icon, for [`eframe::egui::ViewportBuilder::with_icon`].
 ///
 /// This is what window managers show in the taskbar/dock and in alt-tab; the
 /// desktop-menu entry gets its icon from the installed hicolor theme instead
 /// (see `packaging/`). Both come from `packaging/icons/sdroxide-brown.svg`.
-#[cfg(not(target_arch = "wasm32"))]
-=======
->>>>>>> 0f149cc6 (Keep the window-title helper out of the native-only block so the web client builds (#664))
+
 /// The main window's title: the program and its version, then what it is
 /// connected to. The version is there so a screenshot says which build it came
 /// from (#664).

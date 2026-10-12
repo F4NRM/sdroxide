@@ -35,6 +35,15 @@ pub enum RotatorTransport {
     /// Yaesu GS-232A/B over a serial port. `Mnnn` (A) or `Mnnn eee` (B) to
     /// point, `C` to read back, `S` to halt.
     Gs232,
+    /// **PSTRotator's own UDP control port**, spoken directly rather than
+    /// through a rotctld daemon (issue #638).
+    ///
+    /// Added to this enum rather than as a separate one beside it: a second
+    /// enum holding the same choice would leave the config with two fields
+    /// answering "how is the antenna reached", and only one of them wired.
+    /// PSTRotator answers commands on `port` and replies on `port + 1`, which
+    /// is why `serial_port` and `baud` are unused here.
+    PsRotator,
 }
 
 impl Default for RotatorTransport {
@@ -93,6 +102,39 @@ pub struct RotatorConfig {
     pub min_move_deg: f64,
     /// Where to point when idle — `None` leaves the rotator wherever it was.
     pub park: Option<(f64, f64)>,
+    /// Which program is at `host:port`. Appended last: this rides the remote
+    /// link positionally. `Rotctld` in a `rotator.json` written before it.
+    pub protocol: RotatorProtocol,
+}
+
+/// The rotator program sdroxide talks to.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum RotatorProtocol {
+    /// Hamlib `rotctld`, over TCP.
+    #[default]
+    Rotctld,
+    /// PSTRotator (YO3DMU), over its UDP control port. It answers position
+    /// queries on that port plus one.
+    PstRotator,
+}
+
+impl RotatorProtocol {
+    pub const ALL: [RotatorProtocol; 2] = [RotatorProtocol::Rotctld, RotatorProtocol::PstRotator];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            RotatorProtocol::Rotctld => "Hamlib rotctld (TCP)",
+            RotatorProtocol::PstRotator => "PSTRotator (UDP)",
+        }
+    }
+
+    /// The port each program listens on out of the box.
+    pub fn default_port(self) -> u16 {
+        match self {
+            RotatorProtocol::Rotctld => 4533,
+            RotatorProtocol::PstRotator => 12000,
+        }
+    }
 }
 
 impl Default for RotatorConfig {
@@ -108,6 +150,7 @@ impl Default for RotatorConfig {
             az_offset_deg: 0.0,
             min_move_deg: 1.0,
             park: None,
+            protocol: RotatorProtocol::Rotctld,
         }
     }
 }

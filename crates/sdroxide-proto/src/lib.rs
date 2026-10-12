@@ -1836,8 +1836,12 @@ use sdroxide_types::{
 /// gains `spectrum_fill_style: SpectrumFillStyle` (Fixed / Gradient / Mixed)
 /// at its tail. `PROTO_VERSION` 209 → 210, `VERSION_BYTE` 0x1D → 0x1E. A
 /// downstream (fork) change.
-pub const PROTO_VERSION: u16 = 210;
-const VERSION_BYTE: u8 = 0x1E;
+/// v211: [`sdroxide_types::RotatorConfig`] gains `RotatorTransport::PsRotator`
+/// — PSTRotator's own UDP control port, as an arm on the transport enum this
+/// fork already has rather than a second enum beside it (issue #638). Appended
+/// as a variant, so a v210 peer reads the discriminant it knows.
+pub const PROTO_VERSION: u16 = 211;
+const VERSION_BYTE: u8 = 0x1F;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ProtoError {
@@ -2970,6 +2974,31 @@ mod tests {
         let back: ClientMsg = decode(&encode(&cmd).unwrap()).unwrap();
         assert_eq!(back, cmd);
         let cmd = ClientMsg::Command(Command::RefreshTleSubs);
+        let back: ClientMsg = decode(&encode(&cmd).unwrap()).unwrap();
+        assert_eq!(back, cmd);
+    }
+
+    /// The rotator's program choice (#638) survives the wire, both ways, with
+    /// the park position before it off its default.
+    #[test]
+    fn roundtrip_rotator_config() {
+        use sdroxide_types::{RotatorConfig, RotatorTransport, StationConfig};
+
+        let rotator = RotatorConfig {
+            enabled: true,
+            host: "shack-pc".into(),
+            port: 12000,
+            park: Some((180.0, 10.0)),
+            transport: RotatorTransport::PsRotator,
+            ..RotatorConfig::default()
+        };
+        let m = ServerMsg::StationConfig(Box::new(StationConfig {
+            rotator: rotator.clone(),
+            ..no_station()
+        }));
+        let back: ServerMsg = decode(&encode(&m).unwrap()).unwrap();
+        assert_eq!(back, m);
+        let cmd = ClientMsg::Command(Command::SetRotatorConfig(rotator));
         let back: ClientMsg = decode(&encode(&cmd).unwrap()).unwrap();
         assert_eq!(back, cmd);
     }

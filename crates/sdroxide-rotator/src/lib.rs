@@ -155,7 +155,12 @@ trait Transport: Send {
     fn point(&mut self, cfg: &RotatorConfig, az: f64, el: f64) -> Result<(), String>;
     fn park(&mut self, cfg: &RotatorConfig) -> Result<(), String>;
     fn stop(&mut self) -> Result<(), String>;
-    fn position(&mut self) -> Result<(f64, f64), String>;
+    /// `Ok(None)` is "no reading right now", which is not the same as a
+    /// failure — and PSTRotator needs the distinction to exist at all: it stays
+    /// silent while no controller is connected, yet still accepts a pointing
+    /// command. Dropping the connection on a quiet answer would stop the
+    /// antenna being driven by the one transport that is working.
+    fn position(&mut self) -> Result<Option<(f64, f64)>, String>;
 }
 
 /// Open whichever transport the config asks for.
@@ -165,6 +170,10 @@ fn open_transport(cfg: &RotatorConfig) -> Result<Box<dyn Transport>, String> {
         RotatorTransport::EasyComm2 | RotatorTransport::Gs232 => {
             Ok(Box::new(SerialTransport::open(cfg)?))
         }
+        RotatorTransport::PsRotator => Ok(Box::new(PstLink::open(
+            cfg,
+            cfg.port.wrapping_add(1),
+        )?)),
     }
 }
 
@@ -269,11 +278,25 @@ fn worker(cfg: RotatorConfig, rx: Receiver<RotCmd>, status: Arc<Mutex<RotStatus>
         .and_then(|()| {
             if Instant::now() >= next_poll {
                 next_poll = Instant::now() + POSITION_POLL;
-                let (az, el) = c.position()?;
-                set(&status, |s| {
-                    s.az_deg = az;
-                    s.el_deg = el;
-                });
+                match c.position()? {
+                    Some((az, el)) => set(&status, |s| {
+                        s.connected = true;
+                        s.error = None;
+                        s.az_deg = az;
+                        s.el_deg = el;
+                    }),
+                    // A UDP program that has not answered: say so, but keep
+                    // sending — PSTRotator stays quiet while it has no
+                    // controller connected, and pointing still reaches it.
+                    None => set(&status, |s| {
+                        s.connected = false;
+                        s.error = Some(format!(
+                            "no answer from PSTRotator on UDP port {} — is UDP Control \
+                             enabled in its Setup?",
+                            cfg.port.wrapping_add(1)
+                        ));
+                    }),
+                }
             }
             Ok(())
         });
@@ -392,7 +415,7 @@ impl Transport for RotctldTransport {
 
     /// `p` — where the daemon says the antenna is. Two bare lines on success;
     /// an `RPRT -n` in their place on failure.
-    fn position(&mut self) -> Result<(f64, f64), String> {
+    fn position(&mut self) -> Result<Option<(f64, f64)>, String> {
         self.send_line("p\n")?;
         let first = self.read_line()?;
         let t = first.trim().to_string();
@@ -403,7 +426,7 @@ impl Transport for RotctldTransport {
         let second = self.read_line()?;
         let t = second.trim();
         let el: f64 = t.parse().map_err(|_| format!("unparseable elevation {t:?}"))?;
-        Ok((az, el))
+        Ok(Some((az, el)))
     }
 }
 
@@ -503,7 +526,9 @@ impl SerialTransport {
         let proto = match cfg.transport {
             RotatorTransport::EasyComm2 => SerialProtocol::EasyComm2,
             RotatorTransport::Gs232 => SerialProtocol::Gs232,
-            RotatorTransport::Rotctld => return Err("not a serial transport".into()),
+            RotatorTransport::Rotctld | RotatorTransport::PsRotator => {
+                return Err("not a serial transport".into())
+            }
         };
         if cfg.serial_port.trim().is_empty() {
             return Err("no serial port set for the rotator".into());
@@ -581,10 +606,10 @@ impl Transport for SerialTransport {
         self.write(cmd.as_bytes())
     }
 
-    fn position(&mut self) -> Result<(f64, f64), String> {
+    fn position(&mut self) -> Result<Option<(f64, f64)>, String> {
         let q = self.proto.position_query();
         self.write(q.as_bytes())?;
-        self.read_position()
+        self.read_position().map(Some)
     }
 }
 
@@ -784,5 +809,145 @@ mod tests {
         // A partial reply — only the azimuth has arrived — waits for more.
         assert_eq!(SerialProtocol::EasyComm2.parse_position("AZ120.0 "), None);
         assert_eq!(SerialProtocol::EasyComm2.parse_position("garbage"), None);
+    }
+}
+
+/// PSTRotator's UDP control (#638), from its manual: each datagram is one
+/// command wrapped in `<PST>…</PST>` — `<AZIMUTH>n</AZIMUTH>`,
+/// `<ELEVATION>n</ELEVATION>`, `<STOP>1</STOP>`, `<TRACK>0</TRACK>` — sent to
+/// its control port; the queries `AZ?` and `EL?` are answered `AZ:n` / `EL:n`
+/// on that port plus one.
+struct PstLink {
+    sock: std::net::UdpSocket,
+    to: std::net::SocketAddr,
+    /// Whether PSTRotator has been taken out of its own tracking yet.
+    took_over: bool,
+    /// The last position it reported.
+    az: f64,
+    el: f64,
+}
+
+impl PstLink {
+    fn open(cfg: &RotatorConfig, reply_port: u16) -> Result<PstLink, String> {
+        use std::net::ToSocketAddrs;
+        let addr = cfg.address();
+        let to = addr
+            .to_socket_addrs()
+            .map_err(|e| format!("{addr}: {e}"))?
+            .next()
+            .ok_or_else(|| format!("{addr}: no address"))?;
+        let sock = std::net::UdpSocket::bind(("0.0.0.0", reply_port))
+            .map_err(|e| format!("listening for PSTRotator on UDP {reply_port}: {e}"))?;
+        let _ = sock.set_read_timeout(Some(Duration::from_millis(200)));
+        Ok(PstLink { sock, to, took_over: false, az: 0.0, el: 0.0 })
+    }
+
+    fn send(&self, body: &str) -> Result<(), String> {
+        self.sock
+            .send_to(format!("<PST>{body}</PST>").as_bytes(), self.to)
+            .map(|_| ())
+            .map_err(|e| format!("PSTRotator {}: {e}", self.to))
+    }
+
+    fn goto(&mut self, az: f64, el: f64) -> Result<(), String> {
+        // Its own tracking would fight ours: hand control over once.
+        if !self.took_over {
+            self.send("<TRACK>0</TRACK>")?;
+            self.took_over = true;
+        }
+        self.send(&format!("<AZIMUTH>{az:.1}</AZIMUTH>"))?;
+        self.send(&format!("<ELEVATION>{el:.1}</ELEVATION>"))
+    }
+
+    fn stop(&mut self) -> Result<(), String> {
+        // Twice: a single STOP is known to be missed now and then.
+        self.send("<STOP>1</STOP>")?;
+        self.send("<STOP>1</STOP>")
+    }
+
+    fn position(&mut self) -> Result<Option<(f64, f64)>, String> {
+        self.send("AZ?")?;
+        self.send("EL?")?;
+        let (mut got_az, mut got_el) = (false, false);
+        let mut buf = [0u8; 512];
+        let deadline = Instant::now() + Duration::from_millis(400);
+        while !(got_az && got_el) && Instant::now() < deadline {
+            let Ok((n, _)) = self.sock.recv_from(&mut buf) else { continue };
+            for line in String::from_utf8_lossy(&buf[..n]).split(['\r', '\n']) {
+                let line = line.trim();
+                if let Some(v) = line.strip_prefix("AZ:").and_then(|v| v.trim().parse().ok()) {
+                    self.az = v;
+                    got_az = true;
+                } else if let Some(v) = line.strip_prefix("EL:").and_then(|v| v.trim().parse().ok())
+                {
+                    self.el = v;
+                    got_el = true;
+                }
+            }
+        }
+        // Answered this time or not: a program that has gone quiet should read
+        // as quiet, not as the last place it said the antenna was.
+        Ok(got_az.then_some((self.az, self.el)))
+    }
+}
+
+/// PSTRotator speaks the engine-side interface through `goto`/`position`;
+/// these four names are the engine-side view of the same four, so the worker
+/// above cannot tell which transport it holds — which is the whole reason the
+/// trait exists at all.
+impl Transport for PstLink {
+    fn point(&mut self, _cfg: &RotatorConfig, az: f64, el: f64) -> Result<(), String> {
+        self.goto(az, el)
+    }
+
+    fn park(&mut self, _cfg: &RotatorConfig) -> Result<(), String> {
+        self.goto(0.0, 0.0)
+    }
+
+    fn stop(&mut self) -> Result<(), String> {
+        PstLink::stop(self)
+    }
+
+    fn position(&mut self) -> Result<Option<(f64, f64)>, String> {
+        PstLink::position(self)
+    }
+}
+
+#[cfg(test)]
+mod pst_tests {
+    use super::*;
+
+    /// **PSTRotator is reachable through the transport this fork already has.**
+    ///
+    /// Upstream added this as a separate `RotatorProtocol` enum beside the
+    /// transport choice, which would have left `RotatorConfig` with two fields
+    /// both answering "how is the antenna reached" and only one of them wired.
+    /// It is an arm on `RotatorTransport` here instead, so a config picks one
+    /// thing and there is one place that reads it.
+    #[test]
+    fn psrotator_is_a_transport_and_not_a_second_enum() {
+        let cfg = RotatorConfig { transport: RotatorTransport::PsRotator, ..Default::default() };
+        // Opening asks the UDP port for its reply half; a failure here is the
+        // port being taken, not the wiring being wrong — so assert the shape.
+        assert_eq!(cfg.transport, RotatorTransport::PsRotator);
+        assert_ne!(
+            cfg.transport,
+            RotatorConfig::default().transport,
+            "the default must stay rotctld, so nothing changes for an existing station"
+        );
+    }
+
+    /// The three transports this fork had before must all still be there.
+    #[test]
+    fn the_transports_we_already_had_are_untouched() {
+        let had = [
+            RotatorTransport::Rotctld,
+            RotatorTransport::EasyComm2,
+            RotatorTransport::Gs232,
+        ];
+        for t in had {
+            assert_ne!(t, RotatorTransport::PsRotator);
+        }
+        assert_eq!(RotatorTransport::default(), RotatorTransport::Rotctld);
     }
 }

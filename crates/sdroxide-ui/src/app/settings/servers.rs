@@ -315,11 +315,13 @@ pub(in crate::app) fn settings_rotator_tab(
                     T::Rotctld => "Hamlib rotctld (TCP)",
                     T::EasyComm2 => "EasyComm II (serial)",
                     T::Gs232 => "Yaesu GS-232 (serial)",
+                    T::PsRotator => "PSTRotator (UDP)",
                 })
                 .show_ui(ui, |ui| {
                     ui.selectable_value(&mut cfg.transport, T::Rotctld, "Hamlib rotctld (TCP)");
                     ui.selectable_value(&mut cfg.transport, T::EasyComm2, "EasyComm II (serial)");
                     ui.selectable_value(&mut cfg.transport, T::Gs232, "Yaesu GS-232 (serial)");
+                    ui.selectable_value(&mut cfg.transport, T::PsRotator, "PSTRotator (UDP)");
                 });
             ui.end_row();
 
@@ -353,6 +355,16 @@ pub(in crate::app) fn settings_rotator_tab(
                     ui.add(egui::DragValue::new(&mut cfg.baud).range(1200..=115200))
                         .on_hover_text("Most controllers run at 9600");
                     ui.end_row();
+                }
+                T::PsRotator => {
+                    // PSTRotator takes commands on the port and answers on
+                    // port + 1, so the host and port row above is the whole of
+                    // it — no serial port, no baud.
+                    ui.label("");
+                    ui.label(
+                        "PSTRotator's own UDP port. In its Setup, turn UDP Control on; \
+                         it answers commands on this port and replies on the next one.",
+                    );
                 }
             }
 

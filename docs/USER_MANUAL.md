@@ -2506,6 +2506,15 @@ You can also point the beam from where you are working. On the FT8/FT4 map a
 the station card) aims it at the station's locator. Both need a rotator
 configured and your grid locator set.
 
+**PSTRotator** works too: choose it under **Program**, with the host it runs
+on and its UDP control port (12000 unless you changed it). In PSTRotator, turn
+on **UDP Control** in Setup. sdroxide takes over from PSTRotator's own tracking
+when it starts pointing, and asks where the antenna is once a second; PSTRotator
+answers on the next port up (12001), which must be free on the machine
+sdroxide runs on. Until it answers the status line says so — PSTRotator stays
+silent while it has no controller connected — but the pointing commands still
+go out.
+
 ### 2.17 Running more than one radio
 
 SDR Oxide can run several radios at once — an HF transceiver and a VHF dongle,
