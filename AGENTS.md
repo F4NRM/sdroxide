@@ -2648,12 +2648,16 @@ merged code still calls everything `sdroxide`.
 
 - `dividebysandwich/sdroxide` is the original. Fetch and merge rather than
   cherry-pick where possible, so the history stays recognisable.
-- **The fork is first; upstream is a courtesy, and only when asked** (operator,
-  2026-10-09). Upstream has fallen too far behind to be the trunk we build on,
-  so new work is built here, on this fork, and shipped here. **Do not open an
-  upstream PR unless the operator asks for one** — when he does it is goodwill,
-  never the reason for a decision, and the "split before opening / lead with the
-  evidence" rules just below still apply.
+- **The fork is first; upstream is a courtesy — and work that came from an
+  upstream issue is offered back** (operator, 2026-10-09; amended 2026-10-12).
+  Upstream has fallen too far behind to be the trunk we build on, so new work is
+  built here, on this fork, and shipped here. **If the change is derived from an
+  upstream issue — a fix or a feature someone asked for there — open an upstream
+  PR for it too**: a branch of its own off `upstream/main`, one idea per PR,
+  clean and mergeable. A change that is purely the fork's own (a CB/SWL feature
+  upstream has no interest in) stays in the fork. When an upstream PR *is*
+  opened it is goodwill, never the reason for a decision, and the "split before
+  opening / lead with the evidence" rules just below still apply.
 - **Merging upstream *into* the fork is separate, and still happens.** The
   operator fetches and merges `upstream/main` to pick up its fixes (its
   2026-10-08 burst is a good example — #640, #615, #600, #635, #622, #646,
