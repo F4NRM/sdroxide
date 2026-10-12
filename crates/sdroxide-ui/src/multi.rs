@@ -954,8 +954,7 @@ impl MultiApp {
                     // link now, and on/off is left to PWR, which really does
                     // throw the set's own switch.
                     if Self::switchable(tab) && tab.attached_to.is_none() {
-                        let power =
-                            crate::chrome::chip(ui, tab.enabled, RichText::new("LINK").size(11.0));
+                        let power = crate::chrome::chip_power_link(ui, tab.enabled, 11.0);
                         let tip = if tab.enabled {
                             crate::chrome::LINK_CLOSE_TIP
                         } else {

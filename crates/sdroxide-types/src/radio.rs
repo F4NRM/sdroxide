@@ -7627,6 +7627,10 @@ pub struct RadioConfig {
     /// Capped at [`AUTO_IDLE_STOP_MAX_MIN`](crate::auto::AUTO_IDLE_STOP_MAX_MIN)
     /// (45): auto mode is for a bathroom break, not for leaving a station to
     /// work a contest unattended, and the cap is where that line is drawn.
+    /// A PlutoSDR is the exception
+    /// ([`has_long_idle_stop`](crate::auto::has_long_idle_stop)): it offers up
+    /// to six hours, and
+    /// [`AUTO_IDLE_STOP_NEVER`](crate::auto::AUTO_IDLE_STOP_NEVER) for no stop.
     /// Appended last, as the wire requires.
     #[serde(default)]
     pub auto_idle_stop_min: u32,
