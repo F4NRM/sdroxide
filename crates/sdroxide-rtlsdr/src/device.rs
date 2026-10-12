@@ -236,6 +236,7 @@ impl Device {
 
     /// Tune. Handles the switch between the tuner and direct sampling.
     pub fn set_center(&mut self, hz: f64) -> Result<()> {
+        check_tunable_hz(hz)?;
         self.center = hz;
         self.apply_hf_path(hz)?;
 
@@ -249,6 +250,25 @@ impl Device {
         Ok(())
     }
 
+    /// Refuse a centre the tuner cannot reach, and say why.
+    ///
+    /// A frequency well above [`TUNER_MAX_HZ`] is not a mistyped number the
+    /// operator can be blamed for: it is what happens when an **I.F. offset is
+    /// stored as if it were a tune frequency**. QO-100's beacon-stabilisation
+    /// plugin writes offsets near −9750 MHz into Settings → Radio, and a saved
+    /// session carrying one was restored as the start frequency, so the dongle
+    /// was asked to tune to 6 GHz and simply refused to open — with no message
+    /// naming the frequency or the limit (issue #72).
+    ///
+    /// The PLL cannot reach it, so `set_freq` would fail with `PllUnlocked`,
+    /// which reads as a fault in the hardware rather than a number that is
+    /// wrong on its face. Saying it plainly costs one comparison and turns an
+    /// unopenable tuner into a sentence the operator can act on.
+    ///
+    /// Only the tuner path is checked. In direct sampling the DDC does the
+    /// tuning and the ADC covers 0–66 MHz, which is above [`TUNER_MIN_HZ`] and
+    /// well below this ceiling, so the check can only ever be wrong in the
+    /// tuner's favour.
     /// Decide whether this frequency needs the direct-sampling path, and
     /// switch if so.
     ///
@@ -390,9 +410,117 @@ fn direct_sampling_for(hz: f64, mode: RtlSdrHfMode, current: DirectSampling) -> 
     }
 }
 
+/// Refuse a centre the tuner cannot reach, and say why.
+///
+/// A frequency well above [`TUNER_MAX_HZ`] is not a mistyped number the operator
+/// can be blamed for: it is what happens when an **I.F. offset is stored as if it
+/// were a tune frequency**. QO-100's beacon-stabilisation plugin writes offsets
+/// near −9750 MHz into Settings → Radio, and a saved session carrying one was
+/// restored as the start frequency, so the dongle was asked to tune to 6 GHz and
+/// simply refused to open — with no message naming the frequency or the limit
+/// (issue #72).
+///
+/// The PLL cannot reach it, so `set_freq` would fail with `PllUnlocked`, which
+/// reads as a fault in the hardware rather than a number that is wrong on its
+/// face. Saying it plainly costs one comparison and turns an unopenable tuner
+/// into a sentence the operator can act on.
+///
+/// Only the tuner path is checked. In direct sampling the DDC does the tuning and
+/// the ADC covers 0–66 MHz, which is above [`TUNER_MIN_HZ`] and well below this
+/// ceiling, so the check can only ever be wrong in the tuner's favour.
+///
+/// A non-finite centre passes: it is a corrupt session rather than an unreachable
+/// frequency, and saying "out of range" about a NaN would be a lie.
+fn check_tunable_hz(hz: f64) -> Result<()> {
+    if hz.is_finite() && hz > TUNER_MAX_HZ {
+        return Err(Error::OutOfRange(format!(
+            "{} MHz is above this RTL-SDR's tuner range, which ends at {:.0} MHz. \
+             An I.F. offset saved as a start frequency lands here — clear the start \
+             frequency and tune the band you want instead.",
+            hz / 1e6,
+            TUNER_MAX_HZ / 1e6
+        )));
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The reporter's case (issue #72): a QO-100 I.F. offset near −9750 MHz was
+    /// saved as the start frequency, so the dongle was asked to tune to 6 GHz.
+    /// `check_tunable_hz` refuses it with a sentence naming the limit, rather than
+    /// letting the PLL fail with a message that reads as a hardware fault.
+    #[test]
+    fn a_start_frequency_above_the_tuner_range_is_refused_by_name() {
+        // The limit is the only thing the check knows, so this exercises the
+        // boundary rather than a magic number.
+        let over = TUNER_MAX_HZ * 3.4; // ~6 GHz, as reported
+        let err = check_tunable_hz(over).expect_err("6 GHz must be refused");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("above") && msg.contains("I.F. offset"),
+            "the sentence must name the limit and the cause: {msg}"
+        );
+        assert!(
+            msg.contains(&format!("{:.0}", TUNER_MAX_HZ / 1e6)),
+            "the sentence must name the tuner's own ceiling in MHz: {msg}"
+        );
+    }
+
+    /// The check must not get in the way of the frequencies this driver exists
+    /// to work: everything up to and including the tuner's ceiling passes, and
+    /// so does the boundary itself.
+    #[test]
+    fn frequencies_the_tuner_can_reach_are_untouched() {
+        for hz in [0.0, 1.0, TUNER_MIN_HZ, 28.0e6, 100.0e6, 1_090_000_000.0, TUNER_MAX_HZ] {
+            assert!(
+                check_tunable_hz(hz).is_ok(),
+                "{hz} Hz is within the tuner's reach and must pass"
+            );
+        }
+    }
+
+    /// Just over the ceiling is refused, and exactly at it is not — the boundary
+    /// is where an off-by-one would hide.
+    #[test]
+    fn the_ceiling_itself_is_inclusive() {
+        assert!(check_tunable_hz(TUNER_MAX_HZ).is_ok());
+        assert!(check_tunable_hz(TUNER_MAX_HZ + 1.0).is_err());
+    }
+
+    /// `set_center` must consult the check, not merely sit beside it.
+    ///
+    /// `check_tunable_hz` is a free function and its own tests pass whatever
+    /// `set_center` does — which is exactly how a guard can exist, be tested,
+    /// and still never run. `set_center` needs real hardware to call, so this
+    /// asserts the call is *there* in the source: a test that reads its own
+    /// crate is not a substitute for a unit test, but a refactor that unhooks
+    /// the guard is invisible otherwise, and the cost of the fault is an
+    /// unopenable dongle.
+    #[test]
+    fn set_center_consults_the_range_check_before_touching_the_hardware() {
+        let src = include_str!("device.rs");
+        let body = src
+            .split("pub fn set_center(&mut self, hz: f64) -> Result<()> {")
+            .nth(1)
+            .expect("set_center exists");
+        let first_stmt = body.lines().find(|l| !l.trim().is_empty()).unwrap_or_default();
+        assert!(
+            first_stmt.contains("check_tunable_hz"),
+            "set_center must check the range before it programs the tuner; it starts with \
+             `{first_stmt}`"
+        );
+    }
+
+    /// A non-finite centre is the session's problem, not the tuner's, and must
+    /// not be reported as an unreachable frequency.
+    #[test]
+    fn a_non_finite_centre_is_not_claimed_to_be_out_of_range() {
+        assert!(check_tunable_hz(f64::NAN).is_ok());
+        assert!(check_tunable_hz(f64::INFINITY).is_ok());
+    }
 
     /// The bands this exists for. 17 m and 15 m are below the tuner's floor and
     /// above the ADC's Nyquist limit, so direct sampling's second zone is the
