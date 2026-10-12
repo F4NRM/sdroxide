@@ -28,6 +28,8 @@ and the [README](https://github.com/madmedicnl/sdroxide-brown#readme).
   station are kept on the server and survive a restart.
 - **DAB "playing" and the level** — the engine never said which station was
   playing; the panel now shows it.
+- **DAB VU meter no longer pinned at the top** — it reads the station as heard:
+  it follows the volume, and 0 VU is set for loud DAB+ stations (−12 dBFS).
 - **SSTV decodes weak pictures** — a faint picture a phone could copy stayed on
   "no SSTV header yet". The header and sync pulses are now found by tone energy
   instead of one noisy frequency reading: header read down to about −3 dB SNR
@@ -41,6 +43,11 @@ and the [README](https://github.com/madmedicnl/sdroxide-brown#readme).
   signal.
 - **DAB scan** — progress bar; keeps only channels that carry stations and
   remembers those stations as it goes. × clears one channel or one station.
+- **The DAB VU meter is the volume** — drag or click along it (sideways on a
+  phone), the wheel, or the arrow keys once clicked. It still works on a screen
+  locked with the padlock, so the sound can come down without unlocking. It
+  moves quicker; the peak keeps its hold.
+- **"Channel received 8D 201.072"** in the DAB channel picker.
 
 ### Changed
 - **Auto mode on a PlutoSDR can run longer** — Settings → Radio → Auto mode is a
