@@ -1693,7 +1693,7 @@ impl SdroxideApp {
                 center_on_cursor: self.ui_settings.cw_qrg,
             })
         } else if mode.has_bottom_panel() {
-            // **SSTV on a demod-audio front end.** Its view is anchored on the
+            // **SSTV.** Its view is anchored on the
             // picture rather than on the tone it happens to be carrying, and CTR
             // has to centre on that anchor — with the dial as the anchor it
             // dragged the window back to the carrier every frame, which is
@@ -1701,7 +1701,11 @@ impl SdroxideApp {
             // The picture's centre is the band's 1750 Hz, signed by the side the
             // mode rides (SSTV is LSB on 160/80/40 m), and it is a *view* anchor
             // only: the logged frequency stays the dial.
-            let sstv_picture = self.caps.as_ref().is_some_and(|c| c.audio_mode) && mode.is_sstv();
+            //
+            // Every front end, SDRs included (2026-10-12): on a HackRF the dial
+            // sits on the calling frequency and the picture 1750 Hz beside it,
+            // exactly as on a sound-card rig — see `focus_hz`.
+            let sstv_picture = mode.is_sstv();
             // The same split, for the same reason, one mode over: the tone pair
             // is *only* off the dial on a front end that hands over demodulated
             // audio. On an SDR the dial is on the station — RTTY's own docs say
@@ -2748,6 +2752,11 @@ impl SdroxideApp {
                         // controller start unheld (issue #322).
                         self.cw_straight = false;
                         self.cw_key_down = false;
+                        // Entering SSTV opens the view on the picture (and
+                        // only entering it: the zoom is the operator's after).
+                        if self.state.rx[0].mode.is_sstv() && !prev_mode.is_sstv() {
+                            self.fit_sstv_view();
+                        }
                     } else if qsy_clears_decodes(prev_band, self.state.band, self.state.rx[0].mode)
                     {
                         self.clear_digi_band_rx();
