@@ -215,32 +215,30 @@ pub fn set_tier(ctx: &egui::Context, tier: Tier) {
     ctx.data_mut(|d| d.insert_temp(tier_id(), tier));
 }
 
-/// The narrowest window that can afford a spectrum strip beside the waterfall.
-/// Below it the waterfall takes the whole height.
-const SPECTRUM_MIN_W: f32 = 600.0;
+/// The narrowest window that can afford the full-band strip above the
+/// panadapter.
+const WIDE_STRIP_MIN_W: f32 = 600.0;
 
-/// Whether the panadapter should draw the waterfall alone.
+/// A phone held upright: too narrow for the full-band strip above the
+/// panadapter, which would take a quarter of the height for a band view
+/// nothing is tuned to.
 ///
-/// **A question about the window's *width*, not about the tier** — and that is
-/// the fix. It used to be `Tier::Phone`, which is right about a phone held
-/// upright and wrong about one held sideways: the reason for the waterfall-only
-/// default is that a spectrum strip on a very narrow window costs the waterfall
-/// a third of its height for a trace too thin to read, and a phone in landscape
-/// is **852 pt wide**, where that reason does not apply at all. `tier_for`
-/// already classifies 852x393 as `Phone` — correctly, it *is* a phone — so the
-/// tier alone cannot tell the two apart. The size can.
+/// It used to decide the panadapter's layers too — a narrow phone drew the
+/// waterfall alone and set the operator's spectrum switch aside. It no longer
+/// does (operator's report, 2026-10-12): the WFALL tab has the whole screen
+/// below the readout, which is room for a spectrum, and a phone now draws the
+/// spectrum and the waterfall like every other window, set from the SPEC
+/// popup like every other window.
 ///
-/// Read from the window rather than the tier, so it follows a rotation: a phone
-/// turned sideways gets the split, and a desktop window narrowed below the phone
-/// breakpoint gets the waterfall alone, which is the same trade either way.
-pub fn panadapter_waterfall_only(ctx: &egui::Context) -> bool {
-    panadapter_waterfall_only_for(tier(ctx), ctx.content_rect().width())
+/// A question about the width, not the tier, so a phone held sideways
+/// (852 pt, still `Tier::Phone`) gets the strip.
+pub fn narrow_phone(ctx: &egui::Context) -> bool {
+    narrow_phone_for(tier(ctx), ctx.content_rect().width())
 }
 
-/// The rule itself, as a pure function of the tier and the width, so it can be
-/// tested beside [`tier_for`] rather than only through a `Context`.
-pub fn panadapter_waterfall_only_for(tier: Tier, width: f32) -> bool {
-    tier == Tier::Phone && width < SPECTRUM_MIN_W
+/// The rule itself, as a pure function of the tier and the width.
+pub fn narrow_phone_for(tier: Tier, width: f32) -> bool {
+    tier == Tier::Phone && width < WIDE_STRIP_MIN_W
 }
 
 /// The tier in force this frame.
@@ -398,23 +396,12 @@ mod tests {
         assert_eq!(tier_for(vec2(852.0, 393.0), auto), Tier::Phone, "landscape phone is short");
         assert_eq!(tier_for(vec2(932.0, 430.0), auto), Tier::Phone);
 
-        // …and being a phone is not what decides the panadapter's layers.
-        // **The width is**, because the reason for the waterfall-only default
-        // is a narrow one: it used to be keyed on the tier, so a phone held
-        // sideways — 852 pt wide, where a spectrum strip costs nothing anyone
-        // would notice — lost its spectrum for a reason that only holds at 360.
-        assert!(
-            panadapter_waterfall_only_for(Tier::Phone, 360.0),
-            "a phone held upright shows the waterfall alone"
-        );
-        assert!(
-            !panadapter_waterfall_only_for(Tier::Phone, 852.0),
-            "the same phone held sideways has the width for a spectrum"
-        );
-        // Every wider tier keeps its spectrum whatever the window is called:
-        // the default is about the room, not about the name.
-        assert!(!panadapter_waterfall_only_for(Tier::Tablet, 600.0));
-        assert!(!panadapter_waterfall_only_for(Tier::Desktop, 400.0));
+        // …and being a phone is not what decides the full-band strip. **The
+        // width is**: a phone held sideways — 852 pt — has the room.
+        assert!(narrow_phone_for(Tier::Phone, 360.0), "a phone held upright is narrow");
+        assert!(!narrow_phone_for(Tier::Phone, 852.0), "the same phone held sideways is not");
+        assert!(!narrow_phone_for(Tier::Tablet, 600.0));
+        assert!(!narrow_phone_for(Tier::Desktop, 400.0));
         // Tablets, both ways up — and the laptop-sized windows that get the
         // same treatment, because the full strip would wrap over three rows.
         assert_eq!(tier_for(vec2(768.0, 1024.0), auto), Tier::Tablet);

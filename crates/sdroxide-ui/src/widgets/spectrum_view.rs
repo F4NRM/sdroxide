@@ -1415,23 +1415,12 @@ pub fn show_ext(
     // Either layer can be switched off in the SPEC popup: with the spectrum
     // hidden the waterfall has the lot, with the waterfall hidden the spectrum
     // does, and the frequency scale stays between them either way.
-    // A phone draws the waterfall and nothing else: a spectrum trace in a
-    // 360 pt-wide window is a strip too thin to read that costs the waterfall a
-    // third of its height. The operator's own layer switches and
-    // `spectrum_fraction` are only overridden here, never written, so a wider
-    // window gets back exactly the split it was left with.
-    let waterfall_only = crate::layout::panadapter_waterfall_only(ui.ctx());
-    // **The waterfall-only default is a default, not a veto.** Hiding the
-    // waterfall is the operator asking for the spectrum — the trade the SPEC
-    // popup offers on every other tier ("switched off, the spectrum line takes
-    // the whole height") — and on a narrow window it is the *only* way to see
-    // one. Overriding it there meant the switch was offered nowhere and did
-    // nothing wherever it was reachable.
-    let frac = if waterfall_only && view.waterfall_visible() {
-        0.0
-    } else {
-        view.effective_spectrum_fraction()
-    };
+    // Every window, a phone held upright included, draws the layers the
+    // operator chose and splits them where they left the divider. A phone
+    // used to draw the waterfall alone; the WFALL tab gives it the whole
+    // screen below the readout, which is room for a spectrum (operator's
+    // report, 2026-10-12).
+    let frac = view.effective_spectrum_fraction();
     let usable = rect.height() - scale_h();
     let spec_h = if frac <= 0.0 { 0.0 } else { (usable * frac).max(40.0).min(usable.max(0.0)) };
     let spec_rect = Rect::from_min_size(rect.min, vec2(rect.width(), spec_h));
@@ -1566,8 +1555,7 @@ pub fn show_ext(
     // time the pointer wandered and a pan would quietly rewrite the split.
     let scale_axis_id = ui.id().with("scale-axis");
     let mut scale_axis: Option<bool> = ui.data(|d| d.get_temp(scale_axis_id)).unwrap_or(None);
-    let hover_resize =
-        !waterfall_only && resp.hover_pos().map(|p| scale_rect.contains(p)).unwrap_or(false);
+    let hover_resize = resp.hover_pos().map(|p| scale_rect.contains(p)).unwrap_or(false);
 
     // Shift+drag bandwidth measurement: remembers the frequency where the drag
     // started; `None` when not measuring.
@@ -1630,11 +1618,7 @@ pub fn show_ext(
         } else {
             edge = origin.and_then(edge_at);
             sub_drag = edge.is_none() && origin.map(sub_grab_at).unwrap_or(false);
-            // Not where the spectrum is suppressed rather than collapsed: the
-            // scale strip is at the top of the widget there, and a drag on it
-            // would quietly rewrite a split the operator cannot see.
-            resizing = !waterfall_only
-                && edge.is_none()
+            resizing = edge.is_none()
                 && !sub_drag
                 && origin.map(|p| scale_rect.contains(p)).unwrap_or(false);
             measuring = None;

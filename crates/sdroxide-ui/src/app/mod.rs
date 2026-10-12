@@ -3459,6 +3459,142 @@ mod tests {
         img.save(&out).expect("write the preview");
         println!("wrote {out}");
     }
+    /// The operator's report (2026-10-12): a phone's WFALL tab drew the
+    /// waterfall alone, with the whole screen below the readout to spare. It
+    /// draws the spectrum above it now, as every other window does — read here
+    /// from the spectrum's dB scale, which only the spectrum strip carries.
+    #[test]
+    fn a_phone_wfall_tab_draws_the_spectrum_too() {
+        use crate::multi::frame_test_lock;
+        use sdroxide_types::{Mode, SpectrumFrame};
+        fn walk(s: &egui::Shape, out: &mut Vec<String>) {
+            match s {
+                egui::Shape::Text(t) => out.push(t.galley.text().to_string()),
+                egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, out)),
+                _ => {}
+            }
+        }
+        let _guard = frame_test_lock();
+        let controller: Box<dyn RadioController> = Box::new(RecordingController::default());
+        let ctx = egui::Context::default();
+        let mut app = SdroxideApp::new_tab(&ctx, None, None, controller, 0, true);
+        app.state.rx[0].mode = Mode::Dab;
+        app.view.digi_pane = usize::MAX; // the WFALL tab
+        let mut texts = Vec::new();
+        for t in 0..3 {
+            let now = 10.0 + t as f64 / 30.0;
+            app.frame = Some(std::sync::Arc::new(SpectrumFrame {
+                seq: t,
+                center_hz: app.view.view_lo_hz / 2.0 + app.view.view_hi_hz / 2.0,
+                span_hz: (app.view.view_hi_hz - app.view.view_lo_hz).max(1.0),
+                db_floor: -120.0,
+                db_ceil: -20.0,
+                bins: vec![60; 512],
+                rows: Vec::new(),
+                rows_clocked: false,
+            }));
+            app.last_spectrum_at = now;
+            let input = egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(390.0, 844.0),
+                )),
+                time: Some(now),
+                ..Default::default()
+            };
+            let mut full = ctx.run_ui(input, |ui| {
+                app.ui(ui, &mut eframe::Frame::_new_kittest());
+            });
+            full.textures_delta.clear();
+            texts.clear();
+            full.shapes.iter().for_each(|c| walk(&c.shape, &mut texts));
+        }
+        assert_eq!(crate::layout::tier(&ctx), crate::layout::Tier::Phone, "not a phone layout");
+        assert!(
+            texts.iter().any(|t| t == "-60" || t == "-80" || t == "-100"),
+            "a phone's WFALL tab drew no spectrum: {texts:?}"
+        );
+    }
+
+    /// A phone's WFALL tab, rendered for a person to look at: the spectrum
+    /// above the waterfall, as every other window has it. Env `WF_W`/`WF_H`
+    /// (default 390x844), `WF_MODE` by `Debug` name (default `Dab`), and
+    /// `WF_PREVIEW` for the PNG.
+    #[test]
+    #[ignore]
+    fn phone_wfall_preview() {
+        use crate::multi::frame_test_lock;
+        use sdroxide_types::{Mode, SpectrumFrame};
+        let _guard = frame_test_lock();
+        let dir = std::env::temp_dir().join(format!("sdroxide-wf-preview-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        unsafe { std::env::set_var("SDROXIDE_CONFIG_DIR", &dir) };
+        let w: f32 = std::env::var("WF_W").ok().and_then(|v| v.parse().ok()).unwrap_or(390.0);
+        let h: f32 = std::env::var("WF_H").ok().and_then(|v| v.parse().ok()).unwrap_or(844.0);
+        let mode = std::env::var("WF_MODE")
+            .ok()
+            .and_then(|m| Mode::ALL.iter().find(|x| format!("{x:?}") == m).copied())
+            .unwrap_or(Mode::Dab);
+
+        let controller: Box<dyn RadioController> = Box::new(RecordingController::default());
+        let ctx = egui::Context::default();
+        let mut app = SdroxideApp::new_tab(&ctx, None, None, controller, 0, true);
+        app.state.rx[0].mode = mode;
+        app.view.digi_pane = usize::MAX; // the WFALL tab
+        // A DAB block: a flat plateau 1.5 MHz wide over the noise.
+        let n = 1024usize;
+        let row = |t: usize| -> Vec<u8> {
+            (0..n)
+                .map(|i| {
+                    let x = i as f32 / n as f32;
+                    let noise = ((i * 7919 + t * 104_729) % 23) as f32;
+                    let block = if (0.2..0.8).contains(&x) { 90.0 } else { 40.0 };
+                    (block + noise).min(255.0) as u8
+                })
+                .collect()
+        };
+        let mut tex = crate::test_raster::Textures::default();
+        let mut last = None;
+        for t in 0..40 {
+            let now = 10.0 + t as f64 / 30.0;
+            app.frame = Some(std::sync::Arc::new(SpectrumFrame {
+                seq: t as u32,
+                center_hz: app.view.view_lo_hz / 2.0 + app.view.view_hi_hz / 2.0,
+                span_hz: (app.view.view_hi_hz - app.view.view_lo_hz).max(1.0),
+                db_floor: -120.0,
+                db_ceil: -20.0,
+                bins: row(t),
+                rows: (0..4).flat_map(|k| row(t * 4 + k)).collect(),
+                rows_clocked: true,
+            }));
+            app.last_spectrum_at = now;
+            let input = egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(w, h))),
+                time: Some(now),
+                ..Default::default()
+            };
+            let mut full = ctx.run_ui(input, |ui| {
+                app.ui(ui, &mut eframe::Frame::_new_kittest());
+            });
+            tex.apply(&full.textures_delta);
+            full.textures_delta.clear();
+            last = Some(full);
+        }
+        let img = crate::test_raster::rasterize(
+            &ctx,
+            last.unwrap(),
+            &tex,
+            egui::vec2(w, h),
+            crate::theme::BG_DEEP(),
+        );
+        let out = std::env::var("WF_PREVIEW").unwrap_or_else(|_| {
+            format!("{}/../../target/wf_preview.png", env!("CARGO_MANIFEST_DIR"))
+        });
+        img.save(&out).expect("write the preview");
+        println!("wrote {out}");
+    }
+
     /// #643: drive one frame at a chosen window width (env `DOCK_W`, default
     /// 960) and mode (env `MODE`, by its `Debug` name) and print the largest
     /// shapes, flagging any ink past the window's right edge or across the
@@ -3685,18 +3821,18 @@ mod tests {
         let mut app = SdroxideApp::new_tab(&ctx, None, None, controller, 0, true);
 
         // A digital mode: a panel and a panadapter, both in-window by default.
-        assert!(app.center_has_content(&ctx, Mode::Ft8));
+        assert!(app.center_has_content(Mode::Ft8));
         app.ui_settings.set_detached(M::Panadapter, true);
-        assert!(app.center_has_content(&ctx, Mode::Ft8), "the panel still fills it");
+        assert!(app.center_has_content(Mode::Ft8), "the panel still fills it");
         app.ui_settings.set_detached(M::Panel, true);
-        assert!(!app.center_has_content(&ctx, Mode::Ft8), "both undocked leaves it empty");
+        assert!(!app.center_has_content(Mode::Ft8), "both undocked leaves it empty");
 
         // A voice mode has no panel: the panadapter alone fills the centre,
         // until it too is undocked.
         app.ui_settings.set_detached(M::Panadapter, false);
-        assert!(app.center_has_content(&ctx, Mode::Am));
+        assert!(app.center_has_content(Mode::Am));
         app.ui_settings.set_detached(M::Panadapter, true);
-        assert!(!app.center_has_content(&ctx, Mode::Am));
+        assert!(!app.center_has_content(Mode::Am));
     }
 
     /// The tool-window mechanism: a closed tool returns false and draws nothing;

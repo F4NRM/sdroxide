@@ -986,7 +986,7 @@ impl eframe::App for SdroxideApp {
         // so the two agree: if the centre is empty the band/mode selector fills
         // it (`band_menu_fill`), and the narrow dock is not also drawn.
         let cur_mode = self.state.rx[0].mode;
-        let center_empty = !self.center_has_content(ui.ctx(), cur_mode);
+        let center_empty = !self.center_has_content(cur_mode);
         // A docked band/mode selector takes a column off the right of the
         // panadapter before either draws. Shown here, after the top bar and the
         // notices, so the column sits beside the waterfall rather than under the
@@ -1159,16 +1159,13 @@ impl eframe::App for SdroxideApp {
                 phone && self.digi_pane(mode) == crate::app::panels::panel_panes(mode).len();
             // Both panadapter layers switched off in the SPEC popup means no
             // panadapter: the decode panel takes the whole height rather than
-            // sharing it with an empty strip. Never on a phone, which draws the
-            // waterfall alone and ignores the layer switches (see
-            // `spectrum_view::show_ext`), so they cannot empty its screen.
-            let layers = crate::layout::panadapter_waterfall_only(ui.ctx())
-                || self.view.panadapter_visible();
+            // sharing it with an empty strip.
+            let layers = self.view.panadapter_visible();
             // A panadapter or panel drawn into its own window takes no room
             // here: whatever is left in the column gets the whole of it. The
             // panadapter's rule is `panadapter_window_wanted`, the same one the
             // shell emits its window by, so the two cannot disagree.
-            let detached = self.panadapter_window_wanted(ui.ctx());
+            let detached = self.panadapter_window_wanted();
             let panel_gone = self.panel_detached(mode);
             let show_wf = !detached && (!phone || on_waterfall) && layers;
             let show_panel = (!phone || !on_waterfall) && !panel_gone;
@@ -1258,7 +1255,7 @@ impl eframe::App for SdroxideApp {
             // module's WIDE chip on. Never on a phone: 96 pt of strip is a
             // quarter of the height there, taken from the waterfall being
             // listened to for a band view nothing is tuned to.
-            if !crate::layout::panadapter_waterfall_only(ui.ctx())
+            if !crate::layout::narrow_phone(ui.ctx())
                 && self.view.wide_waterfall
                 && let Some(wide) = self.wide_frame.clone()
             {
@@ -1286,11 +1283,10 @@ impl eframe::App for SdroxideApp {
             // As on the digital path above: no layers, no panadapter. In a mode
             // with nothing under it that leaves the pane empty, which is what
             // switching both off asks for.
-            let layers = crate::layout::panadapter_waterfall_only(ui.ctx())
-                || self.view.panadapter_visible();
+            let layers = self.view.panadapter_visible();
             // A panadapter or panel drawn into its own window takes no room
             // here; whatever is left in the column gets the whole of it.
-            let detached = self.panadapter_window_wanted(ui.ctx());
+            let detached = self.panadapter_window_wanted();
             let panel_gone = self.panel_detached(self.state.rx[0].mode);
             let (wf_h, panel_h, show_wf, show_panel) = if !cw_mode {
                 if detached {
@@ -2484,15 +2480,14 @@ impl SdroxideApp {
     /// The panadapter's window should exist this frame: undocked on the focused
     /// radio *and* there is a panadapter to show (its layers are on). This is the
     /// same rule the frame loop reserves space by, so the two cannot disagree.
-    fn panadapter_window_wanted(&self, ctx: &egui::Context) -> bool {
+    fn panadapter_window_wanted(&self) -> bool {
         #[cfg(target_arch = "wasm32")]
         {
-            let _ = ctx;
             false
         }
         #[cfg(not(target_arch = "wasm32"))]
         {
-            self.module_window_wanted(ctx, sdroxide_types::DetachableModule::Panadapter)
+            self.module_window_wanted(sdroxide_types::DetachableModule::Panadapter)
         }
     }
 
@@ -2502,14 +2497,8 @@ impl SdroxideApp {
     /// window exists — a second one that appeared without its layers would be an
     /// empty window on a monitor.
     #[cfg(not(target_arch = "wasm32"))]
-    fn module_window_wanted(
-        &self,
-        ctx: &egui::Context,
-        module: sdroxide_types::DetachableModule,
-    ) -> bool {
-        self.ui_settings.is_detached(module)
-            && self.focused
-            && (crate::layout::panadapter_waterfall_only(ctx) || self.view.panadapter_visible())
+    fn module_window_wanted(&self, module: sdroxide_types::DetachableModule) -> bool {
+        self.ui_settings.is_detached(module) && self.focused && self.view.panadapter_visible()
     }
 
     /// The operating-panel window should exist this frame: undocked on the
@@ -2549,18 +2538,15 @@ impl SdroxideApp {
     /// being torn down and re-mapped when the radio or the mode changes under
     /// it: the shell always asks, and there is always an answer.
     #[cfg(not(target_arch = "wasm32"))]
-    pub(crate) fn detached_wanted(
-        &self,
-        ctx: &egui::Context,
-    ) -> [bool; sdroxide_types::DetachableModule::COUNT] {
+    pub(crate) fn detached_wanted(&self) -> [bool; sdroxide_types::DetachableModule::COUNT] {
         let mut want = [false; sdroxide_types::DetachableModule::COUNT];
         want[sdroxide_types::DetachableModule::Panadapter.index()] =
-            self.panadapter_window_wanted(ctx);
+            self.panadapter_window_wanted();
         want[sdroxide_types::DetachableModule::Panel.index()] =
             self.panel_window_wanted(self.state.rx[0].mode);
         want[sdroxide_types::DetachableModule::Controls.index()] = self.controls_detached();
         want[sdroxide_types::DetachableModule::AuxPanadapter.index()] =
-            self.module_window_wanted(ctx, sdroxide_types::DetachableModule::AuxPanadapter);
+            self.module_window_wanted(sdroxide_types::DetachableModule::AuxPanadapter);
         want[sdroxide_types::DetachableModule::BandMenu.index()] = self.band_menu_detached();
         want[sdroxide_types::DetachableModule::Rotor.index()] = self.rotor_detached();
         want
@@ -2570,10 +2556,9 @@ impl SdroxideApp {
     /// frame — the panadapter in-window, or the mode's panel. When neither is,
     /// the space is filled with the band/mode selector rather than left black
     /// (the operator's screenshots of an undocked panadapter and panel).
-    pub(in crate::app) fn center_has_content(&self, ctx: &egui::Context, mode: Mode) -> bool {
-        let layers =
-            crate::layout::panadapter_waterfall_only(ctx) || self.view.panadapter_visible();
-        let pan_here = layers && !self.panadapter_window_wanted(ctx);
+    pub(in crate::app) fn center_has_content(&self, mode: Mode) -> bool {
+        let layers = self.view.panadapter_visible();
+        let pan_here = layers && !self.panadapter_window_wanted();
         let panel_here =
             (mode.has_bottom_panel() || mode == Mode::Cw) && !self.panel_detached(mode);
         pan_here || panel_here

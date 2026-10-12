@@ -5607,20 +5607,17 @@ impl SdroxideApp {
         // capability flag for it, and inventing one would mean a wire-format
         // change for something the frames themselves already answer.
         let has_wide = self.wide_frame.is_some();
-        // A narrow window draws the waterfall alone, so the two chips that
-        // choose what else is drawn have nothing to control — until the
-        // operator hides the waterfall, at which point the spectrum is what is
-        // drawn and its chip belongs on the strip again.
-        let picks_layers =
-            !crate::layout::panadapter_waterfall_only(ui.ctx()) || !self.view.waterfall_visible();
+        // A phone held upright draws no full-band strip (see
+        // `layout::narrow_phone`), so its chip would switch nothing.
+        let narrow_phone = crate::layout::narrow_phone(ui.ctx());
         let simple = self.ui_settings.simple_ui;
         if !simple {
             self.solar_button(ui, extra);
         }
-        if picks_layers && !narrow {
+        if !narrow {
             self.layers_button(ui, spec, extra);
         }
-        if picks_layers
+        if !narrow_phone
             && !simple
             && has_wide
             && chip_stretched(ui, self.view.wide_waterfall, wide, extra)
@@ -5717,75 +5714,60 @@ impl SdroxideApp {
     /// Its own function because the DISP menu has to inline it rather than
     /// open it as a popup, for the reason given on [`Self::skimmer_controls`].
     fn panadapter_controls(&mut self, ui: &mut egui::Ui) {
-        // A narrow window draws the waterfall alone — see
-        // `layout::panadapter_waterfall_only` — so the spectrum's own controls
-        // are left out there. **But only while the waterfall is what is being
-        // drawn**: hiding it is the operator asking for the spectrum, and that
-        // is the one way a phone can reach it, so the spectrum's box comes back
-        // with it rather than staying hidden and leaving the switch with
-        // nothing to control.
-        let waterfall_only = crate::layout::panadapter_waterfall_only(ui.ctx());
-        let picks_layers = !waterfall_only || !self.view.waterfall_visible();
+        // Every window, phones included, draws the spectrum and the waterfall
+        // the operator asks for, so both boxes are always offered.
         let w = panadapter_group_w(ui);
         let mut cfg = self.ui_settings;
-        if picks_layers {
-            crate::chrome::menu_group(ui, "Spectrum", w, |ui| {
-                ui.horizontal_wrapped(|ui| {
-                    let on = self.view.spectrum_visible();
-                    if crate::chrome::chip(ui, on, "SHOW SPECTRUM")
-                        .on_hover_text(
-                            "Draw the spectrum line across the top of the panadapter. \
-                             Switched off, the waterfall takes the whole height.",
-                        )
-                        .clicked()
-                    {
-                        self.view.set_spectrum_visible(!on);
-                    }
-                    if crate::chrome::chip(ui, self.view.peak_hold, "PEAK HOLD")
-                        .on_hover_text(
-                            "Trace the highest level each column has reached over the live \
-                             line, decaying back down — what the band did while you were \
-                             looking elsewhere",
-                        )
-                        .clicked()
-                    {
-                        self.view.peak_hold = !self.view.peak_hold;
-                    }
-                    if crate::chrome::chip(ui, self.view.spectrum_3d, "3D")
-                        .on_hover_text(
-                            "Draw the spectrum as a receding surface instead of a flat line: \
-                             the newest spectrum across the front, the ones before it flowing \
-                             away from you. The last couple of seconds of the band as a \
-                             landscape — a carrier that comes and goes is a ridge rather than \
-                             a line that twitches. The grid and the peak hold belong to the \
-                             flat line and are not drawn on it.",
-                        )
-                        .clicked()
-                    {
-                        self.view.spectrum_3d = !self.view.spectrum_3d;
-                    }
-                });
-                self.spectrum_3d_rows(ui, &mut cfg);
-                speed_row(
-                    ui,
-                    "reaction",
-                    &mut cfg.spectrum_speed,
-                    &Speed::ALL,
-                    "How quickly the spectrum line follows the band. Slower averages more \
-                     frames into each other: a steadier line, and a weak carrier that stands \
-                     still long enough to read. The waterfall is not touched by it — those \
-                     rows get every frame either way.",
-                );
-                self.detail_row(ui, &mut cfg);
+        crate::chrome::menu_group(ui, "Spectrum", w, |ui| {
+            ui.horizontal_wrapped(|ui| {
+                let on = self.view.spectrum_visible();
+                if crate::chrome::chip(ui, on, "SHOW SPECTRUM")
+                    .on_hover_text(
+                        "Draw the spectrum line across the top of the panadapter. \
+                         Switched off, the waterfall takes the whole height.",
+                    )
+                    .clicked()
+                {
+                    self.view.set_spectrum_visible(!on);
+                }
+                if crate::chrome::chip(ui, self.view.peak_hold, "PEAK HOLD")
+                    .on_hover_text(
+                        "Trace the highest level each column has reached over the live \
+                         line, decaying back down — what the band did while you were \
+                         looking elsewhere",
+                    )
+                    .clicked()
+                {
+                    self.view.peak_hold = !self.view.peak_hold;
+                }
+                if crate::chrome::chip(ui, self.view.spectrum_3d, "3D")
+                    .on_hover_text(
+                        "Draw the spectrum as a receding surface instead of a flat line: \
+                         the newest spectrum across the front, the ones before it flowing \
+                         away from you. The last couple of seconds of the band as a \
+                         landscape — a carrier that comes and goes is a ridge rather than \
+                         a line that twitches. The grid and the peak hold belong to the \
+                         flat line and are not drawn on it.",
+                    )
+                    .clicked()
+                {
+                    self.view.spectrum_3d = !self.view.spectrum_3d;
+                }
             });
-        }
+            self.spectrum_3d_rows(ui, &mut cfg);
+            speed_row(
+                ui,
+                "reaction",
+                &mut cfg.spectrum_speed,
+                &Speed::ALL,
+                "How quickly the spectrum line follows the band. Slower averages more \
+                 frames into each other: a steadier line, and a weak carrier that stands \
+                 still long enough to read. The waterfall is not touched by it — those \
+                 rows get every frame either way.",
+            );
+            self.detail_row(ui, &mut cfg);
+        });
         crate::chrome::menu_group(ui, "Waterfall", w, |ui| {
-            // Drawn on every tier, phones included, and that is the point: on a
-            // narrow window this chip is the **only** way to the spectrum —
-            // switch the waterfall off and it takes the whole height. Leaving
-            // it inside `picks_layers` put it out of reach on exactly the tier
-            // that needs it, so the layer switch was advertised nowhere and the
-            // spectrum could not be reached at all.
             let on = self.view.waterfall_visible();
             if crate::chrome::chip(ui, on, "SHOW WATERFALL")
                 .on_hover_text(
@@ -5834,9 +5816,6 @@ impl SdroxideApp {
                 .clicked()
             {
                 cfg.waterfall_freeze_on_tx = !cfg.waterfall_freeze_on_tx;
-            }
-            if !picks_layers {
-                self.detail_row(ui, &mut cfg);
             }
         });
         if cfg != self.ui_settings {
