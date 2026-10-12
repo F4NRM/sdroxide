@@ -10,7 +10,7 @@ upstream feature requests **this fork** may pick up, not a promise to upstream.
 
 - **Check our open upstream PRs for maintainer replies** — answer only where he
   asked something. Current: **#648** (eQSL QTH nickname), **#660** (UTC + local
-  clock), **#661** (output-audio routing).
+  clock), **#661** (output-audio routing), **#663** (HFDL custom frequency chips).
 - **#257 — undocked mode / separate windows on a second monitor.** In progress;
   the SDRuno window set. See `SDRUNO-UI-HANDOVER.md` and `UNDOCKED-HANDOVER.md`.
 
@@ -39,8 +39,8 @@ window. I/Q out over UDP is #594.)*
 ## Backlog — upstream feature requests (this fork may pick up)
 
 **Fork-relevant, medium**
-- #617 HFDL custom frequency chips (the channel box already tunes anywhere; the
-  saved-chips list is the small missing bit)
+- ~~#617 HFDL custom frequency chips~~ — **done** in `1bddef9c`; offered upstream
+  as **#663** (built on `upstream/main`, four files, no wire change).
 - #458 bulk/automatic QRZ lookup + KML export
 - #322 PC-keyboard as a Morse key
 - #536 RX audio to the radio's own local speaker (HPSDR Protocol-1 EP2)
