@@ -50,15 +50,27 @@ const DAB_SPLIT_WIDTH: f32 = 560.0;
 /// itself is: four columns in less than this are clipped text.
 const DAB_GROUP_MIN: f32 = 600.0;
 
-/// How wide the group of columns is, for a panel `width` wide.
-pub(in crate::app) fn dab_group_width(width: f32) -> f32 {
-    (width * 0.5).max(DAB_GROUP_MIN.min(width))
+/// How the grouped columns are laid out for a panel `width` wide: the group's
+/// width, the VU meter's width, and whether the meter is the compact one.
+///
+/// Half the panel when that holds the full meter. When it does not, the meter
+/// narrows and loses its plate first; only then does the group take more than
+/// half, and never less than [`DAB_GROUP_MIN`] less what the narrow meter saved.
+pub(in crate::app) fn dab_group_layout(width: f32) -> (f32, f32, bool) {
+    use crate::widgets::vu_meter::{WIDTH, WIDTH_COMPACT};
+    let half = width * 0.5;
+    if half >= DAB_GROUP_MIN {
+        (half, WIDTH, false)
+    } else {
+        let floor = (DAB_GROUP_MIN - (WIDTH - WIDTH_COMPACT)).min(width);
+        (half.max(floor), WIDTH_COMPACT, true)
+    }
 }
 
 /// The widths of CHANNELS, STATIONS and STATION INFO inside a group `group`
-/// wide, after the VU meter and the gaps have taken theirs.
-pub(in crate::app) fn dab_column_widths(group: f32) -> [f32; 3] {
-    let rest = (group - crate::widgets::vu_meter::WIDTH - 3.0 * DAB_COL_GAP).max(0.0);
+/// wide, after the VU meter (`vu_w`) and the gaps have taken theirs.
+pub(in crate::app) fn dab_column_widths(group: f32, vu_w: f32) -> [f32; 3] {
+    let rest = (group - vu_w - 3.0 * DAB_COL_GAP).max(0.0);
     [rest * 0.28, rest * 0.40, rest * 0.32]
 }
 
@@ -248,7 +260,8 @@ impl SdroxideApp {
                     // Grouped on the left, at most half the panel: CHANNELS,
                     // STATIONS, STATION INFO and the VU meter, each a fixed
                     // width, and the right half left free.
-                    let [w_ch, w_st, w_info] = dab_column_widths(dab_group_width(width));
+                    let (group, vu_w, compact) = dab_group_layout(width);
+                    let [w_ch, w_st, w_info] = dab_column_widths(group, vu_w);
                     ui.horizontal_top(|ui| {
                         ui.spacing_mut().item_spacing.x = DAB_COL_GAP;
                         let col = |ui: &mut egui::Ui, w: f32, f: &mut dyn FnMut(&mut egui::Ui)| {
@@ -264,7 +277,7 @@ impl SdroxideApp {
                         col(ui, w_ch, &mut |ui| self.dab_channels(ui, cmds, &st, avail_h - 60.0));
                         col(ui, w_st, &mut |ui| self.dab_services(ui, cmds, &st, avail_h - 20.0));
                         col(ui, w_info, &mut |ui| self.dab_info(ui, &st));
-                        self.dab_vu_meter(ui, &st, avail_h);
+                        self.dab_vu_meter(ui, &st, avail_h, vu_w, compact);
                     });
                 } else {
                     // Stacked, the two lists share what is left of the panel:
@@ -282,7 +295,14 @@ impl SdroxideApp {
     }
 
     /// The VU meter column: the decoded audio's level, left and right.
-    fn dab_vu_meter(&mut self, ui: &mut egui::Ui, st: &DabStatus, avail_h: f32) {
+    fn dab_vu_meter(
+        &mut self,
+        ui: &mut egui::Ui,
+        st: &DabStatus,
+        avail_h: f32,
+        vu_w: f32,
+        compact: bool,
+    ) {
         let now = ui.input(|i| i.time);
         let dt = self.dab_vu_at.map_or(0.0, |t| (now - t) as f32);
         self.dab_vu_at = Some(now);
@@ -294,15 +314,11 @@ impl SdroxideApp {
             crate::repaint::after_ms(ui.ctx(), 33);
         }
         let h = avail_h.clamp(160.0, 420.0);
-        crate::widgets::vu_meter::stereo(
-            ui,
-            &self.dab_vu,
-            egui::vec2(crate::widgets::vu_meter::WIDTH, h),
-        )
-        .on_hover_text(
-            "The level of the station playing, left and right, before the volume \
+        crate::widgets::vu_meter::stereo(ui, &self.dab_vu, egui::vec2(vu_w, h), compact)
+            .on_hover_text(
+                "The level of the station playing, left and right, before the volume \
              control. 0 VU is −18 dBFS; the red segments are the loud end.",
-        );
+            );
     }
 
     /// Left column: the blocks this scan found, and the sweep that finds them.
@@ -572,7 +588,7 @@ impl SdroxideApp {
 
         let playing = st.playing.as_deref() == Some(s.service_id.as_str());
         ui.label(
-            RichText::new(if playing { "● playing" } else { "chosen" })
+            RichText::new(if playing { "▶ playing" } else { "chosen" })
                 .size(10.0)
                 .color(if playing { theme::CYAN_DIM() } else { theme::gray(140) }),
         );
@@ -732,6 +748,26 @@ mod tests {
 #[cfg(test)]
 mod clear_list_tests {
     use super::dab_clear_offered;
+
+    /// The four columns take half the panel when the full meter fits there;
+    /// below that the meter narrows and drops its plate before the group
+    /// grows past half.
+    #[test]
+    fn the_columns_keep_to_half_the_panel_and_the_meter_narrows_first() {
+        use super::dab_group_layout;
+        use crate::widgets::vu_meter::{WIDTH, WIDTH_COMPACT};
+        for w in [1200.0, 1600.0, 1920.0] {
+            let (group, vu, compact) = dab_group_layout(w);
+            assert_eq!(group, w * 0.5, "{w} pt: the group is half the panel");
+            assert_eq!((vu, compact), (WIDTH, false), "{w} pt: the full meter fits");
+        }
+        for w in [700.0, 900.0, 1100.0] {
+            let (group, vu, compact) = dab_group_layout(w);
+            assert_eq!((vu, compact), (WIDTH_COMPACT, true), "{w} pt: the narrow meter");
+            assert!(group <= w, "{w} pt: never wider than the panel");
+        }
+        assert_eq!(dab_group_layout(1100.0).0, 552.0, "the narrow meter's saving is kept");
+    }
 
     /// Kevin's "Add clear list" on the fork's #18. The CHANNELS list is
     /// remembered and only ever grows, so it needs a way out — and the chip must

@@ -100,11 +100,16 @@ fn peak_segment(vu: f32) -> usize {
 /// them, and a frame.
 pub const WIDTH: f32 = 112.0;
 
+/// The narrow form, for a panel too tight for [`WIDTH`]: the scale on the left
+/// only, and no plate.
+pub const WIDTH_COMPACT: f32 = 64.0;
+
 /// The engraving on the plate under the bars.
 pub const PLATE: &str = "Oxide Brown";
 
 /// Paint a stereo meter into a box `size` big, in the theme's colours.
-pub fn stereo(ui: &mut egui::Ui, m: &VuBallistics, size: Vec2) -> egui::Response {
+/// `compact` is the narrow form ([`WIDTH_COMPACT`]): one scale, no plate.
+pub fn stereo(ui: &mut egui::Ui, m: &VuBallistics, size: Vec2, compact: bool) -> egui::Response {
     let (rect, resp) = ui.allocate_exact_size(size, Sense::hover());
     if !ui.is_rect_visible(rect) {
         return resp;
@@ -117,7 +122,7 @@ pub fn stereo(ui: &mut egui::Ui, m: &VuBallistics, size: Vec2) -> egui::Response
     p.rect_stroke(case, 6.0, Stroke::new(1.0, theme::LINE_LIT()), egui::StrokeKind::Inside);
 
     let title_h = 18.0;
-    let plate_h = 20.0;
+    let plate_h = if compact { 0.0 } else { 20.0 };
     let pad = 6.0;
     p.text(
         Pos2::new(case.center().x, case.top() + pad + title_h / 2.0 - 2.0),
@@ -130,14 +135,18 @@ pub fn stereo(ui: &mut egui::Ui, m: &VuBallistics, size: Vec2) -> egui::Response
     // The bars and their scale.
     let body = Rect::from_min_max(
         Pos2::new(case.left() + pad, case.top() + pad + title_h),
-        Pos2::new(case.right() - pad, case.bottom() - pad - plate_h - 18.0),
+        Pos2::new(
+            case.right() - pad,
+            case.bottom() - pad - plate_h - if compact { 12.0 } else { 18.0 },
+        ),
     );
     let n = SCALE_VU.len();
     let pitch = body.height() / n as f32;
     let seg_h = (pitch * 0.72).max(2.0);
     let label_w = 22.0;
     let gap = 4.0;
-    let bar_w = ((body.width() - 2.0 * label_w - gap) / 2.0).max(6.0);
+    let labels = if compact { 1.0 } else { 2.0 };
+    let bar_w = ((body.width() - labels * label_w - gap) / 2.0).max(6.0);
     let left_x = body.left() + label_w;
     let right_x = left_x + bar_w + gap;
 
@@ -176,7 +185,15 @@ pub fn stereo(ui: &mut egui::Ui, m: &VuBallistics, size: Vec2) -> egui::Response
         let cy = y + seg_h / 2.0;
         let font = FontId::monospace(9.0);
         p.text(Pos2::new(left_x - 3.0, cy), Align2::RIGHT_CENTER, &text, font.clone(), label_ink);
-        p.text(Pos2::new(right_x + bar_w + 3.0, cy), Align2::LEFT_CENTER, &text, font, label_ink);
+        if !compact {
+            p.text(
+                Pos2::new(right_x + bar_w + 3.0, cy),
+                Align2::LEFT_CENTER,
+                &text,
+                font,
+                label_ink,
+            );
+        }
     }
     // L and R under their columns.
     for (x, ch) in [(left_x, "L"), (right_x, "R")] {
@@ -189,6 +206,9 @@ pub fn stereo(ui: &mut egui::Ui, m: &VuBallistics, size: Vec2) -> egui::Response
         );
     }
 
+    if compact {
+        return resp;
+    }
     // The plate: a brushed-grey strip with the name engraved on it.
     let plate = Rect::from_min_max(
         Pos2::new(case.left() + pad + 8.0, case.bottom() - pad - plate_h),
