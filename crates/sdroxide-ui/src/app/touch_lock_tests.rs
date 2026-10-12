@@ -197,3 +197,54 @@ fn mem_sits_before_the_padlock_and_opens_the_memories() {
         assert!(rig.app.show_memories, "a tap on MEM did not open the memories at {size:?}");
     }
 }
+
+/// The report (Kevin, phone and tablet): a 3 s hold unlocks, and the padlock
+/// then takes the same finger — still on the glass, or seen again by the
+/// browser as a fresh press — as a tap and locks again before it can lift.
+/// After an unlock the padlock rests for 10 s: a press then is not a lock.
+#[test]
+fn an_unlock_is_not_undone_by_the_finger_that_made_it() {
+    let _guard = crate::multi::frame_test_lock();
+    let dir = std::env::temp_dir().join(format!("sdroxide-touch-relock-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    unsafe { std::env::set_var("SDROXIDE_CONFIG_DIR", &dir) };
+
+    let sent = Rc::new(RefCell::new(Vec::new()));
+    let ctx = egui::Context::default();
+    let app = SdroxideApp::new_tab(&ctx, None, None, Box::new(Sent(sent.clone())), 0, true);
+    let mut rig = Rig { ctx: ctx.clone(), app, sent, t: 0.0, size: egui::vec2(1000.0, 900.0) };
+    for _ in 0..4 {
+        rig.frame(Vec::new(), 0.05).drop_without_applying_deltas();
+    }
+    let lock = crate::touch_lock::padlock_rects(&ctx)[0].center();
+
+    rig.tap(lock);
+    assert!(crate::touch_lock::is_locked(&ctx), "a tap on the padlock did not lock");
+
+    // Hold for the 3 s: unlocked.
+    let down = rig.button(lock, true);
+    rig.frame(vec![egui::Event::PointerMoved(lock), down], 0.05).drop_without_applying_deltas();
+    for _ in 0..16 {
+        rig.frame(Vec::new(), 0.2).drop_without_applying_deltas();
+    }
+    assert!(!crate::touch_lock::is_locked(&ctx), "a 3 s hold did not unlock");
+    let up = rig.button(lock, false);
+    rig.frame(vec![up], 0.05).drop_without_applying_deltas();
+
+    // The same finger, seen again as a press and a release on the padlock
+    // within the pause: the screen stays unlocked.
+    for _ in 0..3 {
+        rig.tap(lock);
+        assert!(!crate::touch_lock::is_locked(&ctx), "the padlock locked again under the finger");
+        rig.frame(Vec::new(), 1.0).drop_without_applying_deltas();
+    }
+
+    // Past the 10 s pause (about 3.5 s have gone by above), a tap locks as it
+    // always did.
+    for _ in 0..8 {
+        rig.frame(Vec::new(), 1.0).drop_without_applying_deltas();
+    }
+    rig.tap(lock);
+    assert!(crate::touch_lock::is_locked(&ctx), "a tap after the pause did not lock");
+}

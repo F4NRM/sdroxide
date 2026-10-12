@@ -15,6 +15,12 @@
 //! filling round it while the finger stays down; lifting early cancels it.
 //! A brush of the screen cannot hold one spot for three seconds.
 //!
+//! After an unlock the padlock **rests for 10 s** before a tap locks again.
+//! The finger that held it is still on the glass when the screen unlocks, and
+//! a phone's browser can report it again as a fresh press (a long press is a
+//! gesture of its own there); without the rest, that press was a tap on an
+//! unlocked padlock and the screen locked again before the finger lifted.
+//!
 //! The state is per window and session-only: it lives in the context's
 //! temporary memory, so every radio tab in the shell shares one lock and a
 //! restart always starts unlocked. If the padlock stops being drawn — the
@@ -27,6 +33,9 @@ use eframe::egui::{
 
 /// How long the padlock must be held to unlock.
 pub const UNLOCK_HOLD_S: f64 = 3.0;
+
+/// How long the padlock rests after an unlock before a tap locks again.
+pub const RELOCK_PAUSE_S: f64 = 10.0;
 
 /// How long the "unlocked" flash, and the hint after a tap on a locked
 /// padlock, stay on screen.
@@ -121,6 +130,11 @@ pub fn filter(ctx: &Context, raw: &mut egui::RawInput) {
     raw.hovered_files.clear();
 }
 
+/// Whether the padlock is still resting after the unlock at `unlocked_at`.
+fn relock_paused(unlocked_at: Option<f64>, now: f64) -> bool {
+    unlocked_at.is_some_and(|t| now - t < RELOCK_PAUSE_S)
+}
+
 /// Where a hold stands: 0 at the press, 1 when it unlocks.
 fn hold_progress(since: f64, now: f64) -> f32 {
     (((now - since) / UNLOCK_HOLD_S) as f32).clamp(0.0, 1.0)
@@ -166,6 +180,10 @@ pub fn padlock(ui: &mut Ui, size: egui::Vec2) -> Response {
         if resp.clicked() {
             s.hint_at = Some(now);
         }
+    } else if resp.clicked() && relock_paused(s.unlocked_at, now) {
+        // Resting after an unlock: the press is the finger that unlocked, or a
+        // tap too soon after it. Say why nothing happened.
+        s.hint_at = Some(now);
     } else if resp.clicked() && !s.spent {
         s.locked = true;
         s.hint_at = None;
@@ -181,7 +199,8 @@ pub fn padlock(ui: &mut Ui, size: egui::Vec2) -> Response {
     } else {
         "Lock the screen against stray touches: frequency, band, mode, filters and the \
          waterfall stop answering a finger. Reception and audio carry on. Hold for 3 seconds \
-         to unlock."
+         to unlock. After an unlock the padlock rests for 10 seconds before a tap locks it \
+         again, so the finger that unlocked it cannot lock it straight back."
     });
 
     // The caption under the padlock while something is happening.
@@ -191,6 +210,12 @@ pub fn padlock(ui: &mut Ui, size: egui::Vec2) -> Response {
         Some("UNLOCKED".to_owned())
     } else if s.locked && s.hint_at.is_some_and(|t| now - t < HINT_S) {
         Some("LOCKED · hold 3 s".to_owned())
+    } else if !s.locked
+        && relock_paused(s.unlocked_at, now)
+        && s.hint_at.is_some_and(|t| now - t < HINT_S)
+    {
+        let left = s.unlocked_at.map_or(0.0, |t| RELOCK_PAUSE_S - (now - t));
+        Some(format!("UNLOCKED · lock in {:.0} s", left.ceil().max(1.0)))
     } else {
         None
     };
@@ -363,6 +388,14 @@ mod tests {
         assert!(hold_progress(10.0, 11.5) < 1.0);
         assert!(hold_progress(10.0, 12.99) < 1.0);
         assert_eq!(hold_progress(10.0, 13.0), 1.0);
+    }
+
+    #[test]
+    fn the_padlock_rests_ten_seconds_after_an_unlock() {
+        assert!(!relock_paused(None, 5.0), "never unlocked: nothing to rest from");
+        assert!(relock_paused(Some(100.0), 100.0));
+        assert!(relock_paused(Some(100.0), 109.9));
+        assert!(!relock_paused(Some(100.0), 110.0));
     }
 
     #[test]
