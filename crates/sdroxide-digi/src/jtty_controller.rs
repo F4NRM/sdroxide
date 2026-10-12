@@ -136,9 +136,9 @@ impl JttyController {
         let Some(frames) = sdroxide_dsp::jtty::pack_message(&self.tx_text) else {
             return;
         };
-        // The modem synthesizes at the tone-spacing base, like the receiver
-        // expects.
-        let f0 = sdroxide_dsp::jtty::JTTY_TONE_SPACING_HZ;
+        // The modem synthesizes at the signal's audio centre, the same
+        // 1500 Hz the receiver searches.
+        let f0 = sdroxide_dsp::jtty::JTTY_BASE_HZ;
         let mut at6 = Vec::new();
         for p in &frames {
             let coded = sdroxide_dsp::jtty::encode_tones(p);
@@ -226,13 +226,18 @@ pub fn decode_window(x: &[f32], at: i64) -> Vec<JttyMessage> {
 
     // Collect decoded frames with their start positions.
     let mut found: Vec<(usize, jtty::JttyFrame, f32, f32)> = Vec::new();
+    // One Hilbert transform for the whole window: the sync search below is
+    // called once per frame found, and transforming each time made it the
+    // mode's dominant cost — a selected JTTY held a core busy.
+    let analytic = jtty::analytic_signal(x);
     let mut pos = 0usize;
     while pos + slot <= x.len() {
         // Find the EARLIEST acceptable sync at or after `pos`, at the mode's
         // fixed audio base. `find_sync_near` scans ascending and returns the
         // first candidate, so a stronger frame later in the buffer cannot make
         // the scanner skip an earlier one.
-        let Some(sync) = jtty::find_sync_near(x, jtty::JTTY_TONE_SPACING_HZ, pos, x.len(), 6)
+        let Some(sync) =
+            jtty::find_sync_near_in(&analytic, x.len(), jtty::JTTY_BASE_HZ, pos, x.len(), 6)
         else {
             break;
         };
@@ -491,7 +496,7 @@ mod tests {
         frame_tones.extend_from_slice(&JTTY_SYNC);
         frame_tones.extend_from_slice(&encode_tones(&last));
 
-        let audio = synthesize_frame(&frame_tones, jtty::JTTY_TONE_SPACING_HZ);
+        let audio = synthesize_frame(&frame_tones, jtty::JTTY_BASE_HZ);
         let mut buf = vec![0.0f32; jtty::JTTY_NSPS * 4];
         buf.extend_from_slice(&audio);
         buf.extend(std::iter::repeat_n(0.0, jtty::JTTY_NSPS * 8));
@@ -526,6 +531,30 @@ mod tests {
                 break;
             }
         }
+        // The audio the controller actually hands the engine is in an SSB
+        // passband, not down at the tone spacing. A loopback alone cannot see
+        // this: it synthesises and searches at the same (wrong) frequency and
+        // passes happily, which is exactly how a signal at 31…125 Hz shipped.
+        // The probe frequencies are literal, not read back from the constant
+        // under test — asking the constant where it points answers nothing.
+        let power_at = |sig: &[f32], hz: f32| -> f64 {
+            let w: f64 = std::f64::consts::TAU * hz as f64 / 48_000.0;
+            let (mut re, mut im) = (0.0f64, 0.0f64);
+            for (k, &s) in sig.iter().enumerate() {
+                let ph = w * k as f64;
+                re += s as f64 * ph.cos();
+                im += s as f64 * ph.sin();
+            }
+            (re * re + im * im) / sig.len() as f64
+        };
+        let at_1500 = power_at(&tx48, 1500.0);
+        let at_31 = power_at(&tx48, 31.25);
+        assert!(
+            at_1500 > at_31 * 10.0,
+            "the transmitted burst must sit at the reference's 1500 Hz audio centre, but {} at 1500 Hz vs {} at the 31.25 Hz spacing",
+            at_1500,
+            at_31
+        );
         // Down to the decoder's rate with the same resampler the receive path
         // uses, then decode the loop the operator actually makes: transmit,
         // resample both ways, and read the message back off the air.
