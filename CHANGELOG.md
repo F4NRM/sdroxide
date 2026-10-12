@@ -24,6 +24,9 @@ and the [README](https://github.com/madmedicnl/sdroxide-brown#readme).
 ## [Unreleased]
 
 ### Fixed
+- **The spectrum on a phone** — a phone held upright drew the waterfall alone,
+  with the whole WFALL tab to spare. It now shows the spectrum above the
+  waterfall in every mode, set from the SPEC popup like everywhere else.
 - **DAB remembers what it found** — channels, stations, stars and the chosen
   station are kept on the server and survive a restart.
 - **DAB "playing" and the level** — the engine never said which station was
