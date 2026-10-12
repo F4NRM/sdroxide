@@ -965,6 +965,8 @@ pub struct SdroxideApp {
     dab_hidden: Vec<(String, String)>,
     /// The last slideshow picture the station sent, ready to draw.
     dab_slide: Option<egui::TextureHandle>,
+    /// The station's logo, as the station broadcasts it.
+    dab_logo: Option<egui::TextureHandle>,
     /// The station list shows each station's programme type.
     dab_show_pty: bool,
     /// Frame time of the last input event, for the inactivity stop.
@@ -1954,6 +1956,7 @@ impl SdroxideApp {
             dab_vu_at: None,
             dab_hidden: Vec::new(),
             dab_slide: None,
+            dab_logo: None,
             dab_show_pty: false,
             auto_last_activity: 0.0,
             auto_cooldown_until: 0.0,
@@ -3333,11 +3336,18 @@ mod tests {
             DabKnownStation { channel: "8B".into(), service_id: "F203".into(), label: "FIP".into() },
         ];
         // A stand-in for a slideshow picture: a station-logo-like card.
-        if let Ok(path) = std::env::var("DAB_SLIDE") {
-            let img = image::open(&path).expect("read DAB_SLIDE").to_rgba8();
-            let (iw, ih) = img.dimensions();
-            let img = egui::ColorImage::from_rgba_unmultiplied([iw as usize, ih as usize], &img);
-            app.dab_slide = Some(ctx.load_texture("dab_slide_preview", img, Default::default()));
+        let load = |var: &str| {
+            std::env::var(var).ok().map(|path| {
+                let img = image::open(&path).expect("read the preview picture").to_rgba8();
+                let (iw, ih) = img.dimensions();
+                let img =
+                    egui::ColorImage::from_rgba_unmultiplied([iw as usize, ih as usize], &img);
+                ctx.load_texture(var, img, Default::default())
+            })
+        };
+        app.dab_logo = load("DAB_LOGO");
+        if let Some(t) = load("DAB_SLIDE") {
+            app.dab_slide = Some(t);
         } else if std::env::var("DAB_NO_SLIDE").is_err() {
             let (sw, sh) = (320usize, 240usize);
             let mut px = Vec::with_capacity(sw * sh);

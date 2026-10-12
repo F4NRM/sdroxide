@@ -349,15 +349,8 @@ impl SdroxideApp {
         }
     }
 
-    /// The VU meter column: the decoded audio's level, left and right.
-    pub(in crate::app) fn dab_vu_meter(
-        &mut self,
-        ui: &mut egui::Ui,
-        st: &DabStatus,
-        avail_h: f32,
-        vu_w: f32,
-        compact: bool,
-    ) {
+    /// Move the meter on by this frame's time.
+    pub(in crate::app) fn dab_vu_step(&mut self, ui: &egui::Ui, st: &DabStatus) {
         let now = ui.input(|i| i.time);
         let dt = self.dab_vu_at.map_or(0.0, |t| (now - t) as f32);
         self.dab_vu_at = Some(now);
@@ -368,6 +361,18 @@ impl SdroxideApp {
             // frames while there is anything to move.
             crate::repaint::after_ms(ui.ctx(), 33);
         }
+    }
+
+    /// The VU meter column: the decoded audio's level, left and right.
+    pub(in crate::app) fn dab_vu_meter(
+        &mut self,
+        ui: &mut egui::Ui,
+        st: &DabStatus,
+        avail_h: f32,
+        vu_w: f32,
+        compact: bool,
+    ) {
+        self.dab_vu_step(ui, st);
         let h = avail_h.clamp(160.0, 420.0);
         crate::widgets::vu_meter::stereo(ui, &self.dab_vu, egui::vec2(vu_w, h), compact)
             .on_hover_text(

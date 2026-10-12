@@ -23,6 +23,18 @@ const GAP: f32 = 10.0;
 /// One station row.
 const ROW_H: f32 = 22.0;
 
+/// Draw `tex` as large as fits in `frame`, centred, in its own proportions.
+fn paint_fitted(p: &egui::Painter, tex: &egui::TextureHandle, frame: Rect) -> Rect {
+    let [w, h] = tex.size();
+    let fit = (frame.width() / w as f32).min(frame.height() / h as f32);
+    let img = Rect::from_center_size(frame.center(), Vec2::new(w as f32, h as f32) * fit);
+    p.add(
+        egui::epaint::RectShape::filled(img, 6.0, Color32::WHITE)
+            .with_texture(tex.id(), Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0))),
+    );
+    img
+}
+
 /// Up to three letters for the slideshow tile before a station sends a
 /// picture: the initials of a multi-word name, else its first letters.
 pub(in crate::app) fn station_initials(name: &str) -> String {
@@ -67,12 +79,64 @@ impl SdroxideApp {
                 self.dab_transport(ui, cmds, &rows, card_w + GAP + list_w);
             });
             self.dab_vu_meter(ui, st, body_h + BAR_H + 6.0, vu_w, compact);
+            // The right of the panel: the slideshow, as large as it fits.
+            let free = ui.available_width();
+            if free > 120.0 {
+                self.dab_slideshow(ui, egui::vec2(free, body_h + BAR_H + 6.0));
+            }
         });
     }
 
+    /// The slideshow the station broadcasts (MOT SlideShow): the picture in
+    /// its own shape — 320x240 is the standard's, but stations send what they
+    /// like, square included — never stretched, framed, with a caption.
+    fn dab_slideshow(&self, ui: &mut egui::Ui, size: Vec2) {
+        let (rect, _) = ui.allocate_exact_size(size, Sense::hover());
+        let p = ui.painter_at(rect);
+        p.rect_filled(rect, 8.0, theme::BG_DEEP());
+        p.rect_stroke(rect, 8.0, Stroke::new(1.0, theme::LINE()), egui::StrokeKind::Inside);
+        let inner = rect.shrink(8.0);
+        p.text(
+            inner.left_top(),
+            Align2::LEFT_TOP,
+            "SLIDESHOW",
+            FontId::proportional(10.0),
+            theme::gray(140),
+        );
+        let frame = Rect::from_min_max(inner.left_top() + Vec2::new(0.0, 16.0), inner.max);
+        match &self.dab_slide {
+            Some(tex) => {
+                let img = paint_fitted(&p, tex, frame);
+                p.rect_stroke(
+                    img,
+                    6.0,
+                    Stroke::new(1.0, theme::LINE_LIT()),
+                    egui::StrokeKind::Outside,
+                );
+                let [w, h] = tex.size();
+                p.text(
+                    inner.right_top(),
+                    Align2::RIGHT_TOP,
+                    format!("{w}×{h}"),
+                    FontId::proportional(9.5),
+                    theme::gray(120),
+                );
+            }
+            None => {
+                p.text(
+                    frame.center(),
+                    Align2::CENTER_CENTER,
+                    "the station has sent no picture yet",
+                    FontId::proportional(11.0),
+                    theme::gray(120),
+                );
+            }
+        }
+    }
+
     /// The same receiver for a narrow panel (a phone, a small window): the
-    /// card across the top, the station list under it, the transport bar at
-    /// the foot. No VU meter: a meter a finger wide says nothing.
+    /// card across the top, the meter on its side under it, the slideshow, the
+    /// station list, and the transport bar at the foot.
     pub(in crate::app) fn dab_receiver_stacked(
         &mut self,
         ui: &mut egui::Ui,
@@ -85,12 +149,24 @@ impl SdroxideApp {
         let live: Vec<DabService> =
             if dab_status_is_for(st, &channel) { st.services.clone() } else { Vec::new() };
         let rows = dab_station_rows(&live, &self.state.dab.stations, &channel, &self.dab_hidden);
-        let card_h = 170.0f32.min(avail_h * 0.45);
-        let list_h = (avail_h - card_h - BAR_H - 16.0).max(90.0);
-        ui.spacing_mut().item_spacing.y = 6.0;
-        self.dab_now_playing(ui, st, &live, egui::vec2(width, card_h));
-        self.dab_station_list(ui, cmds, st, &rows, &live, egui::vec2(width, list_h));
-        self.dab_transport(ui, cmds, &rows, width);
+        let card_h = 150.0f32.min(avail_h * 0.34);
+        let vu_h = crate::widgets::vu_meter::HEIGHT_HORIZONTAL;
+        let slide_h =
+            if self.dab_slide.is_some() { (width * 0.6).min(avail_h * 0.30) } else { 0.0 };
+        // At least five stations in view; on a short screen the whole column
+        // scrolls rather than pushing the list and the bar off the bottom.
+        let list_h = (avail_h - card_h - vu_h - slide_h - BAR_H - 30.0).max(ROW_H * 5.0 + 50.0);
+        egui::ScrollArea::vertical().id_salt("dab_receiver_stacked").show(ui, |ui| {
+            ui.spacing_mut().item_spacing.y = 6.0;
+            self.dab_now_playing(ui, st, &live, egui::vec2(width, card_h));
+            self.dab_vu_step(ui, st);
+            crate::widgets::vu_meter::stereo_horizontal(ui, &self.dab_vu, egui::vec2(width, vu_h));
+            if slide_h > 0.0 {
+                self.dab_slideshow(ui, egui::vec2(width, slide_h));
+            }
+            self.dab_station_list(ui, cmds, st, &rows, &live, egui::vec2(width, list_h));
+            self.dab_transport(ui, cmds, &rows, width);
+        });
     }
 
     /// The left card: the slideshow, the station, what it is, and its text.
@@ -123,9 +199,8 @@ impl SdroxideApp {
         );
 
         // What is described: the station playing, else the one chosen.
-        let svc = dab_focus_service(st, &self.state.dab.service_id).or_else(|| {
-            live.iter().find(|s| s.service_id == self.state.dab.service_id)
-        });
+        let svc = dab_focus_service(st, &self.state.dab.service_id)
+            .or_else(|| live.iter().find(|s| s.service_id == self.state.dab.service_id));
         let name = svc
             .map(|s| if s.label.trim().is_empty() { s.service_id.clone() } else { s.label.clone() })
             .unwrap_or_else(|| "no station chosen".to_string());
@@ -138,7 +213,7 @@ impl SdroxideApp {
         // The tile takes the picture's own shape: a square station logo gets a
         // square, a 320x240 slide a 4:3 frame. Never stretched.
         let aspect = self
-            .dab_slide
+            .dab_logo
             .as_ref()
             .map(|t| {
                 let [w, h] = t.size();
@@ -149,15 +224,9 @@ impl SdroxideApp {
             inner.left_top() + Vec2::new(0.0, 22.0),
             Vec2::new(art_h * aspect, art_h),
         );
-        if let Some(tex) = &self.dab_slide {
+        if let Some(tex) = &self.dab_logo {
             p.rect_filled(art, 6.0, Color32::BLACK);
-            let [w, h] = tex.size();
-            let fit = (art.width() / w as f32).min(art.height() / h as f32);
-            let img = Rect::from_center_size(art.center(), Vec2::new(w as f32, h as f32) * fit);
-            p.add(
-                egui::epaint::RectShape::filled(img, 6.0, Color32::WHITE)
-                    .with_texture(tex.id(), Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0))),
-            );
+            paint_fitted(&p, tex, art);
         } else {
             p.rect_filled(art, 6.0, theme::FILL());
             p.text(
@@ -170,7 +239,7 @@ impl SdroxideApp {
             p.text(
                 art.center_bottom() - Vec2::new(0.0, 10.0),
                 Align2::CENTER_CENTER,
-                "no slideshow yet",
+                "no logo yet",
                 FontId::proportional(9.0),
                 theme::gray(130),
             );
@@ -194,11 +263,8 @@ impl SdroxideApp {
             if *y + g.size().y > floor {
                 return;
             }
-            let mut job = egui::text::LayoutJob::simple_singleline(
-                text,
-                FontId::proportional(sz),
-                color,
-            );
+            let mut job =
+                egui::text::LayoutJob::simple_singleline(text, FontId::proportional(sz), color);
             job.wrap = egui::text::TextWrapping::truncate_at_width(wrap_w);
             let g = p.layout_job(job);
             let h = g.size().y;
@@ -272,9 +338,11 @@ impl SdroxideApp {
             Stroke::new(1.0, theme::LINE()),
             egui::StrokeKind::Inside,
         );
-        let mut ui = ui.new_child(egui::UiBuilder::new()
+        let mut ui = ui.new_child(
+            egui::UiBuilder::new()
                 .max_rect(rect.shrink(8.0))
-                .layout(egui::Layout::top_down(egui::Align::Min)));
+                .layout(egui::Layout::top_down(egui::Align::Min)),
+        );
         let ui = &mut ui;
 
         // The channel picker: every block found, each with its own ×, and a
@@ -313,9 +381,7 @@ impl SdroxideApp {
                                 Some(hz) => format!("{name}  {}", dab_mhz(hz)),
                                 None => name.clone(),
                             };
-                            if ui
-                                .selectable_label(self.state.dab.channel == *name, label)
-                                .clicked()
+                            if ui.selectable_label(self.state.dab.channel == *name, label).clicked()
                             {
                                 self.dab_scan = None;
                                 self.state.dab.channel = name.clone();
@@ -426,9 +492,8 @@ impl SdroxideApp {
                     if resp.hovered() || ui.rect_contains_pointer(r) {
                         let c = r.right_center() - Vec2::new(10.0, 0.0);
                         let xr = Rect::from_center_size(c, Vec2::splat(16.0));
-                        let x = ui
-                            .interact(xr, resp.id.with("clear"), Sense::click())
-                            .on_hover_text(
+                        let x =
+                            ui.interact(xr, resp.id.with("clear"), Sense::click()).on_hover_text(
                                 "Clear this station from the list. The next SCAN brings it \
                                  back if the ensemble still carries it.",
                             );
@@ -467,12 +532,8 @@ impl SdroxideApp {
         let channel = self.state.dab.channel.clone();
         let current = self.state.dab.service_id.clone();
         let at = rows.iter().position(|s| s.service_id == current);
-        let is_preset = self
-            .state
-            .dab
-            .presets
-            .iter()
-            .any(|k| k.channel == channel && k.service_id == current);
+        let is_preset =
+            self.state.dab.presets.iter().any(|k| k.channel == channel && k.service_id == current);
         let scanning = self.dab_scan.is_some();
         let n = 5.0;
         let w = (width - (n - 1.0) * 6.0) / n;

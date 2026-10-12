@@ -233,6 +233,93 @@ pub fn stereo(ui: &mut egui::Ui, m: &VuBallistics, size: Vec2, compact: bool) ->
     resp
 }
 
+/// The height a horizontal meter wants: two bars and the scale under them.
+pub const HEIGHT_HORIZONTAL: f32 = 46.0;
+
+/// The same stereo meter laid on its side, for a phone: L over R, quiet on the
+/// left and loud on the right, the scale underneath. A column would be a
+/// finger wide there; a bar across the screen is the width of the screen.
+pub fn stereo_horizontal(ui: &mut egui::Ui, m: &VuBallistics, size: Vec2) -> egui::Response {
+    let (rect, resp) = ui.allocate_exact_size(size, Sense::hover());
+    if !ui.is_rect_visible(rect) {
+        return resp;
+    }
+    let p = ui.painter_at(rect);
+    let case = rect.shrink(1.0);
+    p.rect_filled(case, 6.0, theme::BG_DEEP());
+    p.rect_stroke(case, 6.0, Stroke::new(1.0, theme::LINE_LIT()), egui::StrokeKind::Inside);
+
+    let pad = 6.0;
+    let title_w = 26.0;
+    let label_ink = theme::gray(150);
+    p.text(
+        Pos2::new(case.left() + pad + title_w / 2.0, case.center().y),
+        Align2::CENTER_CENTER,
+        "VU",
+        FontId::proportional(12.0),
+        theme::TEXT_STRONG(),
+    );
+    let ch_w = 10.0;
+    let body = Rect::from_min_max(
+        Pos2::new(case.left() + pad + title_w + ch_w, case.top() + pad),
+        Pos2::new(case.right() - pad, case.bottom() - pad - 11.0),
+    );
+    let n = SCALE_VU.len();
+    let pitch = body.width() / n as f32;
+    let seg_w = (pitch * 0.78).max(2.0);
+    let gap = 3.0;
+    let bar_h = ((body.height() - gap) / 2.0).max(4.0);
+
+    let lit = theme::CYAN();
+    let red = theme::ALERT();
+    let lit_n = [lit_segments(m.level[0]), lit_segments(m.level[1])];
+    let peak_n = [peak_segment(m.peak[0]), peak_segment(m.peak[1])];
+
+    for (ch, label) in [(0usize, "L"), (1usize, "R")] {
+        let y = body.top() + ch as f32 * (bar_h + gap);
+        p.text(
+            Pos2::new(body.left() - ch_w / 2.0 - 1.0, y + bar_h / 2.0),
+            Align2::CENTER_CENTER,
+            label,
+            FontId::proportional(9.0),
+            label_ink,
+        );
+        // Counted from the quiet end, which is the bottom of the column and
+        // the left of the bar.
+        for k in 0..n {
+            let vu = SCALE_VU[n - 1 - k];
+            let from_bottom = k + 1;
+            let x = body.left() + pitch * k as f32;
+            let seg = Rect::from_min_size(Pos2::new(x, y), Vec2::new(seg_w, bar_h));
+            let base = if vu >= RED_FROM_VU { red } else { lit };
+            let on = from_bottom <= lit_n[ch];
+            let is_peak = from_bottom == peak_n[ch] && peak_n[ch] > 0;
+            if on || is_peak {
+                p.rect_filled(seg.expand(1.5), 3.0, base.gamma_multiply(0.25));
+                p.rect_filled(seg, 2.0, base);
+            } else {
+                p.rect_filled(seg, 2.0, base.gamma_multiply(0.14));
+            }
+        }
+    }
+    // A thinned scale: every label would run into its neighbours.
+    for k in 0..n {
+        let vu = SCALE_VU[n - 1 - k];
+        if ![-60, -40, -20, -8, 0, 4, 8].contains(&vu) {
+            continue;
+        }
+        let text = if vu > 0 { format!("+{vu}") } else { vu.to_string() };
+        p.text(
+            Pos2::new(body.left() + pitch * k as f32 + seg_w / 2.0, body.bottom() + 1.0),
+            Align2::CENTER_TOP,
+            text,
+            FontId::monospace(8.5),
+            label_ink,
+        );
+    }
+    resp
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
