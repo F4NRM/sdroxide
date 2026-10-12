@@ -2618,11 +2618,8 @@ impl SdroxideApp {
         }
 
         // An ensemble named but no stations yet: give the FIC a little longer.
-        let dwell = if multiplex && !heard_stations {
-            DAB_SCAN_DWELL_S * 2.0
-        } else {
-            DAB_SCAN_DWELL_S
-        };
+        let dwell =
+            if multiplex && !heard_stations { DAB_SCAN_DWELL_S * 2.0 } else { DAB_SCAN_DWELL_S };
         if now - scan.since.unwrap_or(now) < dwell {
             if scan.since.is_none() {
                 scan.since = Some(now);

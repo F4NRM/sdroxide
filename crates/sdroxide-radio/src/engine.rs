@@ -20293,8 +20293,9 @@ mod dab_pacing_tests {
     /// each ear on its own, and silence a floor rather than minus infinity.
     #[test]
     fn the_level_is_dbfs_rms_per_ear() {
-        let sine: Vec<f32> =
-            (0..4800).map(|i| (i as f32 * std::f32::consts::TAU * 1000.0 / 48_000.0).sin()).collect();
+        let sine: Vec<f32> = (0..4800)
+            .map(|i| (i as f32 * std::f32::consts::TAU * 1000.0 / 48_000.0).sin())
+            .collect();
         let half: Vec<f32> = sine.iter().map(|x| x * 0.5).collect();
         let [l, r] = stereo_rms_dbfs(&sine, &half);
         assert!((l + 3.01).abs() < 0.05, "full-scale sine read {l} dBFS");

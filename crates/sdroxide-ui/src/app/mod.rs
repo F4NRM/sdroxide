@@ -3332,8 +3332,16 @@ mod tests {
         };
         app.state.dab.channel = "8B".into();
         app.state.dab.presets = vec![
-            DabKnownStation { channel: "8B".into(), service_id: "F201".into(), label: "BFM BUSINESS".into() },
-            DabKnownStation { channel: "8B".into(), service_id: "F203".into(), label: "FIP".into() },
+            DabKnownStation {
+                channel: "8B".into(),
+                service_id: "F201".into(),
+                label: "BFM BUSINESS".into(),
+            },
+            DabKnownStation {
+                channel: "8B".into(),
+                service_id: "F203".into(),
+                label: "FIP".into(),
+            },
         ];
         // A stand-in for a slideshow picture: a station-logo-like card.
         let load = |var: &str| {
@@ -3364,12 +3372,20 @@ mod tests {
                     } else if bar {
                         egui::Color32::from_rgb(250, 200, 40)
                     } else {
-                        egui::Color32::from_rgb((20.0 + 40.0 * fx) as u8, (30.0 + 30.0 * fy) as u8, (90.0 + 100.0 * fy) as u8)
+                        egui::Color32::from_rgb(
+                            (20.0 + 40.0 * fx) as u8,
+                            (30.0 + 30.0 * fy) as u8,
+                            (90.0 + 100.0 * fy) as u8,
+                        )
                     };
                     px.push(c);
                 }
             }
-            let img = egui::ColorImage { size: [sw, sh], source_size: egui::vec2(sw as f32, sh as f32), pixels: px };
+            let img = egui::ColorImage {
+                size: [sw, sh],
+                source_size: egui::vec2(sw as f32, sh as f32),
+                pixels: px,
+            };
             app.dab_slide = Some(ctx.load_texture("dab_slide_preview", img, Default::default()));
         }
         app.state.dab.service_id = "F201".into();
@@ -3402,7 +3418,9 @@ mod tests {
             fibs: 33648,
             playing: Some("F201".into()),
             audio_rms_db: Some([-14.0, -17.0]),
-            dls: Some("BFM Business — Le journal de l'économie à 18h00 · Tél. 01 23 45 67 89".into()),
+            dls: Some(
+                "BFM Business — Le journal de l'économie à 18h00 · Tél. 01 23 45 67 89".into(),
+            ),
             ..Default::default()
         }));
         // Music: louder on the left, a recent peak held above it.
@@ -3441,7 +3459,6 @@ mod tests {
         img.save(&out).expect("write the preview");
         println!("wrote {out}");
     }
-
     /// #643: drive one frame at a chosen window width (env `DOCK_W`, default
     /// 960) and mode (env `MODE`, by its `Debug` name) and print the largest
     /// shapes, flagging any ink past the window's right edge or across the
