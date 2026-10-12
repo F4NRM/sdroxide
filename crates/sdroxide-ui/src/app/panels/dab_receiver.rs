@@ -70,6 +70,29 @@ impl SdroxideApp {
         });
     }
 
+    /// The same receiver for a narrow panel (a phone, a small window): the
+    /// card across the top, the station list under it, the transport bar at
+    /// the foot. No VU meter: a meter a finger wide says nothing.
+    pub(in crate::app) fn dab_receiver_stacked(
+        &mut self,
+        ui: &mut egui::Ui,
+        cmds: &mut Vec<Command>,
+        st: &DabStatus,
+        width: f32,
+        avail_h: f32,
+    ) {
+        let channel = self.state.dab.channel.clone();
+        let live: Vec<DabService> =
+            if dab_status_is_for(st, &channel) { st.services.clone() } else { Vec::new() };
+        let rows = dab_station_rows(&live, &self.state.dab.stations, &channel, &self.dab_hidden);
+        let card_h = 170.0f32.min(avail_h * 0.45);
+        let list_h = (avail_h - card_h - BAR_H - 16.0).max(90.0);
+        ui.spacing_mut().item_spacing.y = 6.0;
+        self.dab_now_playing(ui, st, &live, egui::vec2(width, card_h));
+        self.dab_station_list(ui, cmds, st, &rows, &live, egui::vec2(width, list_h));
+        self.dab_transport(ui, cmds, &rows, width);
+    }
+
     /// The left card: the slideshow, the station, what it is, and its text.
     fn dab_now_playing(&self, ui: &mut egui::Ui, st: &DabStatus, live: &[DabService], size: Vec2) {
         let (rect, _) = ui.allocate_exact_size(size, Sense::hover());
@@ -112,16 +135,28 @@ impl SdroxideApp {
         let art_h = (inner.height() - 22.0 - dls_h - 10.0)
             .min(inner.width() * 0.42 * 0.75)
             .clamp(48.0, 150.0);
+        // The tile takes the picture's own shape: a square station logo gets a
+        // square, a 320x240 slide a 4:3 frame. Never stretched.
+        let aspect = self
+            .dab_slide
+            .as_ref()
+            .map(|t| {
+                let [w, h] = t.size();
+                (w as f32 / h.max(1) as f32).clamp(1.0, 4.0 / 3.0)
+            })
+            .unwrap_or(4.0 / 3.0);
         let art = Rect::from_min_size(
             inner.left_top() + Vec2::new(0.0, 22.0),
-            Vec2::new(art_h * 4.0 / 3.0, art_h),
+            Vec2::new(art_h * aspect, art_h),
         );
         if let Some(tex) = &self.dab_slide {
-            p.image(
-                tex.id(),
-                art,
-                Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)),
-                Color32::WHITE,
+            p.rect_filled(art, 6.0, Color32::BLACK);
+            let [w, h] = tex.size();
+            let fit = (art.width() / w as f32).min(art.height() / h as f32);
+            let img = Rect::from_center_size(art.center(), Vec2::new(w as f32, h as f32) * fit);
+            p.add(
+                egui::epaint::RectShape::filled(img, 6.0, Color32::WHITE)
+                    .with_texture(tex.id(), Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0))),
             );
         } else {
             p.rect_filled(art, 6.0, theme::FILL());
@@ -442,17 +477,26 @@ impl SdroxideApp {
         let n = 5.0;
         let w = (width - (n - 1.0) * 6.0) / n;
         let size = egui::vec2(w, BAR_H);
+        // Words while there is room for them, the symbols alone on a phone.
+        let words = w >= 88.0;
+        let label = |icon: &str, word: &str, after: bool| -> String {
+            match (words, after) {
+                (false, _) => icon.to_string(),
+                (true, false) => format!("{icon}  {word}"),
+                (true, true) => format!("{word}  {icon}"),
+            }
+        };
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 6.0;
             let mut pick: Option<usize> = None;
-            if crate::chrome::chip_sized(ui, false, "⏮  PREV", size)
+            if crate::chrome::chip_sized(ui, false, label("⏮", "PREV", false), size)
                 .on_hover_text("The previous station in the list.")
                 .clicked()
                 && !rows.is_empty()
             {
                 pick = Some(at.map_or(0, |i| (i + rows.len() - 1) % rows.len()));
             }
-            if crate::chrome::chip_sized(ui, is_preset, "★  PRESET", size)
+            if crate::chrome::chip_sized(ui, is_preset, label("★", "PRESET", false), size)
                 .on_hover_text("Star this station, or take its star away.")
                 .clicked()
                 && !current.is_empty()
@@ -474,14 +518,14 @@ impl SdroxideApp {
                 }
                 cmds.push(Command::SetDabConfig(self.state.dab.clone()));
             }
-            if crate::chrome::chip_sized(ui, false, "NEXT  ⏭", size)
+            if crate::chrome::chip_sized(ui, false, label("⏭", "NEXT", true), size)
                 .on_hover_text("The next station in the list.")
                 .clicked()
                 && !rows.is_empty()
             {
                 pick = Some(at.map_or(0, |i| (i + 1) % rows.len()));
             }
-            if crate::chrome::chip_sized(ui, self.dab_show_pty, "🏷  PTY", size)
+            if crate::chrome::chip_sized(ui, self.dab_show_pty, label("🏷", "PTY", false), size)
                 .on_hover_text("Show each station's programme type in the list.")
                 .clicked()
             {
@@ -490,7 +534,7 @@ impl SdroxideApp {
             if crate::chrome::chip_sized(
                 ui,
                 scanning,
-                if scanning { "⏹  STOP" } else { "⟳  SCAN" },
+                if scanning { label("⏹", "STOP", false) } else { label("⟳", "SCAN", false) },
                 size,
             )
             .on_hover_text(if scanning {

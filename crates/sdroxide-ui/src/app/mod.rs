@@ -3299,7 +3299,7 @@ mod tests {
         unsafe { std::env::set_var("SDROXIDE_CONFIG_DIR", &dir) };
 
         let w: f32 = std::env::var("DAB_W").ok().and_then(|v| v.parse().ok()).unwrap_or(1600.0);
-        let h = 900.0f32;
+        let h: f32 = std::env::var("DAB_H").ok().and_then(|v| v.parse().ok()).unwrap_or(900.0);
         let theme = std::env::var("DAB_THEME").ok().and_then(|name| {
             sdroxide_types::UiTheme::ALL.iter().find(|t| format!("{t:?}") == name).copied()
         });
@@ -3333,7 +3333,12 @@ mod tests {
             DabKnownStation { channel: "8B".into(), service_id: "F203".into(), label: "FIP".into() },
         ];
         // A stand-in for a slideshow picture: a station-logo-like card.
-        if std::env::var("DAB_NO_SLIDE").is_err() {
+        if let Ok(path) = std::env::var("DAB_SLIDE") {
+            let img = image::open(&path).expect("read DAB_SLIDE").to_rgba8();
+            let (iw, ih) = img.dimensions();
+            let img = egui::ColorImage::from_rgba_unmultiplied([iw as usize, ih as usize], &img);
+            app.dab_slide = Some(ctx.load_texture("dab_slide_preview", img, Default::default()));
+        } else if std::env::var("DAB_NO_SLIDE").is_err() {
             let (sw, sh) = (320usize, 240usize);
             let mut px = Vec::with_capacity(sw * sh);
             for y in 0..sh {

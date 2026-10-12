@@ -320,9 +320,7 @@ impl SdroxideApp {
                     // columns are dropped rather than given a sliver of a
                     // phone: the info is on the service's own row, and a meter
                     // a finger wide says nothing.
-                    let half = (avail_h / 2.0 - 4.0).max(60.0);
-                    self.dab_channels(ui, cmds, &st, half);
-                    self.dab_services(ui, cmds, &st, half);
+                    self.dab_receiver_stacked(ui, cmds, &st, width, avail_h);
                 }
             },
         );
