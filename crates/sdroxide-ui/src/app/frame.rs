@@ -2793,6 +2793,13 @@ impl SdroxideApp {
                     self.wide_frame = Some(std::sync::Arc::new(f));
                 }
                 RadioEvent::Meters(m) => {
+                    // The operator's S-meter calibration for this radio, put
+                    // on here, once, so every reading of the meter — needle,
+                    // readouts, a report's pre-filled level, the spoken meter —
+                    // agrees with the others. Only `s_dbm` moves: the squelch
+                    // and the auto-record gate read `passband_dbfs`.
+                    let cal = self.radio_cfg.as_ref().map_or(0.0, |c| c.smeter_cal_db());
+                    let m = m.with_smeter_cal(cal);
                     if self.focused {
                         self.speech.announcer.on_meters(&m, &self.state, now);
                     }

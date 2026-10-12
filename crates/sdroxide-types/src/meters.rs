@@ -191,6 +191,21 @@ impl Meters {
         self.adc_overload.unwrap_or(false) || self.adc_clip > OVERLOAD_FRACTION
     }
 
+    /// These meters as the operator is shown them on a radio whose S-meter
+    /// is calibrated by `cal_db` ([`RadioConfig::smeter_cal_db`](crate::RadioConfig::smeter_cal_db)).
+    ///
+    /// Only [`Self::s_dbm`] moves — the figure the needle, the readouts, a
+    /// report's pre-filled level and the spoken meter are all read from.
+    /// [`Self::passband_dbfs`], the squelch's own measure, is left exactly as
+    /// it was, so a calibration can never open or close a squelch or start a
+    /// recording.
+    pub fn with_smeter_cal(mut self, cal_db: f32) -> Self {
+        if self.s_dbm.is_finite() {
+            self.s_dbm += cal_db;
+        }
+        self
+    }
+
     /// S-units for display: S9 = -73 dBm, 6 dB per unit below, dB-over-9 above.
     pub fn s_units(&self) -> (u8, f32) {
         let over = self.s_dbm + 73.0;

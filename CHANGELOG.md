@@ -51,6 +51,9 @@ and the [README](https://github.com/madmedicnl/sdroxide-brown#readme).
   locked with the padlock, so the sound can come down without unlocking. It
   moves quicker; the peak keeps its hold.
 - **"Channel received 8D 201.072"** in the DAB channel picker.
+- **S-Meter calib** — Settings → Radio, under "Antenna is": −5 to +5 S-units
+  per radio, 0 by default. Moves only the reading (needle, S and dBm, a
+  report's level, the spoken meter); squelch and recording are untouched.
 
 ### Changed
 - **Auto mode on a PlutoSDR can run longer** — Settings → Radio → Auto mode is a
