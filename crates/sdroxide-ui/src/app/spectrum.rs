@@ -977,6 +977,19 @@ impl SdroxideApp {
         )
     }
 
+    /// Open SSTV on its picture: the view centred on the picture's band at
+    /// [`SSTV_VIEW_SPAN_HZ`]. Called when the mode *becomes* SSTV, never per
+    /// frame, so the operator's own zoom afterwards stands.
+    pub(in crate::app) fn fit_sstv_view(&mut self) {
+        if let Some((centre, span)) =
+            sstv_audio_window(self.state.rx[0].mode, self.state.active_freq_hz())
+        {
+            let span =
+                if self.state.sample_rate > 0.0 { span.min(self.state.sample_rate) } else { span };
+            self.view.fit(centre, span);
+        }
+    }
+
     /// Center the view on the tuned frequency after big jumps (band change,
     /// memory recall, startup) — i.e. whenever the tuning changed AND left
     /// the visible span. Deliberate pans away from the VFO are never
@@ -1149,14 +1162,19 @@ fn focus_hz(mode: Mode, dial_hz: f64, audio_hz: f32, cw_qrg: bool, audio_front_e
     // attempt did and the screenshots showed — an empty centre line with the
     // picture either side of it.
     //
-    // **Only a demod-audio source.** On an SDR the operator tunes the dial
-    // *onto the picture* — that is what the RSP1's own SSTV view shows — so
-    // shifting the focus for them would move a view they had already placed.
+    // **On every front end now, SDRs included** (2026-10-12, at the
+    // operator's word). It used to be demod-audio only, on the reasoning that
+    // an SDR operator tunes the dial onto the picture. On the air they do not:
+    // the dial sits on the SSTV calling frequency, the picture sits 1200-2300
+    // Hz to one side of it exactly as on a sound-card rig, and a HackRF on
+    // 80 m showed it as a sliver left of a view centred on nothing. The same
+    // view on every radio is also what the browser and the native builds then
+    // agree on.
     //
     // Kept here rather than as a `standard_tone_offset_hz` because this is a
     // **view** question, not a logging or transmit one: the contact's frequency
     // for SSTV is the dial, and `on_air_hz` is the answer the log reads.
-    if audio_front_end && mode.is_sstv() {
+    if mode.is_sstv() {
         return if mode.is_lower_sideband_at(dial_hz) {
             dial_hz - SSTV_TONE_HZ
         } else {
@@ -1193,11 +1211,15 @@ fn focus_hz(mode: Mode, dial_hz: f64, audio_hz: f32, cw_qrg: bool, audio_front_e
 /// the published SSTV set uses the same two frequencies.
 pub(in crate::app) const SSTV_TONE_HZ: f64 = 1750.0;
 
-/// The view span that holds that band with a little room either side.
-const SSTV_VIEW_SPAN_HZ: f64 = 1600.0;
+/// The view span SSTV opens at: the 1100 Hz picture in the middle and about
+/// as much again either side, so a neighbouring picture shows at the edges.
+/// One value for every front end and every build.
+const SSTV_VIEW_SPAN_HZ: f64 = 3000.0;
 
-/// Where to put the view for SSTV on a front end that has only demodulated
-/// audio — `None` for every other mode, so the caller keeps its own answer.
+/// Where to put the view for SSTV — `None` for every other mode, so the
+/// caller keeps its own answer. On a demod-audio front end it is also the
+/// widest the view goes (see `zoom_out_window`); on an SDR it is only where
+/// the view opens (see `fit_sstv_view`).
 ///
 /// The side is the band's, not a guess: SSTV rides the **lower** sideband on
 /// 160/80/40 m, and [`Mode::is_lower_sideband_at`] already knows that because
@@ -1247,10 +1269,13 @@ mod tests {
         assert_eq!(focus_hz(Mode::Sstv, 3_730_000.0, 0.0, false, true), 3_728_250.0);
         // A mode that really is worked on the dial is untouched...
         assert_eq!(focus_hz(Mode::Ft8, 14_074_000.0, 0.0, false, true), 14_074_000.0);
-        // ...and **an SDR keeps its own dial**, because there the operator put
-        // the dial where they wanted it (the RSP1's SSTV view is fitted by
-        // hand and centres on the picture by itself).
-        assert_eq!(focus_hz(Mode::Sstv, 3_730_000.0, 0.0, false, false), 3_730_000.0);
+        // ...and **an SDR centres on the picture too** — a HackRF on 80 m
+        // showed it as a sliver left of a view centred on the empty dial.
+        assert_eq!(focus_hz(Mode::Sstv, 3_730_000.0, 0.0, false, false), 3_728_250.0);
+        // The span it opens at, the same on every front end: the picture and
+        // about as much again either side for the neighbours.
+        let (_, s) = sstv_audio_window(Mode::Sstv, 3_730_000.0).expect("SSTV answers");
+        assert_eq!(s, 3_000.0);
     }
 
     /// The "levels are hiding everything" test: a slice that is *all* at one
