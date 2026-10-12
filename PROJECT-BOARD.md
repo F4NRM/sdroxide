@@ -299,7 +299,10 @@ Familiar `−` UX without the permanence. Keep the filter as
     `--release` — a debug-build measurement of a path this hot is meaningless.
     Beware the repo's `rustfmt.toml`: a bench harness left in a source file
     must be removed or it will not compile.
-- **DAB/DAB+** — blocked on `xoolive/desperado#52` (library split)
+- ~~**DAB/DAB+** — blocked on `xoolive/desperado#52`~~ — **no longer blocked, and
+  no longer ours.** Shipped and confirmed on the air by Kevin (2026-10-11): a
+  PlutoSDR at 2.5 Msps decodes DAB+ cleanly. He owns it and has the bench, so it
+  is off our list — do not pick it up.
 - **M17** (RX-first) and **ALE Selcall**
 - **DSC** audio front end (protocol+framer done; detector needs a real burst)
 - **Inmarsat** (wideband-lane decoder, upstream #187)

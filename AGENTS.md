@@ -87,6 +87,17 @@
 > sections below, but the work is somebody else's now: do not pick it up, and do
 > not open a handover for it. Its old `PHONE-UI-HANDOVER.md` was removed.
 >
+> **DAB is Kevin's — delegated, off our list** (2026-10-12). **DAB/DAB+ have
+> shipped** and are confirmed on the air: a PlutoSDR at 2.5 Msps decodes DAB+
+> cleanly with no dropouts ("fort et clair"), and the MOT slideshow, DLS station
+> text, programme type and VU meter all landed with it (his #65–#71, merged
+> 2026-10-11). He has the bench, the capture and the hardware, so **DAB is his:
+> do not pick up a DAB item, do not "help" with one, and do not open a handover
+> for it.** `DAB_ENABLED` is `true` and `Mode::Dab` is back in the band menus —
+> several places in this file still describe DAB as *withdrawn*, *disabled* or
+> *not yet verifiable*, and those paragraphs are **history, not the state**.
+> Same shape as the phone UI being delegated on 2026-10-09.
+>
 > ⛔ **DO NOT MERGE `upstream/main` INTO THIS FORK — WITHOUT EXCEPTION.**
 >
 > **Upstream is BEHIND this fork, not ahead of it. Merging it in is a regression,
@@ -2600,15 +2611,14 @@ quick-start** in EN/NL/FR/IT (`docs/listening-quickstart.*`, PDFs regenerated
 with the pandoc + headless-Edge pipeline in "Regenerating the quick-start PDFs"),
 linked from the README beside the CB/FT8/SSTV ones.
 
-**What is left for the listener side:** nothing is queued. **DAB/DAB+**
-(ROADMAP Phase 3) was built and then **withdrawn from the shipped build on
-2026-10-01**: the sync/FIC/service list work, but the DAB+ audio path fails on
-faad2 (`FAAD_DECODE_ERROR` on ~every Access Unit, all services) where the
-reference `dabradio` decoder takes the same frames via fdk-aac — which cannot be
-linked into a GPL build. The code stays in the tree marked not-shipped
-(`sdroxide_dab::DAB_ENABLED = false`, the mode off the band menu); the full
-diagnosis and the licence-shaped options for finishing it are in
-[`ROADMAP.md`](ROADMAP.md) under DAB. Do not re-derive them.
+**What is left for the listener side:** nothing is queued. **DAB/DAB+ is
+SHIPPED and Kevin's** (see the delegated note at the top of this file): it was
+withdrawn on 2026-10-01 over a faad2 fault, that fault was found and fixed
+(faad2 built with `DRM_SUPPORT` refuses any frame whose fill element carries
+anything but SBR, and DAB+ encoders pad almost every Access Unit that way), and
+Kevin confirmed it on the air on 2026-10-11. `DAB_ENABLED` is `true`. The
+history and the licence-shaped options that turned out to be unnecessary are in
+[`ROADMAP.md`](ROADMAP.md) under DAB — kept as history, not as the state.
 
 ## Repository layout and how to work on it
 

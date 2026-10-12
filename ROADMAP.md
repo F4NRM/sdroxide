@@ -16,6 +16,14 @@ next, and it is a much shorter list than the phases above. It comes out of a
 week in which almost nothing was invented and almost everything came from one
 tester's reports, which is the right way round and worth saying out loud.
 
+**DAB is Kevin's — off our list (2026-10-12).** DAB and DAB+ **shipped** and
+are confirmed on the air on his own Pluto at 2.5 Msps; the MOT slideshow, DLS
+station text, programme type and VU meter all landed with it. He has the bench,
+the capture and the hardware, so he owns it: **do not pick up a DAB item, do
+not "help" with one, and do not open a handover for it.** Where a DAB idea
+appears in these lists it is marked done or historical. This is the same shape
+as the phone UI being delegated on 2026-10-09.
+
 **The three things being built this month:**
 
 1. **The ATS Mini as a second control surface** — the cheap, popular Si4732
@@ -27,11 +35,11 @@ tester's reports, which is the right way round and worth saying out loud.
    it hands over demodulated audio and there is no I/Q, so every wideband feature
    stays out of reach on it, and that is a property of the silicon rather than a
    gap in the work.
-2. **DAB's MOT slideshow and DLS** — the station images and the station text the
-   ensemble already broadcasts. Everything needed is in place; it wants its own
-   message pair rather than a field, because a snapshot goes out several times a
-   second and an image does not. Not yet verifiable: it needs a capture of an
-   ensemble whose service actually broadcasts one.
+2. ~~**DAB's MOT slideshow and DLS**~~ — **done**, by Kevin, in the 2026-10-11
+   merge. `ServerMsg::DabSlide` carries the picture (its own message rather than
+   a field, because a snapshot goes out several times a second and an image does
+   not), and the panel draws the slideshow, the DLS station text and the
+   programme type. His #65–#71.
 3. **DMR** — asked for, honestly unscoped. It is a VHF/UHF mode, so it needs a
    front end that reaches there, and the hard part is the AMBE+2 voice codec. It
    fits the wideband-lane machinery we already have for ADS-B, AIS and DAB.
@@ -142,11 +150,19 @@ by name in `broadcast_favourites.json`, and a **★ FAVS** filter shows only the
   Noise reduction aimed at broadcast rather than speech is still open; the
   bandwidth side is the existing filter.
 - **DAB / DAB+ (Digital Audio Broadcasting).** Wanted by a listener (upstream
-  issue #483). **Built, then withdrawn from the shipped build (2026-10-01)** —
-  see below for exactly what works and what does not, so it is not re-derived.
-  The mode is off the band menu and `sdroxide_dab::DAB_ENABLED` is `false`; the
-  code stays in the tree (`crates/sdroxide-dab`, the `Mode::Dab` lane) marked as
-  not-shipped, to be finished rather than thrown away.
+  issue #483). **SHIPPED and confirmed on the air — Kevin's, 2026-10-11.** A
+  PlutoSDR at 2.5 Msps decodes DAB+ "fort et clair" with no dropouts, and Kevin
+  has confirmed all three PRs on his own hardware. `DAB_ENABLED` is `true`,
+  `Mode::Dab` is back in the band menus, and the panel carries the MOT
+  slideshow, DLS station text, programme type and VU meter.
+
+  **Kevin owns DAB and has the bench for it.** It is deliberately **off our
+  list** — see "DAB is Kevin's" below. Do not pick it up, and do not open a
+  handover for it.
+
+  **The paragraphs below are the history** — what was withdrawn on 2026-10-01
+  and why it came back. Kept because it says what the faad2 fault *was*, which
+  is the thing a future reader would otherwise have to re-derive.
 
   **What works, proven off air** (10B at 211.648 MHz, an RSP1 at ~59 dB gain —
   40 dB was not enough to lock on a 50 cm whip): the OFDM front end syncs, the
