@@ -1629,7 +1629,7 @@ mod tests {
     /// write or stores the value as given — and it is a night blue, not black.
     #[test]
     fn the_sky_is_the_same_night_blue_on_either_target() {
-        use wgpu::TextureFormat::{Bgra8Unorm, Bgra8UnormSrgb};
+        use super::wgpu::TextureFormat::{Bgra8Unorm, Bgra8UnormSrgb};
         let plain = super::sky_clear(Bgra8Unorm);
         let srgb = super::sky_clear(Bgra8UnormSrgb);
         let encode = |l: f64| {

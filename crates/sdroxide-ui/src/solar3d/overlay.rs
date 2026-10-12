@@ -3033,20 +3033,22 @@ mod tests {
                 assert!(clock(ui, view, sim_now, false).is_some(), "the clock fits");
                 assert!(date_readout(ui, view, sim_now, false).is_some(), "the date fits");
             });
-            for (id, delta) in &o.textures_delta.set {
+            for (id, deltas) in &o.textures_delta.set {
                 if *id != egui::TextureId::default() {
                     continue;
                 }
-                let egui::ImageData::Color(img) = &delta.image;
-                match (&mut tex, delta.pos) {
-                    (Some(t), Some([x0, y0])) => {
-                        for y in 0..img.size[1] {
-                            for x in 0..img.size[0] {
-                                t[(x0 + x, y0 + y)] = img[(x, y)];
+                for delta in deltas {
+                    let egui::ImageData::Color(img) = &delta.image;
+                    match (&mut tex, delta.pos) {
+                        (Some(t), Some([x0, y0])) => {
+                            for y in 0..img.size[1] {
+                                for x in 0..img.size[0] {
+                                    t[(x0 + x, y0 + y)] = img[(x, y)];
+                                }
                             }
                         }
+                        _ => tex = Some(egui::ColorImage::clone(img)),
                     }
-                    _ => tex = Some((**img).clone()),
                 }
             }
             out = Some(o);
