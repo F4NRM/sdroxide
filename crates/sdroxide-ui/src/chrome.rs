@@ -450,6 +450,14 @@ pub fn hazard_stripes(p: &Painter, rect: Rect, stripe_w: f32) {
 /// contents has to add on top of them to arrive at the `width` to reserve.
 pub const MODULE_MARGIN_X: f32 = 8.0;
 
+/// What a module's frame adds **outside** the rect it is given: the stroke,
+/// half of it either side.
+///
+/// Named rather than written into an expression because it is the term that is
+/// easy to leave out — and leaving it out is what made every strip box paint
+/// past the window. See [`module_bare_h`].
+pub const MODULE_STROKE_X: f32 = 2.0;
+
 /// A caption-less control module of fixed `width` and `height` (usually
 /// [`MODULE_TALL_H`]): a bordered box whose content fills the full box height,
 /// vertically centred.
@@ -471,7 +479,23 @@ pub fn module_bare_h<R>(ui: &mut Ui, width: f32, height: f32, add: impl FnOnce(&
                 .stroke(Stroke::new(1.0, theme::LINE_LIT()))
                 .inner_margin(egui::Margin { left: 8, right: 8, top: 4, bottom: 5 })
                 .show(ui, |ui| {
-                    ui.set_width(width - 16.0);
+                    // **`width` − 18, not `width` − 16.** The frame spends 8 pt
+                    // of margin on each side and then **2 pt more on its own
+                    // stroke**, and a stroke is painted *outside* the rect it is
+                    // given. Budgeting only the margins therefore made every
+                    // module's frame paint 2 pt wider than the allocation it was
+                    // handed.
+                    //
+                    // That is invisible on one box and arithmetic on a row: the
+                    // desktop strip packs six boxes, so the strip's plate ended
+                    // up **12 pt** wider than the row the packer planned — past
+                    // the window edge, and clipped on screen. The packer was
+                    // exact the whole time (1963.5 pt against a 1964 pt pin); the
+                    // frames were not, one at a time.
+                    //
+                    // It is the same arithmetic #643 settled for the SSTV panel,
+                    // in the module every panel and strip box is built from.
+                    ui.set_width(width - 2.0 * MODULE_MARGIN_X - MODULE_STROKE_X);
                     ui.set_min_height(module_content_h(height));
                     ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
                         ui.set_min_height(module_content_h(height));

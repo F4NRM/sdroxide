@@ -7635,6 +7635,13 @@ fn system_rows_w(ui: &egui::Ui, simple: bool, swl: bool) -> f32 {
     chip_row_w(ui, &system_top_row(simple, swl))
         .max(chip_row_w(ui, &system_bottom_row(simple, swl)))
         + 2.0 * crate::chrome::MODULE_MARGIN_X
+        // **And the frame's own stroke**, because `module_bare_h` now pays it.
+        // The two have to agree: the box reserves what the frame spends. When the
+        // frame was changed to count the stroke and this was not, the box's
+        // content room silently lost 2 pt and the widest chip stopped fitting —
+        // which is what `the_condensed_system_box_fits_its_chips` caught, and is
+        // the reason it is worth having.
+        + crate::chrome::MODULE_STROKE_X
 }
 
 /// The System box's top-row labels. Simple drops the three an SWL or CB
@@ -9858,8 +9865,8 @@ mod tests {
             // saving on the bottom row is worth nothing while this holds.
             assert_eq!(
                 system_rows_w(ui, false, true),
-                top + 2.0 * crate::chrome::MODULE_MARGIN_X,
-                "the box is sized by the top row"
+                top + 2.0 * crate::chrome::MODULE_MARGIN_X + crate::chrome::MODULE_STROKE_X,
+                "the box is sized by the top row, plus the frame's own margins and stroke"
             );
         })
         .drop_without_applying_deltas();

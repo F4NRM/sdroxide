@@ -2255,7 +2255,7 @@ mod split_tests {
         }
     }
 
-    /// **The same oracle at the width where it fails, currently ignored.**
+    /// **The same oracle at the width where it used to fail — now un-ignored.**
     ///
     /// `no_panel_paints_past_the_window_edge` sweeps 360 and **1920** — and 1920
     /// is precisely where the fault stops being visible. At 1930 and above the
@@ -2283,12 +2283,26 @@ mod split_tests {
     /// a guard that stops just short of the fault is worse than one that reaches
     /// it and says so. Un-ignore it with the fix.
     ///
-    /// It is also why the **#643 operating-panel guard** appeared to fail when
+    /// It was also why the **#643 operating-panel guard** appeared to fail when
     /// PUBLIC SDR was moved between rows: that guard collects every painted rect
     /// in the frame, so it caught a *top bar* overflow while claiming to be
     /// about the SSTV panel.
+    ///
+    /// **The cause, found by instrumenting rather than reasoning.** `chrome`'s
+    /// own frame recorder reported *offered 1984, pinned 1964* and an outer rect
+    /// of 1996, which reads as "the plate is drawn too wide". It is not. A trace
+    /// of every strip box against what the packer planned it showed a drift of
+    /// **exactly 2.00 pt per box** — six boxes, twelve points, and a twelve-point
+    /// overrun. `module_bare_h` budgeted its content for the frame's **margins**
+    /// and not its **stroke**, and a stroke is painted *outside* the rect it is
+    /// given, so every module painted 2 pt wider than its allocation. One box is
+    /// invisible; six on a row is arithmetic.
+    ///
+    /// The packer was exact throughout (1963.5 pt against a 1964 pt pin), which
+    /// is why three theories about the System box were all wrong: they were
+    /// reasoning about which module drew too much, when **every** module drew too
+    /// much by the same 2 pt.
     #[test]
-    #[ignore = "known fault: the strip plate paints past the window above 1920 pt"]
     fn the_strip_plate_paints_past_the_window_above_1920() {
         for (w, h) in [(2000.0_f32, 1080.0_f32)] {
             let _guard = frame_test_lock();
