@@ -167,9 +167,10 @@ pub(in crate::app) fn broadcast_stations_settings(
     let (season, cached) = sdroxide_config::broadcast_schedule_status();
     ui.label(
         RichText::new(
-            "The longwave and shortwave stations labelled on the waterfall. The shortwave \
-             schedule is downloaded from eibispace.de for the current broadcasting season and \
-             re-downloaded when the season changes.",
+            "The longwave and shortwave stations labelled on the waterfall. Every source \
+             below is downloaded for the current broadcasting season and re-downloaded when \
+             the season turns. They all go into **one store**, so the SCHEDULE window's \
+             Source filter shows one of them or all of them.",
         )
         .weak(),
     );
@@ -233,9 +234,18 @@ pub(in crate::app) fn broadcast_stations_settings(
             sdroxide_types::ScheduleSource::User => "yours",
         };
         ui.horizontal(|ui| {
-            ui.label(
-                RichText::new(format!("{name:<6} {rows:>6} transmissions")).monospace().size(11.0),
-            );
+            // **Every source is listed, always.** A row that appeared only once it
+            // had downloaded made the one thing this page exists to answer — "did
+            // Aoki get downloaded?" — render as *nothing at all*, which is how it
+            // went unnoticed the first time.
+            let text = match rows {
+                Some(n) => format!("{name:<6} {n:>6} transmissions"),
+                None => format!("{name:<6}     not downloaded"),
+            };
+            ui.label(RichText::new(text).monospace().size(11.0).color(match rows {
+                Some(_) => crate::theme::gray(190),
+                None => crate::theme::YELLOW(),
+            }));
             let can = !fetching && source != sdroxide_types::ScheduleSource::User;
             if ui
                 .add_enabled(can, egui::Button::new("Download"))

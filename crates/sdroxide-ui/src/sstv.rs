@@ -453,7 +453,6 @@ enum Ink {
 }
 
 impl Ink {
-
     /// The colour at pixel column `x`, over a run `span` wide.
     fn at(self, x: f32, span: f32) -> (u8, u8, u8) {
         let span = span.max(1.0);

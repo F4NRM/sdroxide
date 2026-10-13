@@ -45,15 +45,15 @@ mod rf_paint;
 /// Solar-system 3D view. A second OS window natively, a second browser tab on
 /// the web; the sole consumer of depth/MSAA/vertex buffers either way.
 mod solar3d;
+mod sound_welcome;
 mod sstv;
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod test_raster;
 pub mod theme;
 mod time;
 mod tooltip_copy;
 mod touch_lock;
 mod view;
-mod sound_welcome;
-#[cfg(all(test, not(target_arch = "wasm32")))]
-mod test_raster;
 mod wake_lock;
 pub mod waterfall_gpu;
 mod wefax;

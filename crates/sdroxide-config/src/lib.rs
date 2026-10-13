@@ -2425,7 +2425,16 @@ const EIBI_SKED_URL: &str = "http://www.eibispace.de/dx/sked-{season}.csv";
 /// There is no plain-text URL — `.../ncb24.txt` answers **404** — so the zip is
 /// the only way to get it, and unzipping is a step EiBi never needed. The file
 /// inside is **Shift-JIS**, not Latin-1.
-const AOKI_SKED_URL: &str = "https://www1.s2.starcat.ne.jp/ndxc/pc/nc/ncb{season}.zip";
+/// Aoki's **index page**, from which the shortwave schedule's own filename is
+/// read rather than guessed.
+///
+/// This is the whole reason Aoki never downloaded. The name follows the
+/// broadcasting season, so a template built from ours asks for `ncb26.zip` — and
+/// **Aoki publishes shortwave once a year, so the newest there is `ncb24.zip`**
+/// while our season is A26. Every guessed name 404s, which is why the first build
+/// silently had no Aoki at all. Reading the site's own index is the only way to
+/// ask it what it has.
+const AOKI_INDEX_URL: &str = "https://www1.s2.starcat.ne.jp/ndxc/nnk.htm";
 
 /// Turn a schedule's **bytes** into text, which depends entirely on the source.
 ///
@@ -2782,20 +2791,74 @@ pub fn fetch_broadcast_master() -> Result<Vec<sdroxide_types::BroadcastStation>,
     Ok(load_broadcast_master())
 }
 
+/// Aoki's own shortwave schedule URL, **read from their index**.
+///
+/// Picks the highest-numbered season in `pc/nc/`, because that is the newest file
+/// they have published and not necessarily the season we are in.
+fn aoki_latest(agent: &ureq::Agent) -> Result<(String, String), String> {
+    let mut resp = agent
+        .get(AOKI_INDEX_URL)
+        .call()
+        .map_err(|e| format!("Aoki's index would not load: {e}"))?;
+    if !resp.status().is_success() {
+        return Err(format!("Aoki's index answered HTTP {}", resp.status()));
+    }
+    let bytes = resp
+        .body_mut()
+        .with_config()
+        .limit(4 * 1024 * 1024)
+        .read_to_vec()
+        .map_err(|e| e.to_string())?;
+    let (page, _, _) = encoding_rs::SHIFT_JIS.decode(&bytes);
+    // The season **kind** as well as the year, because that is what names the
+    // file inside the zip (`ncb24.txt`), and because our own season is not it.
+    let mut best: Option<(String, String)> = None;
+    for link in page.split("href=\"") {
+        let Some(url) = link.split('"').next() else {
+            continue;
+        };
+        let Some(name) = url.rsplit('/').next() else {
+            continue;
+        };
+        // `pc/nc/` is Aoki's **shortwave** folder. `pc/ns/` is the satellite one
+        // and `pc/ad/` something else, so the folder is what tells them apart —
+        // taking any `nc*.zip` anywhere would fetch the wrong schedule.
+        if !url.contains("/pc/nc/") {
+            continue;
+        }
+        let stem = name.strip_suffix(".zip").unwrap_or(name);
+        let (kind, year) = match stem.split_at(stem.len().saturating_sub(2)) {
+            (k, y) if !y.is_empty() && y.chars().all(|c| c.is_ascii_digit()) => (k, y),
+            _ => continue,
+        };
+        if !kind.starts_with("nc") {
+            continue;
+        }
+        if best.as_ref().is_none_or(|(_, y)| year > y.as_str()) {
+            best = Some((kind.to_string(), year.to_string()));
+        }
+    }
+    let (kind, year) = best.ok_or("Aoki's index lists no shortwave schedule this year")?;
+    Ok((
+        format!("https://www1.s2.starcat.ne.jp/ndxc/pc/nc/{kind}{year}.zip"),
+        format!("{kind}{year}"),
+    ))
+}
+
 /// Which sources are cached, and how many rows each holds — the Settings page's
 /// per-source line, so *"which of my schedules is actually here"* has an answer
 /// instead of being inferred from a list that happens to be short.
-pub fn cached_broadcast_sources() -> Vec<(sdroxide_types::ScheduleSource, usize)> {
+pub fn cached_broadcast_sources() -> Vec<(sdroxide_types::ScheduleSource, Option<usize>)> {
+    let season = sdroxide_types::broadcast::season_file(now_unix());
     [
         sdroxide_types::ScheduleSource::Eibi,
         sdroxide_types::ScheduleSource::Aoki,
         sdroxide_types::ScheduleSource::Hfcc,
     ]
     .into_iter()
-    .filter_map(|source| {
-        let season = sdroxide_types::broadcast::season_file(now_unix());
-        let cached = broadcast_cache_path_for(&season, source).ok()?.exists();
-        cached.then(|| (source, cached_schedule_for(source).map(|v| v.len()).unwrap_or(0)))
+    .map(|source| {
+        let here = broadcast_cache_path_for(&season, source).map(|p| p.exists()).unwrap_or(false);
+        (source, here.then(|| cached_schedule_for(source).map(|v| v.len()).unwrap_or(0)))
     })
     .collect()
 }
@@ -2854,6 +2917,41 @@ pub fn import_broadcast_stations(path: &std::path::Path) -> Result<usize, String
     )
     .map_err(|e| e.to_string())?;
     Ok(n)
+}
+
+/// The Aoki seasons already cached, newest first.
+///
+/// **Aoki publishes shortwave once a year and files it under its own season**, so
+/// the season this program is in is frequently not the season on disk. Reading the
+/// cache therefore asks *"what Aoki files are here?"* rather than assuming.
+fn aoki_cached_seasons() -> Vec<String> {
+    let Ok(dir) = config_dir() else { return Vec::new() };
+    let Ok(entries) = fs::read_dir(dir.join(BROADCAST_CACHE_DIR)) else {
+        return Vec::new();
+    };
+    let mut out: Vec<String> = entries
+        .filter_map(|e| e.ok())
+        .filter_map(|e| {
+            let n = e.file_name().to_string_lossy().into_owned();
+            n.strip_prefix("aoki-")
+                .and_then(|r| r.strip_suffix(".txt"))
+                .filter(|s| !s.is_empty())
+                .map(str::to_string)
+        })
+        .collect();
+    out.sort_by(|a, b| b.cmp(a));
+    out
+}
+
+/// The season a cache filename carries, if it is one of ours.
+fn path_stem(path: &std::path::Path) -> Option<String> {
+    let n = path.file_name()?.to_str()?.to_string();
+    for (pre, suf) in [("aoki-", ".txt"), ("sked-", ".csv"), ("hfcc", ".sked")] {
+        if let Some(mid) = n.strip_prefix(pre).and_then(|r| r.strip_suffix(suf)) {
+            return Some(mid.to_string());
+        }
+    }
+    None
 }
 
 /// A listener's own list, as CSV or as plain lines.
@@ -2961,9 +3059,20 @@ pub fn cached_schedule_for(
     source: sdroxide_types::ScheduleSource,
 ) -> Option<Vec<sdroxide_types::BroadcastStation>> {
     let season = sdroxide_types::broadcast::season_file(now_unix());
-    let path = broadcast_cache_path_for(&season, source).ok()?;
+    // Aoki's cache is filed under **Aoki's** season, so look for that first and
+    // fall back to ours; a reader that assumed ours would simply never find it.
+    let aoki_season = aoki_cached_seasons();
+    let path = aoki_season
+        .iter()
+        .map(|s| broadcast_cache_path_for(s, source))
+        .chain(std::iter::once(broadcast_cache_path_for(&season, source)))
+        .find_map(|p| p.ok().filter(|p| p.exists()))?;
     let bytes = fs::read(&path).ok()?;
-    let text = match cached_text_from_bytes(source, &season, &bytes) {
+    let text = match cached_text_from_bytes(
+        source,
+        path_stem(&path).as_deref().unwrap_or(&season),
+        &bytes,
+    ) {
         Ok(t) => t,
         Err(e) => {
             warn!("cached {source:?} schedule would not unpack: {e}");
@@ -3071,18 +3180,18 @@ pub fn fetch_broadcast_schedule_from(
     if source == S::User {
         return Err("the listener's own stations are a local file, not a download".into());
     }
-    let url = match source {
-        S::Eibi => EIBI_SKED_URL.replace("{season}", &season),
-        S::Aoki => AOKI_SKED_URL.replace("{season}", &season),
-        S::Hfcc => return Err("HFCC needs its companion station-name file; not built yet".into()),
-        S::User => unreachable!("handled above"),
-    };
     let agent: ureq::Agent = ureq::Agent::config_builder()
         .timeout_connect(Some(std::time::Duration::from_secs(15)))
         .timeout_global(Some(std::time::Duration::from_secs(120)))
         .user_agent(concat!("sdroxide/", env!("CARGO_PKG_VERSION")))
         .build()
         .into();
+    let url = match source {
+        S::Eibi => EIBI_SKED_URL.replace("{season}", &season),
+        S::Aoki => aoki_latest(&agent)?.0,
+        S::Hfcc => return Err("HFCC needs its companion station-name file; not built yet".into()),
+        S::User => unreachable!("handled above"),
+    };
 
     let mut resp = agent.get(&url).call().map_err(|e| e.to_string())?;
     if !resp.status().is_success() {
@@ -3097,7 +3206,14 @@ pub fn fetch_broadcast_schedule_from(
 
     // Aoki's is a zip; EiBi's is the file itself. Either way the schedule text
     // ends up in one variable and everything below is source-agnostic.
-    let text = cached_text_from_bytes(source, &season, &bytes)?;
+    // **Aoki's own season, not ours.** They publish shortwave once a year, so
+    // the file in the zip is `ncb24.txt` while we are in A26 — and asking for
+    // `ncb26.txt` misses, falls through to "the largest .txt", and lands on
+    // Aoki's 474 kB *listener list*, which is a real file in a real Aoki format
+    // and parses to nothing. The discovered season is threaded in precisely so
+    // that cannot happen.
+    let aoki_season = if source == S::Aoki { Some(aoki_latest(&agent)?.1) } else { None };
+    let text = cached_text_from_bytes(source, aoki_season.as_deref().unwrap_or(&season), &bytes)?;
     let stations =
         sdroxide_types::broadcast::parse_from(source, &text).map_err(|e| e.to_string())?;
     if stations.len() < MIN_SCHEDULE_ROWS {
@@ -3109,15 +3225,17 @@ pub fn fetch_broadcast_schedule_from(
 
     // The cache holds the **bytes as downloaded** — EiBi's CSV or Aoki's zip —
     // and is re-decoded on read, so the two paths cannot drift.
-    let path = broadcast_cache_path_for(&season, source).map_err(|e| e.to_string())?;
+    // Cached under **Aoki's** season, so the cache file names the file it holds.
+    let cache_season = aoki_season.as_deref().unwrap_or(&season);
+    let path = broadcast_cache_path_for(cache_season, source).map_err(|e| e.to_string())?;
     if let Some(dir) = path.parent() {
         fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     }
     fs::write(&path, &bytes).map_err(|e| e.to_string())?;
     // Last season's file is only dead weight once this one has landed.
-    prune_broadcast_cache(&season);
+    prune_broadcast_cache(cache_season);
     info!(
-        "downloaded the {season} {source:?} broadcast schedule: {} transmissions",
+        "downloaded the {cache_season} {source:?} broadcast schedule: {} transmissions",
         stations.len()
     );
 

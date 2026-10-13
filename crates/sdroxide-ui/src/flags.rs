@@ -367,14 +367,8 @@ pub fn pirate(ui: &mut egui::Ui, h: f32) -> egui::Response {
     let bone = egui::Stroke::new((h * 0.08).max(1.0), white);
     let d = h * 0.32;
     let by = c.y + h * 0.15;
-    p.line_segment(
-        [egui::pos2(c.x - d, by - h * 0.08), egui::pos2(c.x + d, by + h * 0.08)],
-        bone,
-    );
-    p.line_segment(
-        [egui::pos2(c.x - d, by + h * 0.08), egui::pos2(c.x + d, by - h * 0.08)],
-        bone,
-    );
+    p.line_segment([egui::pos2(c.x - d, by - h * 0.08), egui::pos2(c.x + d, by + h * 0.08)], bone);
+    p.line_segment([egui::pos2(c.x - d, by + h * 0.08), egui::pos2(c.x + d, by - h * 0.08)], bone);
     let head = c.y - h * 0.16;
     p.circle_filled(egui::pos2(c.x, head), h * 0.22, white);
     let eye = h * 0.055;
