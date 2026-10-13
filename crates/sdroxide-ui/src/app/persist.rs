@@ -348,7 +348,7 @@ pub(in crate::app) fn persist_remote_server(server: &sdroxide_types::RemoteServe
 
 #[cfg(not(target_arch = "wasm32"))]
 pub(in crate::app) fn load_broadcast_stations() -> Vec<sdroxide_types::BroadcastStation> {
-    sdroxide_config::load_broadcast_stations()
+    sdroxide_config::load_broadcast_master()
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -466,7 +466,10 @@ pub(in crate::app) fn spawn_schedule_fetch(
     std::thread::Builder::new()
         .name("broadcast-schedule".into())
         .spawn(move || {
-            let _ = tx.send(sdroxide_config::fetch_broadcast_schedule());
+            // **Every** source, not EiBi alone: the master store is the point,
+            // and a source that fails keeps its cache rather than cancelling the
+            // others.
+            let _ = tx.send(sdroxide_config::fetch_broadcast_master());
         })
         .ok()?;
     Some(rx)

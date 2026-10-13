@@ -2445,6 +2445,26 @@ fn decode_schedule(source: sdroxide_types::ScheduleSource, bytes: &[u8]) -> Stri
     }
 }
 
+/// The cached bytes of `source` as schedule text.
+///
+/// **One place, because the cache round-trip is where this goes wrong.** The
+/// cache holds the bytes **as downloaded** — EiBi's CSV, Aoki's **zip** — and the
+/// reader here has to undo whatever the fetcher did. Aoki is the case that
+/// matters: reading its cached zip with the generic Shift-JIS decode returns
+/// *something*, not an error, so the store comes back empty and looks exactly
+/// like a source with nothing in it.
+fn cached_text_from_bytes(
+    source: sdroxide_types::ScheduleSource,
+    season: &str,
+    bytes: &[u8],
+) -> Result<String, String> {
+    if source == sdroxide_types::ScheduleSource::Aoki {
+        aoki_text_from_zip(bytes, season)
+    } else {
+        Ok(decode_schedule(source, bytes))
+    }
+}
+
 /// Read the schedule out of Aoki's zip: the one entry ending `.txt`.
 fn aoki_text_from_zip(bytes: &[u8], season: &str) -> Result<String, String> {
     let text = aoki_schedule_entry(bytes, season)?;
@@ -2690,6 +2710,78 @@ pub fn load_broadcast_stations() -> Vec<sdroxide_types::BroadcastStation> {
     apply_broadcast_overrides(schedule, load_broadcast_overrides())
 }
 
+/// **The master store**: every downloaded source in one list, tagged.
+///
+/// bebepip's answer on fork #69 — *"I would merge all these databases into one
+/// master repository"* — rather than the handover's older "one active source at a
+/// time". The repetition a merge creates in this list is his accepted cost: it is
+/// the Schedule window, where the detail belongs, and the panadapter is what
+/// collapses it (one name per station, `broadcast_label_dedupe`).
+///
+/// A source with nothing cached simply does not appear, so this degrades to the
+/// old behaviour rather than to an empty store — **the failure that matters here
+/// is silence**, since a store that quietly holds nothing looks exactly like a
+/// working one.
+pub fn load_broadcast_master() -> Vec<sdroxide_types::BroadcastStation> {
+    use sdroxide_types::ScheduleSource as S;
+    let mut sources: Vec<(S, Vec<sdroxide_types::BroadcastStation>)> = Vec::new();
+    let mut found = 0usize;
+    for source in [S::Eibi, S::Aoki, S::Hfcc] {
+        if let Some(rows) = cached_schedule_for(source) {
+            found += rows.len();
+            sources.push((source, rows));
+        }
+    }
+    let overrides = load_broadcast_overrides();
+    if !overrides.is_empty() {
+        sources.push((S::User, overrides.clone()));
+    }
+    if sources.is_empty() {
+        // Nothing downloaded: the compiled-in EiBi still applies, and is tagged as
+        // what it is rather than as the operator's own.
+        return apply_broadcast_overrides(sdroxide_types::broadcast::builtin().to_vec(), overrides);
+    }
+    info!("broadcast master store: {found} rows from {} sources", sources.len());
+    apply_broadcast_overrides(
+        sdroxide_types::broadcast::master_store(&sources),
+        // The user's own rows are already in the store; laying them over again
+        // would be harmless but would re-sort, so they are left where they are.
+        Vec::new(),
+    )
+}
+
+/// Download **every** source that can be downloaded, keeping the caches that
+/// fail.
+///
+/// One source failing is not a reason to lose the other: HFCC in particular needs
+/// its companion station-name file and is not buildable yet, which used to be a
+/// reason to refuse the whole request.
+pub fn fetch_broadcast_master() -> Result<Vec<sdroxide_types::BroadcastStation>, String> {
+    use sdroxide_types::ScheduleSource as S;
+    let mut errors: Vec<String> = Vec::new();
+    let mut got = 0usize;
+    for source in [S::Eibi, S::Aoki, S::Hfcc] {
+        match fetch_broadcast_schedule_from(source) {
+            Ok(rows) => {
+                got += rows.len();
+                info!("fetched the {source:?} schedule: {} transmissions", rows.len());
+            }
+            Err(e) => {
+                warn!("the {source:?} schedule did not download: {e}");
+                errors.push(format!("{source:?}: {e}"));
+            }
+        }
+    }
+    if got == 0 {
+        return Err(if errors.is_empty() {
+            "no broadcast source could be downloaded".into()
+        } else {
+            errors.join("; ")
+        });
+    }
+    Ok(load_broadcast_master())
+}
+
 /// Lay the operator's entries over a schedule: one with the same name and
 /// frequency replaces the scheduled row, anything else is added.
 fn apply_broadcast_overrides(
@@ -2733,11 +2825,13 @@ pub fn cached_schedule_for(
     let season = sdroxide_types::broadcast::season_file(now_unix());
     let path = broadcast_cache_path_for(&season, source).ok()?;
     let bytes = fs::read(&path).ok()?;
-    // How the bytes are read is the source's business: EiBi is Latin-1 and Aoki
-    // is Shift-JIS. Both are cached as they were **downloaded**, so the decode
-    // here and the one at fetch time must agree — which is why both go through
-    // `decode_schedule`.
-    let text = decode_schedule(source, &bytes);
+    let text = match cached_text_from_bytes(source, &season, &bytes) {
+        Ok(t) => t,
+        Err(e) => {
+            warn!("cached {source:?} schedule would not unpack: {e}");
+            return None;
+        }
+    };
     let stations = sdroxide_types::broadcast::parse_from(source, &text).unwrap_or_else(|e| {
         warn!("cached {source:?} schedule would not parse: {e}");
         Vec::new()
@@ -2865,11 +2959,7 @@ pub fn fetch_broadcast_schedule_from(
 
     // Aoki's is a zip; EiBi's is the file itself. Either way the schedule text
     // ends up in one variable and everything below is source-agnostic.
-    let text = if source == S::Aoki {
-        aoki_text_from_zip(&bytes, &season)?
-    } else {
-        decode_schedule(source, &bytes)
-    };
+    let text = cached_text_from_bytes(source, &season, &bytes)?;
     let stations =
         sdroxide_types::broadcast::parse_from(source, &text).map_err(|e| e.to_string())?;
     if stations.len() < MIN_SCHEDULE_ROWS {
@@ -4474,5 +4564,122 @@ mod tests {
         assert!(parsed.len() < MIN_SCHEDULE_ROWS);
         // Whereas the compiled-in fallback comfortably clears the bar.
         assert!(sdroxide_types::broadcast::builtin().len() > MIN_SCHEDULE_ROWS);
+    }
+}
+
+#[cfg(test)]
+mod aoki_cache_roundtrip {
+    use super::{cached_text_from_bytes, decode_schedule};
+    use sdroxide_types::ScheduleSource;
+
+    /// Aoki's **published** schedule, verbatim from the fixture the parser's own
+    /// tests use — not a header typed in here, which is how a test ends up
+    /// pinning an invention.
+    const AOKI_SCHEDULE: &str = include_str!("../../sdroxide-types/src/aoki-fixture.txt");
+
+    /// **The cache holds what was downloaded, so the reader has to undo it.**
+    /// Aoki's is a zip and EiBi's is the CSV itself; a reader that only decodes
+    /// bytes gets Aoki's *archive* rather than its schedule. This is pinned on
+    /// the behaviour rather than on the bytes, because the bytes are the thing
+    /// that is easy to get subtly wrong and hard to read: what a listener gets is
+    /// either a full schedule or an empty one.
+    #[test]
+    fn a_cached_aoki_zip_is_unpacked_rather_than_decoded() {
+        let zip =
+            zip_of(&[("userlist1.txt", "listener's own list\r\n"), ("ncb24.txt", AOKI_SCHEDULE)]);
+
+        let good = sdroxide_types::broadcast::parse_from(
+            ScheduleSource::Aoki,
+            &cached_text_from_bytes(ScheduleSource::Aoki, "24", &zip).expect("unpacks"),
+        )
+        .expect("parses");
+        assert!(
+            good.len() > 20,
+            "the packed path yields the published schedule, not nothing (got {})",
+            good.len()
+        );
+
+        // The way it was read before: decoded, not unpacked.
+        let naive = decode_schedule(ScheduleSource::Aoki, &zip);
+        let parsed =
+            sdroxide_types::broadcast::parse_from(ScheduleSource::Aoki, &naive).unwrap_or_default();
+        assert!(
+            parsed.is_empty(),
+            "decoding the archive as text is the fault, and it yields {} rows",
+            parsed.len()
+        );
+    }
+
+    /// EiBi is plain Latin-1 text, so one helper for both sources is only safe
+    /// if that is genuinely the identity there.
+    #[test]
+    fn a_cached_eibi_csv_is_still_read_as_itself() {
+        let csv = b"Freq;Station;Language\r\n15400;BBC;English\r\n";
+        assert_eq!(
+            cached_text_from_bytes(ScheduleSource::Eibi, "24", csv).unwrap(),
+            String::from_utf8_lossy(csv)
+        );
+    }
+
+    /// A minimal **deflated** zip, like Aoki's real archive.
+    ///
+    /// Stored entries would defeat the test: their bytes sit verbatim in the file,
+    /// so a reader that merely *decoded* the archive would find the schedule text
+    /// by accident and the fault would be invisible — the test would pass for the
+    /// wrong reason. Compressed is what the reader actually has to unpack.
+    fn zip_of(entries: &[(&str, &str)]) -> Vec<u8> {
+        use std::io::Write;
+        let mut out = Vec::new();
+        let mut dir = Vec::new();
+        for (name, data) in entries {
+            let off = out.len() as u32;
+            let b = data.as_bytes();
+            // flate2's `write::DeflateEncoder` already emits **raw** deflate,
+            // which is what a zip entry is — the `Zlib*` types are the wrapped
+            // ones. Symmetric with the reader's `read::DeflateDecoder`.
+            let mut enc =
+                flate2::write::DeflateEncoder::new(Vec::new(), flate2::Compression::new(6));
+            enc.write_all(b).unwrap();
+            let comp = enc.finish().unwrap();
+            out.extend_from_slice(&[0x50, 0x4b, 0x03, 0x04]);
+            out.extend_from_slice(&[20, 0, 0, 0, 8, 0, 0, 0, 0, 0]);
+            out.extend_from_slice(&crc32(b).to_le_bytes());
+            out.extend_from_slice(&(comp.len() as u32).to_le_bytes());
+            out.extend_from_slice(&(b.len() as u32).to_le_bytes());
+            out.extend_from_slice(&(name.len() as u16).to_le_bytes());
+            out.extend_from_slice(&0u16.to_le_bytes());
+            out.extend_from_slice(name.as_bytes());
+            out.extend_from_slice(&comp);
+
+            dir.extend_from_slice(&[0x50, 0x4b, 0x01, 0x02]);
+            dir.extend_from_slice(&[20, 0, 20, 0, 0, 0, 8, 0, 0, 0, 0, 0]);
+            dir.extend_from_slice(&crc32(b).to_le_bytes());
+            dir.extend_from_slice(&(comp.len() as u32).to_le_bytes());
+            dir.extend_from_slice(&(b.len() as u32).to_le_bytes());
+            dir.extend_from_slice(&(name.len() as u16).to_le_bytes());
+            dir.extend_from_slice(&[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+            dir.extend_from_slice(&off.to_le_bytes());
+            dir.extend_from_slice(name.as_bytes());
+        }
+        let (start, len) = (out.len() as u32, dir.len() as u32);
+        out.extend_from_slice(&dir);
+        out.extend_from_slice(&[0x50, 0x4b, 0x05, 0x06]);
+        out.extend_from_slice(&[0, 0, 0, 0, 0, 0]);
+        out.extend_from_slice(&(entries.len() as u16).to_le_bytes());
+        out.extend_from_slice(&len.to_le_bytes());
+        out.extend_from_slice(&start.to_le_bytes());
+        out.extend_from_slice(&0u16.to_le_bytes());
+        out
+    }
+
+    fn crc32(data: &[u8]) -> u32 {
+        let mut c = 0xffff_ffffu32;
+        for b in data {
+            c ^= *b as u32;
+            for _ in 0..8 {
+                c = if c & 1 != 0 { (c >> 1) ^ 0xedb8_8320 } else { c >> 1 };
+            }
+        }
+        !c
     }
 }

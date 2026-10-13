@@ -421,242 +421,37 @@ write our code, carry the notice.
   it would be a `PROTO_VERSION` bump, so it is worth deciding early rather than
   bolting on.
 
-## 12. The master store — BUILT (types half)
+## 12. The master store — BUILT, and it is the whole of the feature
 
-`87d763b0` is the waterfall half. The **store** is this, on `sdroxide-types`:
+Three commits, in the order the fault was found:
 
-- **`BroadcastStation::source`** (`ScheduleSource::Eibi|Aoki|Hfcc|User`,
-  `#[serde(default)]`), on the row rather than in a side table — a schedule row is
-  where the question is asked. **`BroadcastStation` is local only: it appears in no
-  wire message, so this is no `PROTO_VERSION` bump.** `Default` is `Eibi`, which is
-  what every row in an existing `broadcast_stations.json` was, and guessing beats
-  discarding somebody's own corrections over a missing field.
-- **`master_store(&[(source, rows)])`** — every source in one list, each row
-  tagged, sorted by frequency then start then name then source rank
-  (EiBi, Aoki, HFCC, User) so a stable list does not reshuffle between frames.
-- **`filter_by_source(&rows, Option<source>)`** — `None` is **all of them**, which
-  is the default, because the repetition is bebepip's accepted cost.
+1. **`c598659a` — the store itself.** `BroadcastStation::source` (local only, no
+   `PROTO_VERSION`), `master_store`, `filter_by_source`. Duplicates kept.
+2. **The Aoki cache round-trip**, which was broken and is the reason this took
+   three commits rather than one. The cache holds the bytes **as downloaded** —
+   EiBi's CSV, Aoki's **zip** — and `cached_schedule_for` was reading them with
+   the generic text decode. For Aoki that does not error: Shift-JIS will decode
+   zip bytes, `parse_from` returns nothing, and the store comes back **empty** —
+   which is indistinguishable from a source that works. Both paths now go through
+   one `cached_text_from_bytes`, so fetch and read cannot drift again.
+3. **Wiring + the filter**, below.
 
-**Duplicates are kept.** One broadcaster listed by two sources is two rows, both
-editable, both exportable. The Schedule window is where the detail belongs; the
-waterfall is where the repetition is wrong, and `87d763b0` collapses it there.
-Collapsing in the store would throw away data to tidy a picture.
+**The store loads, and it degrades honestly.** `load_broadcast_master` reads
+*every* cached source into `master_store`, so a source with nothing cached simply
+does not appear rather than emptying the store; with nothing cached at all it falls
+back to the compiled-in EiBi. `fetch_broadcast_master` downloads each source and
+**keeps the caches that fail** — one source refusing (HFCC, which needs its
+companion file) used to be a reason to lose the rest.
 
-**There is no week-start handling in the store, and that is the finding.** Aoki
-publishes Sunday as `1......` and counts from Sunday; everything else counts from
-Monday. That is resolved **inside each parser** (`aoki_days` maps `1`→our `7`),
-pinned by `the_week_start_is_already_normalised_by_the_parser` against the
-**published** fixture. Doing it again at this layer would shift every station by a
-day with nothing looking broken.
+**The Schedule window's source filter** sits beside FAVS and defaults to
+**all of them**, which is bebepip's explicit preference and the whole reason for
+having one store: *"the resulting list will simply be long and somewhat
+repetitive."* The label says **all of them**, not a source name — a combobox
+reading "EiBi" with three schedules loaded is this fork's house rule in miniature.
+Pinned by `the_source_filter_default_says_all_of_them` and
+`every_source_has_its_own_name`.
 
-**Still to do — this commit is the store, not the feature:**
-1. `Settings::schedule_source` — no source *selection* yet; the runtime still loads
-   one source (default EiBi).
-2. The app must build `self.broadcast` from **all available** cached sources, not
-   one.
-3. The Schedule window's **source filter** chip.
-4. **Aoki cache round-trip** — `fetch_broadcast_schedule_from` writes the raw ZIP
-   under an Aoki cache path while `cached_schedule_for` follows the generic text
-   decode. Verify before step 2 depends on it.
+**Not built:** the settings tab has no per-source *fetch now* button (every
+downloadable source is fetched automatically), and HFCC and the user's own
+stations are still the two unreadable sources. HFCC needs its companion file.
 
-## 12. The LISTEN window — map, station, comment, LOG (operator's idea, 2026-10-13)
-
-**What was asked for, in the operator's words:** *"make a listen panel with a map
-on in the right part and station info in the left part where they can immediately
-add a comment and hit log."*
-
-**And the correction worth making first, because the two are easy to confuse:**
-`dark_share` is **not** the grey line. The grey line is a *picture* — where night
-is, everywhere, at this instant, one texture over the whole map. `dark_share` is a
-*number* about **one path**: the fraction of the route from home to that station
-that is in darkness now. The grey line is its input.
-
-### What already exists, so nothing is duplicated
-
-Checked before designing, per the house rule:
-
-- **SWL LOG** (`swl_log.rs`, app-id `swl-log`, 720×520) — the reception log: list,
-  filters, QSL loop, reports, exports, and an entry form that **already has the
-  comment** (`SwlEntry::notes`) and pre-fills station/language/site from the
-  schedule at the dial.
-- **SCHEDULE** (`schedule.rs`) — the broadcast schedule as a table.
-- **Neither has a map.** Nothing anywhere in the tree is map-driven.
-
-So this is a genuine gap, not a re-skin. It is **map-first capture feeding the
-same `swl_log` file**, so the QSL/report loop is untouched.
-
-### Decisions the operator settled
-
-1. **A window, not a docked panel.** The docked column caps at ~280 pt and the
-   operating panels are built for ~680 pt; a map beside station info wants ~700,
-   so docked it squeezes what is below it (the #643 fault). As a window it gets
-   the `⇱` chip, remembered geometry, and joins `workspaces` like every other
-   tool window.
-2. **History is a toggle, off by default.** The operator's reason, and it is the
-   right one: *an experienced listening station does not want its history
-   cluttering the band*. Off, the map is only what is on now; on, it is also
-   everything ever logged. It also makes a far better screenshot.
-3. Map default = **schedule stations in the span around the dial**, logged ones
-   drawn differently. Signal spots and decodes are deliberately **not** mixed in —
-   two populations on one picture.
-
-### How it fits the existing map, with nothing changed in it
-
-`worldmap::show` is shared by three panels, so it is **not touched**. Both station
-kinds already have a slot in its signature:
-
-| what | passed as | drawn as |
-|---|---|---|
-| schedule stations in span | `stations: &[DigiStation]` — `{lat, lon, fade: 1.0, call: Some(name), band: None}` | plain dots, name on hover |
-| logged stations (history toggle) | `spots: &[(lat, lon, tint)]` | **tinted diamonds** (`worldmap.rs:785`) |
-
-So "logged looks different" is free — the map already draws spots as diamonds and
-stations as dots, and it already returns `Option<(f64, f64)>`, **the clicked
-lat/lon**, which is the whole of click-to-select.
-
-**A `MapView` of its own is required.** `SdroxideApp::map_view` is one per radio
-and `show` eases toward a target fitted to the stations it was *given*, so a
-second map sharing it would pull the first toward its own fit — the two would
-fight. So `listen_map_view: MapView` is a separate field.
-
-### The one type change, and why it is cheap
-
-`SwlEntry` has **no coordinates** — only a `site` *string*. `BroadcastStation`
-has `lat`/`lon`, so a schedule station arrives pre-placed, but **logging** one
-needs the pair added:
-
-- `lat: Option<f64>`, `lon: Option<f64>`, both `#[serde(default)]`.
-- `SwlEntry` is local `swl.json` and appears in **no wire message** — checked
-  against `crates/sdroxide-proto/src/lib.rs` — so this is **no `PROTO_VERSION`
-  bump**. An old log file loads unchanged.
-
-### The chip — and why there isn't one
-
-**LISTEN does not get a chip on the top bar, and that was measured rather than
-assumed.** It was built with one, and the width guard the project already has for
-exactly this (issue **#211**) refused it:
-
-- The SWL row is **already at the two-row limit** on a 1400 pt window for **AM** —
-  the main SWL mode. Every other mode (USB, NFM, …) **already** wants three rows in
-  SWL mode, before any of this work.
-- A third chip pushed **AM** onto a **third** row.
-
-So the chip was taken out again and **LISTEN opens from the SCHEDULE window**,
-which is already in that row and holds the same data. It costs no width and
-loses nothing: a **MAP** chip beside the clock opens LISTEN with **whatever is on
-the dial already selected** (`broadcast::at_dial`), because that is the station
-the operator is listening to and the one they most often want to write down.
-
-`the_swl_row_has_no_room_for_a_third_chip` pins the AM line. It deliberately
-asserts **AM alone** and not "two rows for every mode", because widening it to
-accept the pre-existing three-row states would hide the thing it measures.
-
-**Which chip the operator would give up for a strip chip is their call**, and it
-is worth asking: `SAT` and `ISM` in that row are ham extras a shortwave listener
-rarely opens, and freeing one would put LISTEN on the bar where it is obvious.
-
-### The real estate, and why LISTEN still is not on the bar (2026-10-13)
-
-The operator pointed at **chip padding being excessive on every chip**, which was
-right and a far bigger lever than any label: a chip added 2 pt a side on top of
-`button_padding`, so a desktop chip carried **9 pt a side — 18 pt of air around a
-five-letter label**. Removed (`3085a941`), worth 28 pt across the SWL row.
-`? HELP` became `?` beside the gear-alone settings chip.
-
-**Then the measurement that explains everything:**
-
-```
-SWL top row     446.9 pt     <- this one sizes the box
-SWL bottom row  258.6 pt     <- ~190 pt sitting idle
-```
-
-`system_rows_w` is `max(top, bottom)`, so **the bottom row's spare room was never
-reachable**. That is why the gear and the `?` changed nothing: both landed on the
-non-binding row. Each is a real saving on its own chips; the box never saw either.
-
-**Moving PUBLIC SDR down rebalances the rows almost exactly** (356.0 against
-349.5 — the closest they have ever been) **and does fit LISTEN on the top row.** It
-was built, measured, and then **withdrawn**, for a reason that matters more than
-the chip:
-
-> Moving it changes the System box by **2.9 pt** in the ordinary ham screen, and
-> that is enough to make **`the_operating_panel_stays_inside_its_column` fail** —
-> the #643 guard: *`Sstv at 1920 pt: ink x 8..1923.5938 runs past the window`*.
-
-**A 3 pt change anywhere flips that guard**, which says the SSTV panel's budget is
-still width-sensitive: it fits at the widths tested and overflows by 3.6 pt a
-couple of points either side. That is the #643 class, and the house rule is
-explicit that it is **not** fixed with a clamp at the panel boundary — that hides
-the cause and only catches the window case. It wants its own job, in the panel's
-own arithmetic.
-
-**And then it was fixed, and the fix was the reason this all worked.**
-
-`module_bare_h` budgeted its content for the frame's **margins** and not its
-**stroke**, and a stroke paints *outside* the rect it is given — so **every module
-in the program drew 2 pt wider than its allocation**. Six on the strip row, that
-is 12 pt, and the plate went past the window edge. `6f9d1295`; the operator
-described it as *"the design flaw in this whole program is the fixed widths
-instead of adaptive"*, which was closer to the truth than three of my own
-attempts at naming it.
-
-**LISTEN is now on the top row**, and it fits, because **PUBLIC SDR moved down**:
-the two rows go from 446.9 and 258.6 to **416.6 and 349.5**. The box is `max(top,
-bottom)`, so the row that was sitting there with ~190 pt of idle space was the
-one worth freeing — and the two earlier trims were both on it, which is why they
-freed nothing.
-
-The sequence is worth keeping: three sessions of the same fault, each diagnosed
-by looking rather than by measuring, and the thing that fixed it was the
-operator noticing **padding** and then **which row binds**.
-
-**And the #643 guard was lying about which panel it was.** Bisecting the failure
-to the 2.9 pt move found that `the_operating_panel_stays_inside_its_column`
-collects **every painted rect in the frame**, so with the box 3 pt wider it caught
-a **top bar** overflow while claiming to be about SSTV. The SSTV panel is fine.
-
-The real fault, on clean `HEAD` with nothing else changed:
-
-```
-window 1920   fits
-window 1930   ink to 1933.50   3.50 pt past
-window 2000   ink to 2003.50   3.50 pt past
-window 2560   ink to 2562.09   2.09 pt past
-```
-
-**The strip's plate paints past the right edge above 1920 pt** — and *both* width
-guards stop at exactly 1920, so it has been invisible. `chrome`'s own recorder
-names it: `1996x92 panel, 3.5 pt past the edge (offered 1984.0, pinned 1964.0)` —
-pinned 1964 plus the frame's own 10+10 is 1984, and the frame came out 1996, so
-something **inside** the pin demands more than `set_min_width`/`set_max_width` can
-both give. Left as `the_strip_plate_paints_past_the_window_above_1920`,
-**`#[ignore]`d** rather than deleted: it is a real shipped fault and a guard that
-stops just short of one is worse than one that reaches it and says so.
-
-**And then the operator found it on screen, in a way the harness never did.**
-
-Their screenshot is **split view** — two radios side by side — and the right
-pane's strip is **clipped at the screen edge**: `DEC off | AG…`, `REC` cut to
-`RE`. So the fault is not "a wide window", which is what the harness reproduced
-and what the test is named after. `desktop_strip` takes its width **pane-local**:
-
-> Pane-local, not viewport: in split view each radio packs its own strip against
-> its own pane.
-
-So the same box that overflows a 1930 pt single window also overflows **any pane
-narrow enough to need it**, and a split screen makes that reachable with no large
-monitor at all. **Two triggers, one cause** — a strip module that draws wider than
-the plan gave it — and the harness only ever found the wider-of-the-two doors.
-
-That is worth more than the fix: a sweep that varies the **viewport** while the
-code varies the **pane** tests one of two doors.
-
-**The naming is worth knowing about:** LISTEN is now also the band menu's
-*Explore the dial* **tab**, which is a different thing in a different place. The
-operator's word won, and both stay.
-
-### Sequenced after this, not before
-
-`dark_share` goes **inside** LISTEN, on the selected station's path, as a
-readout — not as a thing of its own. The number earns its place beside a station
-being decided on; on its own it is a statistic nobody asks for.

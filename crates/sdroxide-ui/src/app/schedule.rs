@@ -7,11 +7,33 @@
 //! filled in.
 
 use eframe::egui::{self, RichText};
-use sdroxide_types::{BroadcastStation, Command, RxId, Vfo, broadcast};
+use sdroxide_types::{BroadcastStation, Command, RxId, ScheduleSource, Vfo, broadcast};
 
 use crate::app::SdroxideApp;
 use crate::app::swl_log::SwlEditForm;
 use crate::time::now_unix;
+
+/// The sources offered in the source filter, in the order the store ranks them.
+const SOURCE_FILTERS: &[(ScheduleSource, &str)] = &[
+    (ScheduleSource::Eibi, "EiBi"),
+    (ScheduleSource::Aoki, "Aoki"),
+    (ScheduleSource::Hfcc, "HFCC"),
+    (ScheduleSource::User, "mine"),
+];
+
+/// The filter's own label, which must say **all of them** rather than any source's
+/// name — the default is the store, and a combobox reading "EiBi" when three
+/// schedules are loaded would be the control quietly lying about its state.
+fn source_label(source: Option<ScheduleSource>) -> String {
+    match source {
+        None => "all of them".to_string(),
+        Some(s) => SOURCE_FILTERS
+            .iter()
+            .find(|(x, _)| *x == s)
+            .map(|(_, n)| (*n).to_string())
+            .unwrap_or_else(|| format!("{s:?}")),
+    }
+}
 
 /// The metre bands offered in the band filter. Empty = any.
 const BAND_FILTERS: [&str; 20] = [
@@ -32,6 +54,10 @@ pub(in crate::app) struct ScheduleUi {
     pub use_now: bool,
     /// Show only the listener's favourite stations.
     pub favourites_only: bool,
+    /// Which schedule to show. `None` is **all of them**, which is the default:
+    /// the master store holds every downloaded source and the repetition is
+    /// accepted, because this window is where the detail belongs.
+    pub source: Option<ScheduleSource>,
     /// Show each row's local mean solar time at the transmitter, from the
     /// site's longitude. Off by default: most listeners work in UTC, and the
     /// column is only as good as the site coordinate.
@@ -39,7 +65,7 @@ pub(in crate::app) struct ScheduleUi {
     /// The filtered list, and the key it was built for. Rebuilt only when the
     /// filters, the favourites, the loaded schedule or the UTC minute change —
     /// not sixty times a second over four and a half thousand rows.
-    cache_key: Option<(String, String, String, String, bool, usize, i64)>,
+    cache_key: Option<(String, String, String, String, bool, usize, i64, Option<ScheduleSource>)>,
     cache: Vec<BroadcastStation>,
 }
 
@@ -54,6 +80,7 @@ impl Default for ScheduleUi {
             hhmm: 0,
             use_now: true,
             favourites_only: false,
+            source: None,
             solar_time: false,
             cache_key: None,
             cache: Vec::new(),
@@ -162,6 +189,7 @@ impl SdroxideApp {
             self.schedule.favourites_only,
             self.broadcast.len(),
             at.div_euclid(60),
+            self.schedule.source,
         );
         let rows: Vec<BroadcastStation> = if self.schedule.cache_key.as_ref() == Some(&key) {
             // Lifted out for the frame and put back afterwards, so the closure
@@ -174,6 +202,7 @@ impl SdroxideApp {
                 .iter()
                 .filter(|s| {
                     s.on_air_at(at)
+                        && f.source.is_none_or(|w| s.source == w)
                         && s.matches_query(&f.query)
                         && broadcast::contains_ascii_ci(&s.lang, &f.lang)
                         && broadcast::contains_ascii_ci(&s.target, &f.target)
@@ -239,6 +268,21 @@ impl SdroxideApp {
                     for b in BAND_FILTERS {
                         let label = if b.is_empty() { "any" } else { b };
                         ui.selectable_value(&mut self.schedule.band, b.to_string(), label);
+                    }
+                });
+            ui.label("Source");
+            egui::ComboBox::from_id_salt("sched-source")
+                .width(84.0)
+                .selected_text(source_label(self.schedule.source))
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(&mut self.schedule.source, None, "all of them")
+                        .on_hover_text(
+                            "Every downloaded schedule in the one store. A station listed \
+                         by two of them appears twice, which is the detail this window \
+                         is for — the panadapter shows one name.",
+                        );
+                    for (src, what) in SOURCE_FILTERS {
+                        ui.selectable_value(&mut self.schedule.source, Some(*src), *what);
                     }
                 });
             if crate::chrome::chip(ui, self.schedule.favourites_only, "★ FAVS")
@@ -381,5 +425,44 @@ impl SdroxideApp {
 
         self.schedule.cache = rows;
         self.schedule.cache_key = Some(key);
+    }
+}
+
+#[cfg(test)]
+mod source_filter_tests {
+    use super::{ScheduleUi, source_label};
+    use sdroxide_types::ScheduleSource;
+
+    /// **The default has to say what it actually does.** With three schedules in
+    /// the store, a combobox reading "EiBi" would be this fork's house rule in
+    /// miniature — a control that cannot be misread. It reads *all of them*.
+    #[test]
+    fn the_source_filter_default_says_all_of_them() {
+        assert_eq!(source_label(None), "all of them");
+        assert_eq!(ScheduleUi::default().source, None, "and starts on the store");
+    }
+
+    /// Every source is **distinguishable** in the filter. Two sources sharing a
+    /// label would make the combobox a control that cannot say which one is
+    /// selected — the same fault as the default being wrong, one row over.
+    #[test]
+    fn every_source_has_its_own_name() {
+        let all = [
+            ScheduleSource::Eibi,
+            ScheduleSource::Aoki,
+            ScheduleSource::Hfcc,
+            ScheduleSource::User,
+        ];
+        let mut seen: Vec<String> = Vec::new();
+        for src in all {
+            let label = source_label(Some(src));
+            assert!(!label.is_empty(), "{src:?} has no name at all");
+            assert!(
+                !seen.contains(&label),
+                "{src:?} reads {label:?}, which another source also uses"
+            );
+            seen.push(label);
+        }
+        assert_eq!(source_label(Some(ScheduleSource::Aoki)), "Aoki");
     }
 }
