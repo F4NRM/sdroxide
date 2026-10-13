@@ -179,6 +179,7 @@ impl SdroxideApp {
             self.digi_status.as_ref().map(|s| s.transmitting).unwrap_or(false),
             map_budget,
             true,
+            false,
         ) {
             // A right-click on the map swings the beam at that spot.
             self.beam_at(lat, lon, cmds);

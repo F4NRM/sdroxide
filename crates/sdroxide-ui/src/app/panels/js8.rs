@@ -466,6 +466,7 @@ impl SdroxideApp {
             false,
             avail_h,
             true,
+            false,
         ) {
             // A right-click on the map swings the beam at that spot.
             self.beam_at(lat, lon, cmds);

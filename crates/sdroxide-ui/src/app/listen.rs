@@ -607,6 +607,7 @@ impl SdroxideApp {
             false,
             max_h,
             false,
+            true,
         ) {
             // A click is coordinates, so this picks the station under it — or
             // nothing, if the click was open ocean.

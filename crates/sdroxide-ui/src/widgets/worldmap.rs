@@ -632,6 +632,18 @@ pub fn show(
     // stations and twenty city names compete with them for the same eye — the
     // operator's call after seeing it with them on.
     cities: bool,
+    // Whether a **left** click selects as well as a right one.
+    //
+    // Left is deliberately *not* wired by default: the decode map's left-click
+    // would swing the beam every time the operator reframed the view with a
+    // double-click, because egui reports a double-click as a click too. So the
+    // gesture there is secondary, and the reason is written above the test.
+    //
+    // The LISTEN map asks for it, and the operator found out why by left-clicking
+    // a station and nothing happening: it was written against this function's
+    // *signature*, which promises a clicked position, without reading that the
+    // promise is kept by the **secondary** button only.
+    primary_selects: bool,
 ) -> Option<(f64, f64)> {
     let avail_w = ui.available_width();
     if avail_w < MIN_HEIGHT {
@@ -898,7 +910,7 @@ pub fn show(
     // as a click as well — a left-click-to-point would swing the beam every time
     // the operator reframed the map. A right-click (or a long touch) is the
     // unambiguous gesture, and the caller draws its own hint.
-    if resp.secondary_clicked() {
+    if resp.secondary_clicked() || (primary_selects && resp.clicked()) {
         return resp.interact_pointer_pos().map(|p| {
             let fx = ((p.x - rect.left()) / rect.width()) as f64 - 0.5;
             let fy = 0.5 - ((p.y - rect.top()) / rect.height()) as f64;
