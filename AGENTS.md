@@ -2768,6 +2768,23 @@ merged code still calls everything `sdroxide`.
     every discriminant below it, whatever its own note claims; #537 put
     `ServerMsg::BandOpenings` after `Spots`. Bump `PROTO_VERSION`, say what
     moved, and add a postcard round-trip test for the new variant.
+  - **`VERSION_BYTE` rides `PROTO_VERSION`, and nothing reminds you.** It is a
+    separate `const` in `crates/sdroxide-proto/src/lib.rs` — the framing byte
+    every binary WS message starts with — and it is *not* derived, so a branch
+    that bumps the version and forgets the byte ships a client that passes every
+    test and is refused at the socket. **Every register entry in that file names
+    both** (`205 -> 206, VERSION_BYTE 0x19 -> 0x1A`); match it. It went
+    unmentioned in this file until 2026-10-12, which is how it gets forgotten.
+  - **Take the next `PROTO_VERSION` yourself — check it, do not wait to be
+    told.** This has been misread at least once (Kevin, 2026-10-12), after a
+    guard in this file said the number was bumped "by the maintainer, by hand",
+    which read as *do not bump it yourself*. It does not: **you take the next
+    number and check it against the register before you start.** Two branches
+    doing that correctly and independently will still collide, and that is the
+    register working rather than failing — on 2026-10-10, PR #43 took 199 → 200
+    and the client-answers branch took 200 → 201, each having checked; the
+    renumber (`6ce02943`) moved the later one on and said why. **Where they
+    collide, the later one moves.**
   - **A UI addition must respect the reserved width.** A chip's label is priced
     by `RxChip::width_label`; changing `REC` to `REC AUTO` overflowed the RX
     strip by 30 pt. Show a state with a tint, an outline or the hover instead of
