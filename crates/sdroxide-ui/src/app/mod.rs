@@ -59,7 +59,8 @@ pub(in crate::app) mod solar;
 pub(in crate::app) mod spectrum;
 pub(in crate::app) mod speech;
 pub(in crate::app) mod spots;
-pub(in crate::app) mod swl_log;
+pub(in crate::app) mod listen;
+mod swl_log;
 pub(in crate::app) mod top_bar;
 /// The update check — native only (a browser has no updater to point at).
 #[cfg(not(target_arch = "wasm32"))]
