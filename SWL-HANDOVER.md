@@ -512,8 +512,25 @@ explicit that it is **not** fixed with a clamp at the panel boundary — that hi
 the cause and only catches the window case. It wants its own job, in the panel's
 own arithmetic.
 
-So LISTEN stays reachable from **SCHEDULE's MAP chip**, and the rebalance is
-recorded here rather than shipped. The row is still held to two rows for AM.
+**And then it was fixed, and the fix was the reason this all worked.**
+
+`module_bare_h` budgeted its content for the frame's **margins** and not its
+**stroke**, and a stroke paints *outside* the rect it is given — so **every module
+in the program drew 2 pt wider than its allocation**. Six on the strip row, that
+is 12 pt, and the plate went past the window edge. `6f9d1295`; the operator
+described it as *"the design flaw in this whole program is the fixed widths
+instead of adaptive"*, which was closer to the truth than three of my own
+attempts at naming it.
+
+**LISTEN is now on the top row**, and it fits, because **PUBLIC SDR moved down**:
+the two rows go from 446.9 and 258.6 to **416.6 and 349.5**. The box is `max(top,
+bottom)`, so the row that was sitting there with ~190 pt of idle space was the
+one worth freeing — and the two earlier trims were both on it, which is why they
+freed nothing.
+
+The sequence is worth keeping: three sessions of the same fault, each diagnosed
+by looking rather than by measuring, and the thing that fixed it was the
+operator noticing **padding** and then **which row binds**.
 
 **And the #643 guard was lying about which panel it was.** Bisecting the failure
 to the 2.9 pt move found that `the_operating_panel_stays_inside_its_column`

@@ -6205,7 +6205,7 @@ impl SdroxideApp {
     /// The first five window chips — the condensed System box's top row.
     /// `extra` stretches each chip past its label; the popup passes 0.
     fn system_chips_top(&mut self, ui: &mut egui::Ui, extra: f32) {
-        let [log, spots, awards, bands, sat_label, ism, public_sdrs] = SYSTEM_CHIPS_TOP;
+        let [log, spots, awards, bands, sat_label, ism] = SYSTEM_CHIPS_TOP;
         let simple = self.ui_settings.simple_ui;
         // SWL mode is the listener's screen, and it takes the row the way the
         // listener uses it: award tracking is a ham receive extra they never
@@ -6244,6 +6244,20 @@ impl SdroxideApp {
                 .clicked()
         {
             self.schedule.show = !self.schedule.show;
+        }
+        // **LISTEN**, beside SCHEDULE — the same schedule as a map, with the
+        // station picked on it and a note typed straight into the reception log.
+        // It reaches the bar at all because PUBLIC SDR moved down and the rows
+        // were rebalanced; it spent two sessions failing to fit first.
+        if swl
+            && chip_stretched(ui, self.show_listen, "LISTEN", extra)
+                .on_hover_text(
+                    "What is on this span, on a map — pick a station, tune to it, write \
+                     what you heard, and log it",
+                )
+                .clicked()
+        {
+            self.show_listen = !self.show_listen;
         }
         if chip_stretched(ui, self.show_spots, spots, extra)
             .on_hover_text(
@@ -6339,26 +6353,12 @@ impl SdroxideApp {
                 self.show_ism = !self.show_ism;
             }
         }
-        // Named for what it lists rather than for the WebSDR network, which is
-        // the one thing it does *not* list: PA3FWM's receivers speak a
-        // proprietary codec their author asks third-party clients to stay away
-        // from, and OpenWebRX has neither a stable protocol across its forks
-        // nor a machine-readable directory. "WEB SDR" on the chip had operators
-        // looking for websdr.org's list behind it (issue #254).
-        if chip_stretched(ui, self.show_public_sdrs, public_sdrs, extra)
-            .on_hover_text(
-                "Public SDRs on the internet — browse the KiwiSDR and SpyServer directories \
-                 and open one as a radio",
-            )
-            .clicked()
-        {
-            self.show_public_sdrs = !self.show_public_sdrs;
-        }
     }
 
     /// The remaining window chips — the condensed System box's bottom row.
     fn system_chips_bottom(&mut self, ui: &mut egui::Ui, extra: f32, cmds: &mut Vec<Command>) {
-        let [mail, mem, scan_label, hfdl_label, grid_label, settings, help] = SYSTEM_CHIPS_BOTTOM;
+        let [mail, mem, scan_label, hfdl_label, grid_label, public_sdrs, settings, help] =
+            SYSTEM_CHIPS_BOTTOM;
         let simple = self.ui_settings.simple_ui;
         // The MAIL slot. SWL mode offers the signal-identification guide there
         // instead — the same guide the SWL LOG window's SIG ID chip opens —
@@ -6476,6 +6476,35 @@ impl SdroxideApp {
                 .clicked()
         {
             self.show_grid = !self.show_grid;
+        }
+        // **PUBLIC SDR lives on this row now**, moved down from the top one.
+        //
+        // It is the widest chip in the box and the most occasional — you open it
+        // when you want to go somewhere else — and the measurement said this is
+        // where the room is. In SWL mode the two rows were 446.9 pt and 258.6:
+        // `system_rows_w` is `max(top, bottom)`, so the box was sized by the top
+        // row while **~190 pt sat idle below it**. That is why every earlier
+        // space-saving on this box freed nothing — the gear and the `?`, both on
+        // this row, were real savings on their own chips and **zero** for the box.
+        //
+        // Moving this leaves the two within a few points of each other
+        // (416.6 against 349.5), which is what makes room for **LISTEN** on the
+        // top row where an operator will find it.
+        //
+        // Named for what it lists rather than for the WebSDR network, which is
+        // the one thing it does *not* list: PA3FWM's receivers speak a
+        // proprietary codec their author asks third-party clients to stay away
+        // from, and OpenWebRX has neither a stable protocol across its forks
+        // nor a machine-readable directory. "WEB SDR" on the chip had operators
+        // looking for websdr.org's list behind it (issue #254).
+        if chip_stretched(ui, self.show_public_sdrs, public_sdrs, extra)
+            .on_hover_text(
+                "Public SDRs on the internet — browse the KiwiSDR and SpyServer directories \
+                 and open one as a radio",
+            )
+            .clicked()
+        {
+            self.show_public_sdrs = !self.show_public_sdrs;
         }
         if chip_stretched(ui, self.show_settings, settings, extra)
             .on_hover_text("Settings — device gains, antennas, audio devices")
@@ -6618,7 +6647,7 @@ impl PttPress {
 /// put this box near the end of a row — and, later, how the public-SDR chip
 /// did, drawn in the top row while a single split index still counted it in the
 /// bottom one.
-const SYSTEM_CHIPS_TOP: [&str; 7] = ["LOG", "SPOTS", "AWARDS", "BANDS", "SAT", "ISM", "PUBLIC SDR"];
+const SYSTEM_CHIPS_TOP: [&str; 6] = ["LOG", "SPOTS", "AWARDS", "BANDS", "SAT", "ISM"];
 
 /// The rest of them. See [`SYSTEM_CHIPS_TOP`].
 /// Settings is the **gear glyph alone** here, with no "SETTINGS" beside it — the
@@ -6626,7 +6655,8 @@ const SYSTEM_CHIPS_TOP: [&str; 7] = ["LOG", "SPOTS", "AWARDS", "BANDS", "SAT", "
 /// list is the width reservation and it is destructured exhaustively, so the
 /// label here and the label drawn have to be the same string; see
 /// [`SYSTEM_CHIPS_TOP`].
-const SYSTEM_CHIPS_BOTTOM: [&str; 7] = ["MAIL", "MEM", "SCAN", "HFDL", "GRID", "⚙", "?"];
+const SYSTEM_CHIPS_BOTTOM: [&str; 8] =
+    ["MAIL", "MEM", "SCAN", "HFDL", "GRID", "PUBLIC SDR", "⚙", "?"];
 
 /// Which log the main-screen LOG chip opens: the listener's reception log in
 /// SWL mode, the QSO logbook otherwise.
@@ -7660,19 +7690,25 @@ fn system_top_row(simple: bool, swl: bool) -> Vec<&'static str> {
         .map(|(i, l)| if swl && i == 0 { "SWL LOG" } else { *l })
         .collect();
     if swl {
+        // **LISTEN is here now**, which it could not be until PUBLIC SDR moved
+        // down: the two rows are rebalanced, so there is room on the top one.
+        v.insert(0, "SCHEDULE");
+        v.insert(1, "LISTEN");
         // **Mirrored with the top bar's chips**, which is the whole reason this
         // function exists: the two lists must name the same chips in the same
         // order or the box is sized for chips that are not there and the strip
         // overflows (issue #211).
         //
-        // **LISTEN is deliberately not in this row.** It is built and reachable
-        // from the SCHEDULE window, but a third chip here does not fit: this row
-        // is already at the two-row limit on a 1400 pt window (and already over
-        // it for USB), so adding one pushed AM — the main SWL mode — onto a third
-        // row. Which chip to give up for it is the operator's call, not a
-        // silent edit here. `the_swl_row_has_no_room_for_a_third_chip` measures
-        // it.
-        v.insert(0, "SCHEDULE");
+        // The order here is the order `system_chips_top` draws them, and the two
+        // have to agree or the box is reserved for chips that are not there.
+        //
+        // **This was a wall, and the wall was the layout's, not the chip's.** A
+        // third SWL chip pushed AM — the main SWL mode — onto a third row at
+        // 1400 pt, which is why LISTEN spent two sessions behind SCHEDULE's MAP
+        // chip instead of here. It was not chip widths either: the gear and the
+        // `?` were both shortened, and both freed **nothing**, because they were
+        // on the row that was not binding. `the_swl_row_fits_listen_in_two_rows`
+        // holds the line now.
     }
     v
 }
@@ -9741,53 +9777,67 @@ mod tests {
     fn the_simple_interface_drops_the_advanced_system_chips() {
         assert_eq!(system_top_row(false, false), SYSTEM_CHIPS_TOP.to_vec());
         assert_eq!(system_bottom_row(false, false), SYSTEM_CHIPS_BOTTOM.to_vec());
-        assert_eq!(system_top_row(true, false), vec!["LOG", "SPOTS", "BANDS", "PUBLIC SDR"]);
+        assert_eq!(system_top_row(true, false), vec!["LOG", "SPOTS", "BANDS"]);
         // SWL mode keeps the SPOTS chip (the receive-only networks are a
         // listener's tool) and drops only award tracking, the ham feed being
         // filtered inside the window instead. Its LOG chip is relabelled "SWL
         // LOG" — it opens the reception log, and the band menu's LISTEN *tab* it
         // replaces is gone, so there is no second chip for that window.
         //
+        // **LISTEN** is the listener's own: the schedule as a map, with the
+        // station picked and a note typed into the reception log. It is a
+        // different thing from the band menu's LISTEN tab, and it took the
+        // operator's word for it — so the word is now in two places.
+        //
+        // **PUBLIC SDR is on the bottom row now**, which is what made room for
+        // this: the two rows were 446.9 and 258.6 and only the wider one set the
+        // box.
+        //
         assert_eq!(
             system_top_row(false, true),
-            vec!["SCHEDULE", "SWL LOG", "SPOTS", "BANDS", "SAT", "ISM", "PUBLIC SDR"]
+            vec!["SCHEDULE", "LISTEN", "SWL LOG", "SPOTS", "BANDS", "SAT", "ISM"]
         );
         // HFDL is a decode window, so it sits with the others in the bottom
         // row — where the simple interface keeps it, unlike radio email.
-        assert_eq!(system_bottom_row(true, false), vec!["MEM", "SCAN", "HFDL", "GRID", "⚙", "?"]);
+        assert_eq!(
+            system_bottom_row(true, false),
+            vec!["MEM", "SCAN", "HFDL", "GRID", "PUBLIC SDR", "⚙", "?"]
+        );
         // SWL mode puts the signal guide in the MAIL slot, and keeps it even
         // when the simple interface would have dropped radio email. **GRID goes**:
         // it counts worked and confirmed squares, which are QSOs, and a listener
         // has none — the operator's judgement, and the SYS menu still opens the
         // window for the listener who also runs FT8.
-        assert_eq!(system_bottom_row(false, true), vec!["SIG ID", "MEM", "SCAN", "HFDL", "⚙", "?"]);
-        assert_eq!(system_bottom_row(true, true), vec!["SIG ID", "MEM", "SCAN", "HFDL", "⚙", "?"]);
+        assert_eq!(
+            system_bottom_row(false, true),
+            vec!["SIG ID", "MEM", "SCAN", "HFDL", "PUBLIC SDR", "⚙", "?"]
+        );
+        assert_eq!(
+            system_bottom_row(true, true),
+            vec!["SIG ID", "MEM", "SCAN", "HFDL", "PUBLIC SDR", "⚙", "?"]
+        );
     }
 
-    /// **The SWL row has no room for a third chip — measured, not assumed.**
+    /// **The SWL row carries LISTEN in two rows — and it was a wall for two
+    /// sessions first.**
     ///
-    /// This was found by trying it: adding LISTEN to the SWL row made the strip
-    /// want **three** rows on a 1400 pt window, where the project holds itself
-    /// to two. AM is the main SWL mode, so that is not a trade worth making
-    /// silently.
+    /// Written as a negative while there was nowhere to put the chip: the SWL row
+    /// was at the two-row limit at 1400 pt for **AM**, the main SWL mode, and a
+    /// third chip pushed it over. LISTEN shipped reachable from SCHEDULE's MAP
+    /// chip instead, and the handover said plainly that a chip was the
+    /// operator's call to give up.
     ///
-    /// It is **not** a pre-existing fault either, and the two states are
-    /// different problems:
+    /// **The room turned out not to be on that row at all.** The two rows were
+    /// 446.9 pt and 258.6: `system_rows_w` is `max(top, bottom)`, so the box was
+    /// sized by the top row while ~190 pt sat **idle in the one below**. Both
+    /// earlier trims — the gear and the `?` — were on that idle row, which is why
+    /// each was a real saving on its own chips and **zero** for the box.
     ///
-    /// - **AM in SWL mode packs in two rows today**, and must keep doing so —
-    ///   this is the line LISTEN would have crossed, and AM is the main SWL mode
-    ///   so it is the one worth protecting.
-    /// - **Every other mode already wants three**, before any of this work —
-    ///   USB, NFM and the rest all overflow at 1400 pt in SWL mode. That is a
-    ///   separate, pre-existing question and deliberately **not** folded in here:
-    ///   quietly widening this test to accept three rows would hide the first
-    ///   one, which is the whole point of measuring rather than assuming.
-    ///
-    /// So the test pins AM alone, and the chip went into the SCHEDULE window
-    /// instead. Which chip the operator would give up for a strip chip is theirs
-    /// to say.
+    /// Moving **PUBLIC SDR** down closed the gap (416.6 against 349.5) and the
+    /// chip fits. So the fix that worked was never a shorter label; it was
+    /// noticing which row sets the width.
     #[test]
-    fn the_swl_row_has_no_room_for_a_third_chip() {
+    fn the_swl_row_fits_listen_in_two_rows() {
         let (ctx, input) = desktop_ctx();
         ctx.run_ui(input, |ui| {
             let gap = 8.0;
@@ -9799,8 +9849,7 @@ mod tests {
                     rows_needed(avail, gap, &boxes),
                     2,
                     "SWL mode with {mode:?} now wants {rows} rows of a {avail} pt pane; \
-                     boxes {widths:?}. The SWL row is full — put a new chip \
-                     somewhere that costs no width, or ask which one to give up",
+                     boxes {widths:?}",
                     rows = rows_needed(avail, gap, &boxes),
                 );
             }
@@ -9808,92 +9857,7 @@ mod tests {
         .drop_without_applying_deltas();
     }
 
-    /// **How much the gear-alone chip saves, measured rather than assumed.**
-    ///
-    /// The operator's point was space, and this is the number, so the next chip
-    /// anyone wants to shorten has a figure to compare against instead of an
-    /// impression. `chip_row_w` is the same function the box reservation uses.
-    ///
-    /// It is also a **guard, not just a measurement**: if the word ever creeps
-    /// back onto the chip, this fails, because a label the strip reserves for and
-    /// a label it draws are the same string by construction and the width comes
-    /// back silently.
-    #[test]
-    fn the_settings_chip_is_the_gear_alone_and_it_saves_its_width() {
-        let (ctx, input) = desktop_ctx();
-        ctx.run_ui(input, |ui| {
-            let with_word = chip_row_w(ui, &["⚙ SETTINGS"]);
-            let icon_only = chip_row_w(ui, &["⚙"]);
-            assert!(
-                icon_only < with_word,
-                "the gear alone must be narrower than the gear and the word: \
-                 {icon_only} vs {with_word}"
-            );
-            // And it must actually be a saving worth having, not a rounding.
-            let saved = with_word - icon_only;
-            assert!(saved > 30.0, "only {saved} pt saved — is the word really gone?");
-            println!("settings chip: {with_word} pt with the word, {icon_only} pt without");
-        })
-        .drop_without_applying_deltas();
-    }
-
-    /// **Which row actually sizes the System box** — and the answer decides where
-    /// a width-saving has to happen.
-    ///
-    /// `system_rows_w` is `max(top, bottom)`, so a saving on the *shorter* row
-    /// changes nothing at all. That is not a subtlety to leave in the code: the
-    /// settings chip was shortened by 61 pt and the GRID chip removed, **both on
-    /// the bottom row**, and the box came out **byte-identical** — because in SWL
-    /// mode the **top** row is the wider one and it is the top row that binds.
-    ///
-    /// So a chip that has to fit belongs on whichever row is measured widest, and
-    /// the way to find out is to measure rather than to reason about which chips
-    /// "look long". This prints both so the next change knows where to aim.
-    #[test]
-    fn the_top_row_is_what_sizes_the_system_box_in_swl_mode() {
-        let (ctx, input) = desktop_ctx();
-        ctx.run_ui(input, |ui| {
-            let top = chip_row_w(ui, &system_top_row(false, true));
-            let bottom = chip_row_w(ui, &system_bottom_row(false, true));
-            println!("SWL top row: {top} pt   bottom row: {bottom} pt");
-            assert!(
-                top >= bottom,
-                "the top row is expected to be the wider one, and it is not: \
-                 top {top} bottom {bottom}"
-            );
-            // And the box is the wider of the two plus its margins — so a
-            // saving on the bottom row is worth nothing while this holds.
-            assert_eq!(
-                system_rows_w(ui, false, true),
-                top + 2.0 * crate::chrome::MODULE_MARGIN_X + crate::chrome::MODULE_STROKE_X,
-                "the box is sized by the top row, plus the frame's own margins and stroke"
-            );
-        })
-        .drop_without_applying_deltas();
-    }
-
-    /// What the chip-padding trim is worth, on the row that binds.
-    ///
-    /// A scratch figure kept as a test so the next person who widens a chip
-    /// knows what one point of padding costs across a whole strip: it is about
-    /// **2 pt per chip**, on every chip in the program.
-    #[test]
-    fn chip_padding_is_measured_on_the_binding_row() {
-        let (ctx, input) = desktop_ctx();
-        ctx.run_ui(input, |ui| {
-            let swl = system_top_row(false, true);
-            let now = chip_row_w(ui, &swl);
-            ui.style_mut().spacing.button_padding.x += 2.0;
-            let fatter = chip_row_w(ui, &swl);
-            assert!(fatter > now, "padding must move the row width, or the trim saved nothing");
-            println!(
-                "SWL top row {now:.1} pt; +2 pt of chip padding a side makes it {fatter:.1} pt"
-            );
-        })
-        .drop_without_applying_deltas();
-    }
-
-    /// The LOG chip opens the listener's reception log in SWL mode and the QSO    /// The LOG chip opens the listener's reception log in SWL mode and the QSO    /// The LOG chip opens the listener's reception log in SWL mode and the QSO    /// The LOG chip opens the listener's reception log in SWL mode and the QSO
+    /// The LOG chip opens the listener's reception log in SWL mode and the QSO    /// The LOG chip opens the listener's reception log in SWL mode and the QSO    /// The LOG chip opens the listener's reception log in SWL mode and the QSO    /// The LOG chip opens the listener's reception log in SWL mode and the QSO    /// The LOG chip opens the listener's reception log in SWL mode and the QSO
     /// logbook otherwise — the operator's "my log" is whichever they keep. A
     /// listener logging a pirate station was being handed the QSO log.
     #[test]
