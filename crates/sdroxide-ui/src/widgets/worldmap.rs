@@ -628,6 +628,10 @@ pub fn show(
     night: Option<eframe::egui::TextureId>,
     tx_active: bool,
     max_h: f32,
+    // City labels. Off for the LISTEN map, where the marks are broadcast
+    // stations and twenty city names compete with them for the same eye — the
+    // operator's call after seeing it with them on.
+    cities: bool,
 ) -> Option<(f64, f64)> {
     let avail_w = ui.available_width();
     if avail_w < MIN_HEIGHT {
@@ -712,7 +716,9 @@ pub fn show(
         paint_world_texture(&p, rect, clat, clon, lon_span, lat_span, tex, tint);
     }
     if theme::map_cities() {
-        draw_cities(&p, rect, clat, clon, lon_span, lat_span, dot_r, map);
+        if cities {
+            draw_cities(&p, rect, clat, clon, lon_span, lat_span, dot_r, map);
+        }
     }
 
     // Project (lat, lon) to screen using the current view; longitude wraps.

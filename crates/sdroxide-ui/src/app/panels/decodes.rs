@@ -1350,6 +1350,7 @@ impl SdroxideApp {
                 night,
                 tx_active,
                 map_budget,
+                true,
             ) {
                 // A right-click on the map swings the beam to that spot — HRD's
                 // click-to-point. Guarded inside `beam_at`, which does nothing
