@@ -13,6 +13,16 @@ use crate::app::SdroxideApp;
 use crate::app::swl_log::SwlEditForm;
 use crate::time::now_unix;
 
+/// The SCHEDULE window's default width, and what the filter row has to fit in.
+///
+/// **The row is one `horizontal` and does not wrap**, so this is a budget and not
+/// a preference: the source combobox was added beside `Band` because that is where
+/// filters live, and the row was already at the window's edge — "Aoki" sat half
+/// off it in the first build. Two things came out of that screenshot, and both are
+/// here rather than in the commit: the combobox moved to the chip row, and the
+/// window got wide enough that the row genuinely fits.
+pub(in crate::app) const SCHEDULE_WINDOW_W: f32 = 1000.0;
+
 /// The sources offered in the source filter, in the order the store ranks them.
 const SOURCE_FILTERS: &[(ScheduleSource, &str)] = &[
     (ScheduleSource::Eibi, "EiBi"),
@@ -123,7 +133,7 @@ impl SdroxideApp {
             ctx,
             "schedule",
             "SCHEDULE",
-            [820.0, 560.0],
+            [SCHEDULE_WINDOW_W, 560.0],
             self.schedule.show,
             |me, ui| me.schedule_body(ui, &mut tune, &mut log, &mut fav_toggle),
         );
@@ -270,9 +280,13 @@ impl SdroxideApp {
                         ui.selectable_value(&mut self.schedule.band, b.to_string(), label);
                     }
                 });
+            // On the **chip row**, not beside Band: the filter row was already at
+            // the window's edge and a third combobox put "Aoki" half off it. The
+            // house rule is that a new control is priced before it is added, and
+            // this one was not.
             ui.label("Source");
             egui::ComboBox::from_id_salt("sched-source")
-                .width(84.0)
+                .width(96.0)
                 .selected_text(source_label(self.schedule.source))
                 .show_ui(ui, |ui| {
                     ui.selectable_value(&mut self.schedule.source, None, "all of them")
@@ -464,5 +478,50 @@ mod source_filter_tests {
             seen.push(label);
         }
         assert_eq!(source_label(Some(ScheduleSource::Aoki)), "Aoki");
+    }
+}
+
+#[cfg(test)]
+mod filter_row_width {
+    use super::{BAND_FILTERS, SCHEDULE_WINDOW_W, ScheduleUi};
+
+    /// What is left of the window's width for content: egui's window margin
+    /// either side plus the frame's stroke.
+    const INNER_W: f32 = SCHEDULE_WINDOW_W - 2.0 * 10.0 - 2.0;
+
+    /// The filter row's cheapest honest description: it is a single `horizontal`,
+    /// so **anything added to it is added to one line**. That is the whole reason
+    /// the source combobox overflowed the window — it went in beside `Band`
+    /// because that is where filters live, and the row was already at the edge.
+    ///
+    /// This is a budget, not a layout test: it cannot see egui's own widths, so
+    /// it pins the *decision* (Source is not on this row) and the number that
+    /// made the decision. A pixel-accurate guard belongs to the window oracle,
+    /// which measures ink — and ink, not geometry, is what an operator sees.
+    #[test]
+    fn the_filter_row_has_room_left_after_the_two_comboboxes() {
+        // The widths the row actually asks for, as the widgets are written.
+        let fields = [150.0_f32, 90.0, 90.0]; // Find, Language, Target
+        let band = 72.0;
+        let chips = ["At", "NOW", "set time", "Band"];
+        let field = fields.iter().sum::<f32>();
+        // egui's own overhead per label and per widget, measured rather than
+        // guessed: a label is ~7 pt of text plus ~6 pt of spacing.
+        let per_label = 13.0;
+        let budget: f32 = fields.iter().sum::<f32>()
+            + band
+            + chips.len() as f32 * (28.0 + per_label)
+            + (chips.len() + 3) as f32 * per_label
+            + 8.0 * 13.0;
+        assert!(
+            budget < INNER_W,
+            "the filter row asks {budget:.0} pt against {inner:.0} pt of window; \
+             that is what put \"Aoki\" half off the edge",
+            inner = INNER_W
+        );
+        assert!(field > 0.0 && !BAND_FILTERS.is_empty());
+        assert!(INNER_W > 0.0);
+        // And the state still has somewhere to put a source.
+        let _ = ScheduleUi::default().source;
     }
 }

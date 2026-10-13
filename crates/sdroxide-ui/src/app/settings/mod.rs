@@ -341,6 +341,8 @@ pub(in crate::app) struct SettingsIo<'a> {
     /// they are done after the window closure like the HPSDR scan.
     bc_reload: &'a mut bool,
     bc_refetch: &'a mut bool,
+    bc_refetch_source: &'a mut Option<sdroxide_types::ScheduleSource>,
+    bc_import: &'a mut Option<Result<String, String>>,
     /// Whether a schedule download is in flight, and what the last one did.
     bc_fetching: bool,
     bc_status: Option<&'a Result<String, String>>,
@@ -1218,6 +1220,8 @@ impl SdroxideApp {
         let sat_subs = self.sat_sub_status.clone();
         let mut bc_reload = false;
         let mut bc_refetch = false;
+        let mut bc_refetch_source = None;
+        let mut bc_import: Option<Result<String, String>> = None;
 
         // The concrete interface types the user chooses between.
         let iface_opts = iface_opts(self.soapy_supported);
@@ -1371,6 +1375,8 @@ impl SdroxideApp {
                                 net_apply: &mut net_apply,
                                 bc_reload: &mut bc_reload,
                                 bc_refetch: &mut bc_refetch,
+                                bc_refetch_source: &mut bc_refetch_source,
+                                bc_import: &mut bc_import,
                                 bc_fetching: me.broadcast_fetch.is_some(),
                                 bc_status: me.broadcast_fetch_status.as_ref(),
                                 speech_edit: &mut speech_edit,
@@ -1527,8 +1533,14 @@ impl SdroxideApp {
         if sat_sub_refresh {
             self.refresh_sat_subs_now(cmds);
         }
+        if let Some(source) = bc_refetch_source {
+            self.refetch_broadcast_source(source);
+        }
         if bc_refetch {
             self.refetch_broadcast_schedule();
+        }
+        if bc_import.is_some() {
+            // The import already re-read the file; nothing further to do here.
         }
         if bc_reload {
             self.reload_broadcast_stations();
@@ -3452,6 +3464,8 @@ impl SdroxideApp {
                     ui,
                     io.bc_reload,
                     io.bc_refetch,
+                    io.bc_refetch_source,
+                    io.bc_import,
                     io.bc_fetching,
                     io.bc_status,
                 );

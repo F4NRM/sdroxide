@@ -2782,6 +2782,144 @@ pub fn fetch_broadcast_master() -> Result<Vec<sdroxide_types::BroadcastStation>,
     Ok(load_broadcast_master())
 }
 
+/// Which sources are cached, and how many rows each holds — the Settings page's
+/// per-source line, so *"which of my schedules is actually here"* has an answer
+/// instead of being inferred from a list that happens to be short.
+pub fn cached_broadcast_sources() -> Vec<(sdroxide_types::ScheduleSource, usize)> {
+    [
+        sdroxide_types::ScheduleSource::Eibi,
+        sdroxide_types::ScheduleSource::Aoki,
+        sdroxide_types::ScheduleSource::Hfcc,
+    ]
+    .into_iter()
+    .filter_map(|source| {
+        let season = sdroxide_types::broadcast::season_file(now_unix());
+        let cached = broadcast_cache_path_for(&season, source).ok()?.exists();
+        cached.then(|| (source, cached_schedule_for(source).map(|v| v.len()).unwrap_or(0)))
+    })
+    .collect()
+}
+
+/// Import a listener's own station list into `broadcast_stations.json`.
+///
+/// **This is the answer to "where do I upload mine", and it is not the reception
+/// log.** The log records what you *heard*; this is a *schedule* — what is expected
+/// to be on air, which is what the waterfall labels against and what LISTEN draws
+/// its span from. Mixing them would put a station in the picture that was never
+/// transmitted.
+///
+/// Three shapes are accepted, because a listener's list comes from wherever they
+/// kept it and asking them to convert it first is the thing that stops them: the
+/// sdroxide JSON, a CSV of `frequency,name…`, and a plain text list. **Frequency
+/// may carry any unit** — kHz or MHz — and where none is written the **number**
+/// decides, by the same rule the schedule files are read by.
+pub fn import_broadcast_stations(path: &std::path::Path) -> Result<usize, String> {
+    let text = fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let mut rows: Vec<sdroxide_types::BroadcastStation> =
+        serde_json::from_str::<sdroxide_types::BroadcastStations>(&text)
+            .map(|f| f.stations)
+            .unwrap_or_else(|_| parse_own_list(&text));
+    rows.retain(|r| r.freq_khz > 0.0 && !r.name.trim().is_empty());
+    if rows.is_empty() {
+        return Err("nothing in that file looked like a station".into());
+    }
+    for r in &mut rows {
+        r.source = sdroxide_types::ScheduleSource::User;
+    }
+    rows.sort_by(|a, b| a.freq_khz.total_cmp(&b.freq_khz));
+    let mut all = load_broadcast_overrides();
+    for row in rows {
+        let dup = all
+            .iter()
+            .position(|s| s.name == row.name && (s.freq_khz - row.freq_khz).abs() < 0.001);
+        match dup {
+            Some(i) => all[i] = row,
+            None => all.push(row),
+        }
+    }
+    let n = all.len();
+    // `BroadcastStations` carries provenance for tables *sdroxide* generated; a
+    // listener's own list is not one, so those fields stay empty rather than
+    // stamped with a source `retire_seeded_broadcast_list` would then have to
+    // reason about.
+    save_json(
+        BROADCAST_STATIONS_FILE,
+        &sdroxide_types::BroadcastStations {
+            version: 1,
+            updated: String::new(),
+            source: String::new(),
+            note: String::new(),
+            stations: all,
+        },
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(n)
+}
+
+/// A listener's own list, as CSV or as plain lines.
+fn parse_own_list(text: &str) -> Vec<sdroxide_types::BroadcastStation> {
+    let mut out = Vec::new();
+    for line in text.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let cells: Vec<&str> = if line.contains(',') {
+            line.split(',').map(str::trim).collect()
+        } else {
+            line.split_whitespace().collect()
+        };
+        let Some(pos) = cells.iter().position(|c| own_frequency_khz(c).is_some()) else {
+            continue;
+        };
+        let freq = own_frequency_khz(cells[pos]).expect("just found it");
+        let mut name: Vec<&str> = cells.clone();
+        name.remove(pos);
+        // A trailing unit belongs to the frequency, not the name: "BBC 15400 kHz"
+        // is a station called BBC, not one called "BBC kHz".
+        if name
+            .last()
+            .is_some_and(|t| t.eq_ignore_ascii_case("khz") || t.eq_ignore_ascii_case("mhz"))
+        {
+            name.pop();
+        }
+        let name = name.join(" ");
+        if name.trim().is_empty() {
+            continue;
+        }
+        out.push(sdroxide_types::BroadcastStation {
+            name: name.trim().to_string(),
+            freq_khz: freq,
+            source: sdroxide_types::ScheduleSource::User,
+            ..Default::default()
+        });
+    }
+    out
+}
+
+/// A frequency in a listener's own notes, in kHz.
+///
+/// **Decided by magnitude where no unit is written.** Shortwave here is 3 kHz to
+/// 130 MHz, so a bare number at or above 1000 can only be kHz and anything under
+/// it can only be MHz. That is the rule the schedule files use, and it means
+/// `15400`, `15400 kHz` and `15.4` all land on the same row without asking.
+fn own_frequency_khz(cell: &str) -> Option<f64> {
+    let c = cell.trim();
+    let (digits, unit) = match c.split_once(char::is_whitespace) {
+        Some((d, u)) => (d.trim(), Some(u.trim())),
+        None => (c, None),
+    };
+    let digits = digits.trim_end_matches("kHz").trim_end_matches("MHz").trim();
+    let v: f64 = digits.parse().ok()?;
+    let khz = match unit {
+        Some(u) if u.eq_ignore_ascii_case("khz") => v,
+        Some(u) if u.eq_ignore_ascii_case("mhz") => v * 1000.0,
+        _ if v >= 1000.0 => v,
+        _ => v * 1000.0,
+    };
+    (3.0..=130_000.0).contains(&khz).then_some(khz)
+}
+
 /// Lay the operator's entries over a schedule: one with the same name and
 /// frequency replaces the scheduled row, anything else is added.
 fn apply_broadcast_overrides(
@@ -4681,5 +4819,66 @@ mod aoki_cache_roundtrip {
             }
         }
         !c
+    }
+}
+
+#[cfg(test)]
+mod own_list_import {
+    use super::{own_frequency_khz, parse_own_list};
+
+    /// A listener's notes are not a data format, so the frequency may be written
+    /// either way round and in either unit — and **where no unit is written the
+    /// number decides**, because asking somebody to convert a spreadsheet before
+    /// they can use it is the thing that stops them.
+    #[test]
+    fn a_frequency_is_read_in_whichever_unit_the_number_implies() {
+        assert_eq!(own_frequency_khz("15400"), Some(15_400.0));
+        assert_eq!(own_frequency_khz("15400 kHz"), Some(15_400.0));
+        assert_eq!(own_frequency_khz("15.4"), Some(15_400.0), "a small number is MHz");
+        assert_eq!(own_frequency_khz("0.153"), Some(153.0), "an LF frequency");
+        assert_eq!(own_frequency_khz("999"), None, "999 MHz is not shortwave");
+        assert_eq!(own_frequency_khz("BBC"), None, "not a number at all");
+    }
+
+    /// Both shapes, because both are what people actually have.
+    #[test]
+    fn a_plain_list_and_a_csv_both_import() {
+        let plain = parse_own_list("BBC World Service 15400 kHz\nRadio Prague 5010\n");
+        assert_eq!(plain.len(), 2);
+        assert_eq!(plain[0].name, "BBC World Service", "not \"BBC World Service kHz\"");
+        assert_eq!(plain[0].freq_khz, 15_400.0);
+        assert_eq!(plain[1].name, "Radio Prague");
+        assert_eq!(plain[1].freq_khz, 5_010.0);
+
+        let csv = parse_own_list("15400,BBC World Service,English\n5010,Radio Prague\n");
+        assert_eq!(csv.len(), 2);
+        assert_eq!(csv[0].freq_khz, 15_400.0);
+        // The remaining cells are the name, space-joined: a CSV row is
+        // `frequency, name…, anything else`, and the trailing columns are kept
+        // rather than dropped, because a listener's notes may put the language or
+        // a remark there.
+        assert_eq!(csv[0].name, "BBC World Service English");
+    }
+
+    /// Comments and blanks are not stations, and a line with no frequency in it is
+    /// **skipped rather than half-read** — a list that quietly gains a row called
+    /// "my notes" is worse than one that misses three.
+    ///
+    /// Deliberately *not* a line mentioning a bare number: "check the 6 MHz band"
+    /// holds a token that reads as 6000 kHz, and the parser is right to take it.
+    /// The test says what it means rather than pretending otherwise.
+    #[test]
+    fn lines_without_a_frequency_are_skipped() {
+        let rows = parse_own_list("# my stations\n\nBBC 15400\nremember to check this later\n");
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].name, "BBC");
+    }
+
+    /// Everything imported is **the listener's own**, whatever the file said — the
+    /// tag is what the Schedule window's filter reads.
+    #[test]
+    fn an_imported_row_is_tagged_as_the_listeners_own() {
+        let rows = parse_own_list("BBC 15400\n");
+        assert_eq!(rows[0].source, sdroxide_types::ScheduleSource::User);
     }
 }

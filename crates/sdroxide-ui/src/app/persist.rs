@@ -475,6 +475,28 @@ pub(in crate::app) fn spawn_schedule_fetch(
     Some(rx)
 }
 
+/// Fetch **one** source, for the Settings page's per-source button.
+#[cfg(not(target_arch = "wasm32"))]
+pub(in crate::app) fn spawn_one_schedule_fetch(
+    source: sdroxide_types::ScheduleSource,
+) -> Option<std::sync::mpsc::Receiver<ScheduleFetch>> {
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::Builder::new()
+        .name("broadcast-one".into())
+        .spawn(move || {
+            let _ = tx.send(sdroxide_config::fetch_broadcast_schedule_from(source));
+        })
+        .ok()?;
+    Some(rx)
+}
+
+#[cfg(target_arch = "wasm32")]
+pub(in crate::app) fn spawn_one_schedule_fetch(
+    _source: sdroxide_types::ScheduleSource,
+) -> Option<std::sync::mpsc::Receiver<ScheduleFetch>> {
+    None
+}
+
 /// The browser client has no cache to fill, so there is nothing to fetch.
 #[cfg(target_arch = "wasm32")]
 pub(in crate::app) fn spawn_schedule_fetch(

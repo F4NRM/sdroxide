@@ -445,6 +445,25 @@ impl SdroxideApp {
         self.broadcast_fetch = crate::app::persist::spawn_schedule_fetch(true);
     }
 
+    /// Re-fetch **one** source, leaving the others' caches alone.
+    ///
+    /// Per-source because a single "download" over three sources reports one
+    /// count for three downloads: a source that fails looks exactly like one that
+    /// worked, and the fix for that is a control per source rather than a longer
+    /// status line.
+    pub(in crate::app) fn refetch_broadcast_source(
+        &mut self,
+        source: sdroxide_types::ScheduleSource,
+    ) {
+        if let Some(rx) = crate::app::persist::spawn_one_schedule_fetch(source) {
+            self.broadcast_fetch = Some(rx);
+            self.broadcast_fetch_status = None;
+        } else {
+            self.broadcast_fetch_status =
+                Some(Err(format!("{source:?} could not be downloaded on this platform")));
+        }
+    }
+
     /// Re-read the operator's own station file and lay it over the schedule.
     pub(in crate::app) fn reload_broadcast_stations(&mut self) {
         self.broadcast = sdroxide_types::broadcast::with_utilities(

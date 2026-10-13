@@ -159,6 +159,8 @@ pub(in crate::app) fn broadcast_stations_settings(
     ui: &mut egui::Ui,
     reload: &mut bool,
     refetch: &mut bool,
+    refetch_source: &mut Option<sdroxide_types::ScheduleSource>,
+    import: &mut Option<Result<String, String>>,
     fetching: bool,
     status: Option<&Result<String, String>>,
 ) {
@@ -217,19 +219,92 @@ pub(in crate::app) fn broadcast_stations_settings(
             .truncate(),
         );
     }
+    // Which sources are actually here, one line each. **A single "download" button
+    // over several sources is a control that cannot be misread**: it reports one
+    // count for what are now three downloads, so a source that silently failed
+    // looks exactly like one that worked — which is the whole failure this page
+    // is for.
+    ui.label(RichText::new("Schedules").strong());
+    for (source, rows) in sdroxide_config::cached_broadcast_sources() {
+        let name = match source {
+            sdroxide_types::ScheduleSource::Eibi => "EiBi",
+            sdroxide_types::ScheduleSource::Aoki => "Aoki",
+            sdroxide_types::ScheduleSource::Hfcc => "HFCC",
+            sdroxide_types::ScheduleSource::User => "yours",
+        };
+        ui.horizontal(|ui| {
+            ui.label(
+                RichText::new(format!("{name:<6} {rows:>6} transmissions")).monospace().size(11.0),
+            );
+            let can = !fetching && source != sdroxide_types::ScheduleSource::User;
+            if ui
+                .add_enabled(can, egui::Button::new("Download"))
+                .on_hover_text(match source {
+                    sdroxide_types::ScheduleSource::Hfcc => {
+                        "HFCC publishes its station names in a separate file, so this \
+                         needs both. Until it does, it says so rather than loading \
+                         a schedule of bare callsigns."
+                    }
+                    _ => "Fetch this season's copy again, replacing the cached one",
+                })
+                .clicked()
+            {
+                *refetch_source = Some(source);
+            }
+        });
+    }
+
     ui.horizontal(|ui| {
         if ui.button("Reload").on_hover_text("Re-read your station file after editing it").clicked()
         {
             *reload = true;
         }
         if ui
-            .add_enabled(!fetching, egui::Button::new("Download schedule now"))
-            .on_hover_text("Fetch this season's schedule again, replacing the cached copy")
+            .add_enabled(!fetching, egui::Button::new("Download all now"))
+            .on_hover_text(
+                "Fetch every source that can be fetched, keeping the ones that already work",
+            )
             .clicked()
         {
             *refetch = true;
         }
     });
+    ui.label(
+        RichText::new(
+            "Your own list is a **schedule** — what you expect to hear — not the reception \
+             log, which records what you actually did hear. Import it below, or edit the file.",
+        )
+        .weak()
+        .size(11.0),
+    );
+    ui.horizontal(|ui| {
+        if ui
+            .add_enabled(!fetching, egui::Button::new("Import my station list…"))
+            .on_hover_text(
+                "Read a CSV or a plain list of stations and merge it into the file above. \
+                 Frequencies may be kHz or MHz; the unit is read from the number.",
+            )
+            .clicked()
+        {
+            if let Some(path) = rfd::FileDialog::new()
+                .add_filter("Station lists", &["csv", "txt", "json"])
+                .pick_file()
+            {
+                *import = Some(match sdroxide_config::import_broadcast_stations(&path) {
+                    Ok(n) => Ok(format!("{n} stations in your list, now in the store")),
+                    Err(e) => Err(e),
+                });
+                *reload = true;
+            }
+        }
+    });
+    if let Some(msg) = import {
+        let (text, colour) = match &*msg {
+            Ok(t) => (t.clone(), crate::theme::GREEN()),
+            Err(e) => (format!("⚠ {e}"), crate::theme::YELLOW()),
+        };
+        ui.label(RichText::new(text).color(colour).size(11.0));
+    }
 }
 
 /// The browser client reads the schedule compiled into the wasm bundle, so there
@@ -239,6 +314,8 @@ pub(in crate::app) fn broadcast_stations_settings(
     ui: &mut egui::Ui,
     _reload: &mut bool,
     _refetch: &mut bool,
+    _refetch_source: &mut Option<sdroxide_types::ScheduleSource>,
+    _import: &mut Option<Result<String, String>>,
     _fetching: bool,
     _status: Option<&Result<String, String>>,
 ) {
