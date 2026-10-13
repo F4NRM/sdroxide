@@ -906,24 +906,32 @@ struct HfccSite {
 
 /// `"17S44"` / `"168E33"` as signed degrees — the site's own compact form.
 fn hfcc_coord(token: &str, what: &str) -> Option<f64> {
-    let t = token.trim();
-    let (digits, sign) = t.split_at(t.len().checked_sub(1)?);
-    let hemi = match sign {
-        "N" | "n" => 1.0,
-        "S" | "s" => -1.0,
-        "E" | "e" => 1.0,
-        "W" | "w" => -1.0,
+    // **`17S44` is 17 degrees 44 minutes South** — the hemisphere letter sits
+    // *between* the degrees and the minutes, not at either end. Reading it as a
+    // trailing sign (which is how a plain decimal coordinate is written) splits the
+    // token in the wrong place and returns nonsense, so every coordinate parses to
+    // nothing and every HFCC station quietly lands at no position on the map.
+    let t = token.trim().to_ascii_uppercase();
+    let at = t.find(['N', 'S', 'E', 'W'])?;
+    let (deg_text, hemi) = (&t[..at], t.as_bytes()[at] as char);
+    let min_text = &t[at + 1..];
+    let deg: f64 = deg_text.parse().ok()?;
+    let min: f64 = min_text.parse().ok()?;
+    let sign = match hemi {
+        'N' | 'E' => 1.0,
+        'S' | 'W' => -1.0,
         _ => return None,
     };
-    if hemi < 0.0 && what == "lat" && (digits.len() != 4) {
-        return None;
-    }
-    let (d, m) = match digits.len() {
-        3 => (digits[0..1].parse::<f64>().ok()?, digits[1..3].parse::<f64>().ok()?),
-        4 | 5 => (digits[0..2].parse::<f64>().ok()?, digits[2..].parse::<f64>().ok()?),
-        _ => return None,
+    // A latitude cannot leave the hemisphere it is named for, and a longitude
+    // cannot either — so this rejects a column that has drifted into the wrong one
+    // rather than plotting a station in the wrong hemisphere.
+    let value = sign * (deg.abs() + min.abs() / 60.0);
+    let in_range = if what == "lat" {
+        (-90.0..=90.0).contains(&value)
+    } else {
+        (-180.0..=180.0).contains(&value)
     };
-    Some(hemi * (d + m / 60.0))
+    in_range.then_some(value)
 }
 
 /// HFCC's **schedule** plus its two reference tables.
@@ -942,25 +950,38 @@ pub fn parse_hfcc(
     sites: &str,
 ) -> Result<Vec<BroadcastStation>, String> {
     let names = hfcc_reference_table(broadcasters);
+    // **`SITE.TXT` is read by its own header's columns, not by whitespace.**
+    // Site names contain spaces — "Port Vila", "Alphen aan den Rijn" — so splitting
+    // on whitespace yields "Port" and drops the rest, and the coordinates shift with
+    // it. The same self-calibrating rule the schedule uses, for the same reason: a
+    // column that moves must not silently empty a field.
+    let site_header = sites
+        .lines()
+        .find(|l| l.starts_with(";Co") && l.contains("Site Name"))
+        .map(|l| &l[1..])
+        .ok_or("HFCC's site table has no header line")?;
+    let sc = |name: &str| -> Result<usize, String> {
+        site_header.find(name).ok_or_else(|| format!("HFCC's site header has no {name} column"))
+    };
+    let (h_code, h_name, h_adm, h_lat, h_lon) =
+        (sc("Co")?, sc("Site Name")?, sc("ADM")?, sc("Lati")?, sc("Longi")?);
     let mut site_map: std::collections::HashMap<String, HfccSite> =
         std::collections::HashMap::new();
     for line in sites.lines() {
-        let line = line.trim_end();
         if line.starts_with(';') || line.trim().is_empty() {
             continue;
         }
-        let mut f = line.split_whitespace();
-        let (Some(code), Some(name)) = (f.next(), f.next()) else {
-            continue;
+        let get = |a: usize, b: usize| -> String {
+            line.get(a..b.min(line.len())).unwrap_or("").trim().to_string()
         };
-        let country = f.next().unwrap_or("").to_string();
-        let (lat, lon) = (
-            f.next().and_then(|t| hfcc_coord(t, "lat")),
-            f.next().and_then(|t| hfcc_coord(t, "lon")),
-        );
         site_map.insert(
-            code.to_ascii_uppercase(),
-            HfccSite { name: name.to_string(), country, lat, lon },
+            get(h_code, h_name).to_ascii_uppercase(),
+            HfccSite {
+                name: get(h_name, h_adm),
+                country: get(h_adm, h_lat),
+                lat: hfcc_coord(&get(h_lat, h_lon), "lat"),
+                lon: hfcc_coord(&get(h_lon, line.len()), "lon"),
+            },
         );
     }
 
@@ -968,23 +989,43 @@ pub fn parse_hfcc(
         .lines()
         .find(|l| l.starts_with(";FREQ"))
         .ok_or("HFCC's schedule has no header line")?;
-    // **Drop the `;`.** The header is a comment line, so every offset read off it
-    // would otherwise be one too high — and the symptom is not an error: the
-    // frequency still parses (a row starts with a space), so the file "loads" and
-    // 84% of its stations come back as bare `BRC` codes.
+    // **Drop the `;`.** The header is a comment line, so its own indices start one
+    // later than the data it describes.
     let header = &raw[1..];
-    // Offsets from the header's own column names.
-    let at = |name: &str| -> Result<usize, String> {
-        header.find(name).ok_or_else(|| format!("HFCC's header has no {name} column"))
+    let first = schedule
+        .lines()
+        .find(|l| !l.trim().is_empty() && !l.starts_with(';'))
+        .ok_or("HFCC's schedule has no data rows")?;
+    // **Calibrate the shift against the first row rather than assuming it is zero.**
+    //
+    // This is the whole bug this parser had. Reading offsets off the header and
+    // applying them to the rows put every column after `FREQ` one position early:
+    // the file loaded, the frequency parsed (the row's leading blank is absorbed
+    // into the number), and 84% of stations came back as bare codes that matched
+    // nothing in the broadcaster table. It read as "a different code space".
+    //
+    // Measuring where the header's first column name sits against where the first
+    // row's first field actually starts gives the shift, and it survives a column
+    // moving between seasons — which a hardcoded offset, or a header index taken
+    // on trust, cannot.
+    let first_at = first
+        .find(|c: char| !c.is_ascii_whitespace())
+        .ok_or("HFCC's first data row is blank")? as isize;
+    let header_at =
+        header.find(|c: char| !c.is_ascii_whitespace()).ok_or("HFCC's header is blank")? as isize;
+    let shift: isize = first_at - header_at;
+    let col = |name: &str| -> Result<usize, String> {
+        let h = header.find(name).ok_or_else(|| format!("HFCC's header has no {name} column"))?;
+        Ok((h as isize + shift) as usize)
     };
-    let (f_freq, f_start, f_stop) = (at("FREQ")?, at("STRT")?, at("STOP")?);
-    let (f_loc, f_days, f_lang, f_adm, f_brc) =
-        (at("LOC")?, at("DAYS")?, at("LANGUAGE")?, at("ADM")?, at("BRC")?);
-    // Each field runs to the next column, so a name may be longer than its label.
-    let ends = [f_freq, f_start, f_stop, 0, f_loc, f_days, f_lang, f_adm, f_brc, header.len()];
-    let field = |line: &str, i: usize| -> String {
-        let (a, b) = (ends[i], if i + 1 < ends.len() { ends[i + 1] } else { line.len() });
-        line.get(a..b).unwrap_or("").trim().to_string()
+    let (f_freq, f_start, f_stop) = (col("FREQ")?, col("STRT")?, col("STOP")?);
+    let (f_loc, f_powr, f_days, f_lang, f_adm, f_brc) =
+        (col("LOC")?, col("POWR")?, col("DAYS")?, col("LANGUAGE")?, col("ADM")?, col("BRC")?);
+    let row_len = first.len();
+    // Each field runs to the next column, so a value may be longer than its label.
+    let field = |line: &str, start: usize, next: usize| -> String {
+        let hi = next.min(line.len().max(row_len));
+        line.get(start..hi).unwrap_or("").trim().to_string()
     };
 
     let mut out = Vec::new();
@@ -992,12 +1033,12 @@ pub fn parse_hfcc(
         if line.trim().is_empty() || line.starts_with(';') {
             continue;
         }
-        let freq: f64 = match field(line, 0).parse() {
+        let freq: f64 = match field(line, f_freq, f_start).parse() {
             Ok(f) if f > 0.0 => f,
             _ => continue,
         };
-        let brc = field(line, 8).to_ascii_uppercase();
-        let loc = field(line, 4).to_ascii_uppercase();
+        let brc = field(line, f_brc, f_brc + 3).to_ascii_uppercase();
+        let loc = field(line, f_loc, f_powr).to_ascii_uppercase();
         let name = names.get(&brc).cloned().unwrap_or_else(|| brc.clone());
         let site = site_map.get(&loc);
         // The broadcaster's own name is what a listener looks for; the site is
@@ -1007,16 +1048,16 @@ pub fn parse_hfcc(
         } else {
             name
         };
-        let days: String = field(line, 5)
+        let days: String = field(line, f_days, f_lang)
             .chars()
             .filter_map(|c| c.to_digit(10).filter(|d| (1..=7).contains(d)).map(hfcc_day_to_ours))
             .map(|d| char::from(b'0' + d as u8))
             .collect();
-        let hhmm = |i: usize| -> Option<u16> {
-            let t = field(line, i);
+        let hhmm = |at: usize, next: usize| -> Option<u16> {
+            let t = field(line, at, next);
             (t.len() == 4).then(|| t.parse::<u16>().ok()).flatten().filter(|v| *v <= 2359)
         };
-        let country = field(line, 7);
+        let country = field(line, f_adm, f_brc);
         let country = if country.is_empty() {
             site.map(|s| s.country.clone()).unwrap_or_default()
         } else {
@@ -1025,12 +1066,12 @@ pub fn parse_hfcc(
         out.push(BroadcastStation {
             name: station,
             freq_khz: freq,
-            start_utc: hhmm(1),
-            end_utc: hhmm(2),
+            start_utc: hhmm(f_start, f_stop),
+            end_utc: hhmm(f_stop, f_loc),
             days,
             site: site.map(|s| s.name.clone()).unwrap_or_default(),
             country,
-            lang: field(line, 6),
+            lang: field(line, f_lang, f_adm),
             lat: site.and_then(|s| s.lat),
             lon: site.and_then(|s| s.lon),
             source: ScheduleSource::Hfcc,
@@ -2376,5 +2417,38 @@ mod master_store_tests {
         // converting either — both are already ours, which is the whole point.
         let store = master_store(&[(ScheduleSource::Aoki, rows)]);
         assert_eq!(store[0].days, "7", "the store did not touch the week start");
+    }
+}
+
+#[cfg(test)]
+mod hfcc_coord_tests {
+    use super::hfcc_coord;
+
+    /// **`17S44` is 17°44' South — the hemisphere letter is in the *middle*.**
+    ///
+    /// This is the trap that had every HFCC station landing at no position on the
+    /// map: read as a trailing sign it splits the token after the last character,
+    /// both halves fail to parse, and the function returns `None` for every row.
+    /// Nothing errors. The schedule simply has no coordinates.
+    #[test]
+    fn the_hemisphere_is_between_the_degrees_and_the_minutes() {
+        let lat = hfcc_coord("17S44", "lat").expect("a southern latitude");
+        assert!((lat + 17.7333).abs() < 0.01, "17 deg 44 min S is -17.7333, got {lat}");
+        assert!((hfcc_coord("43N17", "lat").unwrap() - 43.2833).abs() < 0.01);
+        assert!((hfcc_coord("52N08", "lat").unwrap() - 52.1333).abs() < 0.01);
+        assert!((hfcc_coord("168E33", "lon").unwrap() - 168.55).abs() < 0.01);
+        assert!((hfcc_coord("004E38", "lon").unwrap() - 4.6333).abs() < 0.01);
+        assert!((hfcc_coord("077W00", "lon").unwrap() + 77.0).abs() < 0.01);
+    }
+
+    /// A latitude that arrives as 200 degrees is a column that has drifted, not a
+    /// station off the planet — and it must not be plotted somewhere impossible.
+    #[test]
+    fn an_impossible_coordinate_is_refused() {
+        assert!(hfcc_coord("200N00", "lat").is_none());
+        assert!(hfcc_coord("170E00", "lat").is_none(), "170 is a longitude, not a latitude");
+        assert!(hfcc_coord("200E00", "lon").is_none());
+        assert!(hfcc_coord("", "lat").is_none());
+        assert!(hfcc_coord("nonsense", "lat").is_none());
     }
 }

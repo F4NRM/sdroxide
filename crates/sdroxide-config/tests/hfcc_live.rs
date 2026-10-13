@@ -1,10 +1,9 @@
-//! Live check on HFCC: the package downloads, parses, and is **refused**.
+//! Live check on HFCC: the package downloads and resolves **names, sites and
+//! positions** for nearly every row.
 //!
-//! `#[ignore]`d because it needs the network. It is here to pin a decision rather
-//! than a feature: HFCC's operational schedule carries no broadcaster names, so
-//! shipping it would mean a schedule full of codes. If a future build teaches it
-//! the by-broadcaster names, **this test failing is the signal to change**, not a
-//! regression to fix.
+//! `#[ignore]`d because it needs the network. It is the only thing that catches
+//! a *silent* parse failure — this source has produced three in a row, every one
+//! of which loaded the file successfully and returned plausible-looking rows.
 //!
 //! ```sh
 //! SDROXIDE_CONFIG_DIR=/tmp/hfcc-live \
@@ -12,10 +11,12 @@
 //! ```
 #[test]
 #[ignore = "needs the network"]
-fn hfcc_refuses_rather_than_shipping_a_schedule_of_codes() {
-    let err = sdroxide_config::fetch_broadcast_schedule_from(sdroxide_types::ScheduleSource::Hfcc)
-        .expect_err("HFCC has no names and must not be loaded");
-    let msg = err.to_string();
-    assert!(msg.contains("names"), "it must say why: {msg}");
-    assert!(msg.contains("by-broadcaster"), "and where they are: {msg}");
+fn hfcc_resolves_names_sites_and_positions() {
+    let rows = sdroxide_config::fetch_broadcast_schedule_from(sdroxide_types::ScheduleSource::Hfcc)
+        .expect("HFCC must download and resolve");
+    let named = rows.iter().filter(|r| r.name.len() > 3).count();
+    let placed = rows.iter().filter(|r| r.lat.is_some() && r.lon.is_some()).count();
+    assert_eq!(rows.len(), 3367, "the A26 schedule's rows");
+    assert!(named * 100 >= rows.len() * 95, "only {named} of {} resolved a name", rows.len());
+    assert!(placed * 100 >= rows.len() * 95, "only {placed} of {} resolved a position", rows.len());
 }
