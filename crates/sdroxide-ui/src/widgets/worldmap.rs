@@ -829,10 +829,41 @@ pub fn show(
         }
     }
 
-    // Great-circle path as a dotted cyan trail (dots avoid antimeridian wrap).
+    // Great-circle path as a dotted trail (dots avoid antimeridian wrap), with
+    // **each dot carrying its own twilight**.
+    //
+    // The path used to be one flat colour, so a signal crossing the terminator
+    // looked identical either side of it. That is the whole reason a listener wants
+    // the path at all: grey-line absorption is why a long path is open or not, and
+    // the window already prints that as a number. The picture says it faster, and
+    // says it about *where* — which half of the path is dark is the part that
+    // changes with the hour, and a single figure cannot show that.
+    //
+    // Drawn with the same ramp the flat map's night shading uses, so a dot and the
+    // land under it agree: a dot in twilight sits on twilight.
     if let (Some(hll), Some(dll)) = (home, dx) {
+        let now = crate::time::now_unix();
         for (lat, lon) in great_circle_points(hll, dll, 90) {
-            p.circle_filled(project(lat, lon), dot_r.max(1.0), alpha(map.trail, 150.0));
+            let shade = sdroxide_solar::ephem::night_shade(
+                sdroxide_solar::ephem::solar_elevation_deg(lat, lon, now as f64),
+            );
+            let c = project(lat, lon);
+            if shade <= 0.0 {
+                p.circle_filled(c, dot_r.max(1.0), alpha(map.trail, 150.0));
+            } else {
+                // **The dark part of the path**, and it fades rather than flips:
+                // full night is a dim dot, twilight between, daylight the bright
+                // one. A binary light/dark split would put a hard edge across the
+                // line exactly where the terminator is soft.
+                p.circle_filled(c, dot_r.max(1.0), alpha(map.trail, 150.0 * (1.0 - shade)));
+                // A faint warm ring so a night dot is still *there* rather than
+                // merely absent — a path that vanishes reads as "no path".
+                p.circle_stroke(
+                    c,
+                    dot_r.max(1.0) + 1.1,
+                    Stroke::new(1.0, alpha(map.trail, 70.0 * shade)),
+                );
+            }
         }
     }
 
