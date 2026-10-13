@@ -779,7 +779,24 @@ impl SdroxideApp {
             spots.push(s.clone());
             alpha.push(a.clamp(0.15, 1.0));
         }
-        (spots, alpha)
+        // One name for a station several sources carry — `broadcast_label_dedupe`.
+        // Once EiBi, Aoki and HFCC are merged this is not a tidy-up, it is the
+        // difference between a readable band and the same broadcaster printed
+        // twice on top of itself.
+        let kept = self.broadcast_label_dedupe(&spots);
+        let alpha: Vec<f32> = kept
+            .iter()
+            .map(|k| {
+                spots
+                    .iter()
+                    .find(|o| o.id == k.id)
+                    .map(|o| {
+                        spots.iter().position(|x| x.id == o.id).map(|i| alpha[i]).unwrap_or(1.0)
+                    })
+                    .unwrap_or(1.0)
+            })
+            .collect();
+        (kept, alpha)
     }
 
     /// The floor/ceiling a fit would pick from the current frame for best

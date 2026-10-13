@@ -305,6 +305,52 @@ impl SdroxideApp {
         (station_hz - dial_hz).abs() <= BROADCAST_TUNED_HZ
     }
 
+    /// **The broadcast name is drawn once, however many sources carry it.**
+    ///
+    /// bebepip is having EiBi, Aoki and HFCC merged into one master store and
+    /// says outright that duplicates in *that list* are fine — *"the resulting
+    /// list will simply be long and somewhat repetitive"* — because the Schedule
+    /// window is where the detail lives. He flagged the one place they are not:
+    /// **the waterfall**, where a station listed by two sources prints its name
+    /// twice, one over the other.
+    ///
+    /// So the dedupe is here and **nowhere else**. Both records stay in the
+    /// store, both are editable and both export; only the panadapter collapses
+    /// them to one label. Same broadcaster at the same frequency is the same
+    /// thing to say twice.
+    ///
+    /// The key is name **and** frequency: two different broadcasters on one
+    /// carrier are both on air and both are worth naming, and a station carried
+    /// by three sources at three slightly different rounded frequencies still
+    /// collapses, because a schedule row is a carrier and nobody publishes one to
+    /// the hertz.
+    pub(in crate::app) fn broadcast_label_dedupe(&self, spots: &[Spot]) -> Vec<Spot> {
+        broadcast_label_dedupe(spots)
+    }
+}
+
+/// The pure half of [`SdroxideApp::broadcast_label_dedupe`], which is a thin
+/// wrapper because it never needed the app and a method that does not read its
+/// receiver is a lie about what it needs.
+pub(in crate::app) fn broadcast_label_dedupe(spots: &[Spot]) -> Vec<Spot> {
+    {
+        let mut seen: Vec<(String, i64)> = Vec::new();
+        let mut out: Vec<Spot> = Vec::with_capacity(spots.len());
+        for s in spots {
+            if s.kind == SpotKind::Broadcast {
+                let key = (s.call.clone(), (s.freq_hz / 10.0).round() as i64);
+                if seen.contains(&key) {
+                    continue;
+                }
+                seen.push(key);
+            }
+            out.push(s.clone());
+        }
+        out
+    }
+}
+
+impl SdroxideApp {
     pub(in crate::app) fn spot_visible(&self, s: &Spot) -> bool {
         // "Who heard me" is a map overlay, not a station to tune: it never
         // belongs in the spot list or on the panadapter, where a dot placed at
@@ -712,7 +758,7 @@ impl SdroxideApp {
 
 #[cfg(test)]
 mod broadcast_only_the_tuned_tests {
-    use crate::app::SdroxideApp;
+    use super::SdroxideApp;
 
     /// The rule bebepip asked for: **the name on the tuned frequency and nothing
     /// else.** He asked for it as a checkbox and then said what it should mean —
@@ -744,5 +790,72 @@ mod broadcast_only_the_tuned_tests {
             "exactly 1 kHz is the edge, and it is inside"
         );
         assert!(!SdroxideApp::broadcast_named_at(dial, 9_581_001.0), "1 Hz past it is out");
+    }
+}
+
+#[cfg(test)]
+mod broadcast_dedupe_tests {
+    use sdroxide_types::{Spot, SpotKind};
+
+    /// Every field `Spot` has but a broadcast label does not. It does not derive
+    /// `Default`, which is the point: a spot is built once, by the code that has
+    /// the values, and a test that invents half of one proves nothing.
+    fn spot_shell() -> Spot {
+        Spot {
+            id: 0,
+            kind: SpotKind::Broadcast,
+            freq_hz: 0.0,
+            call: String::new(),
+            spotter: String::new(),
+            mode: String::new(),
+            comment: String::new(),
+            reference: None,
+            grid: None,
+            loc: None,
+            snr_db: None,
+            when_utc: 0,
+        }
+    }
+
+    fn bc(name: &str, hz: f64) -> Spot {
+        Spot { kind: SpotKind::Broadcast, freq_hz: hz, call: name.into(), ..spot_shell() }
+    }
+
+    /// The fault bebepip raised himself, pinned: a merged master store lists the
+    /// same station under EiBi, under Aoki and under HFCC, and the waterfall
+    /// must print **one** name rather than three on top of each other.
+    #[test]
+    fn one_broadcaster_from_three_sources_is_named_once() {
+        let spots = vec![
+            bc("BBC World Service", 15_490_000.0),
+            bc("BBC World Service", 15_490_000.0),
+            bc("BBC World Service", 15_490_004.0),
+        ];
+        let kept = super::broadcast_label_dedupe(&spots);
+        assert_eq!(kept.len(), 1, "three sources, one name: {kept:?}");
+        assert_eq!(kept[0].call, "BBC World Service");
+    }
+
+    /// **Two different broadcasters on one carrier are both on air** and both are
+    /// worth naming — the dedupe is by name *and* frequency, never by frequency
+    /// alone. Two rows that differed only in frequency would be one station
+    /// published imprecisely; two that differ in name are two facts.
+    #[test]
+    fn two_broadcasters_on_one_carrier_both_stay() {
+        let kept = super::broadcast_label_dedupe(&[
+            bc("Radio Prague", 5_010_000.0),
+            bc("WRMI", 5_010_000.0),
+        ]);
+        assert_eq!(kept.len(), 2, "two names on one carrier are both true");
+    }
+
+    /// And the dedupe touches **nothing else**: a DX-cluster spot is never
+    /// collapsed, whatever its call.
+    #[test]
+    fn other_kinds_are_never_collapsed() {
+        let mut dx = bc("DL1ABC", 14_200_000.0);
+        dx.kind = SpotKind::DxCluster;
+        let kept = super::broadcast_label_dedupe(&[dx.clone(), dx.clone(), dx.clone()]);
+        assert_eq!(kept.len(), 3, "a callsign reported three times is three reports");
     }
 }
