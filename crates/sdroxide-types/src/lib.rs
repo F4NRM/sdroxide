@@ -134,7 +134,7 @@ pub use band_segments::{
     span_within_segment, span_within_segment_in, sstv_dials_in,
 };
 pub use bandplan::{BandPlan, BandPlanError, RegionPlan, band_plan, set_band_plan};
-pub use broadcast::{BroadcastStation, BroadcastStations};
+pub use broadcast::{BroadcastStation, BroadcastStations, ScheduleSource};
 pub use callsign::{CallsignInfo, LoginTarget, LoginTestResult, UploadResult, UploadTarget};
 pub use caps::{DeviceCaps, DeviceSetting, Direction, GainElement, GainUnit, SettingKind};
 pub use cb::{CbPlan, cb_plan, cb_tx_allowed, set_cb_plan, set_cb_tx_allowed};

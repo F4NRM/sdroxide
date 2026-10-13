@@ -203,6 +203,64 @@ portable and must not be attempted**; the Rust `geo` maths is the portable part.
 
 Open question for the operator: on the **3D globe**, the flat maps, or both.
 
+### Fetching Aoki is built (2026-10-13) — and the zip is not a one-file zip
+
+Aoki publishes **no plain-text URL** (`ncb24.txt` answers 404), so the schedule
+comes as a zip, and that turned out to matter more than the decoding did.
+
+**`ncb24.zip` holds three entries: `ncb24.xlsx`, `userlist1.txt` and `ncb24.txt`.
+The schedule is not the first `.txt`.** `userlist1.txt` is **a listener's own
+saved list**, 474 kB, in a *different* Aoki format — frequency first, no ADM
+column, no position column. So "the first `.txt`" takes a real file, from the
+right publisher, in a real Aoki format, and reports **zero** stations. With a
+user's list in the older layout it would have reported plausible, **wrong**
+stations.
+
+That is the worst class of fault here: nothing about the download looks amiss.
+**Every fixture in the zip tests was a one-entry archive**, so every one of them
+passed; only reading the publisher's actual file found it. It is now guarded by
+`the_schedule_is_chosen_by_name_not_by_position`, which builds the zip with the
+user list **first** and fails on any reader that picks by position — verified
+failing, with the reporter's own words (*"the entry chosen was the user's list,
+not the schedule"*). The chooser is by name (`ncb26.txt` for season `b26`), then
+by content (a schedule file says `Shortwave Frequency List`; no user list does),
+then largest, naming what it guessed.
+
+**Measured against the published file** (`a_published_aoki_zip_yields_its_schedule`,
+`#[ignore]`d, needs the download):
+
+| | |
+|---|---|
+| entries | `userlist1.txt` 473,709 B · `ncb24.txt` 802,712 B |
+| parsed | **3,516 stations** (not the 3,612 rows quoted earlier — that was a row count) |
+| placed on the map | **3,512 / 3,516 = 99.9 %** |
+| countries resolved | `KCBS Pyongyang` → *Korea, North*; `WWCR NASHVILLE` → *United States of America* |
+
+**Both new dependencies were already in the tree**, which is why this was cheap:
+`flate2` is here via `ureq` and `encoding_rs` via `symphonia-metadata`, so
+inflating the zip and decoding CP932 cost **no new compilation**. The `zip` crate
+would have added a dependency tree to a 59-crate workspace to read one file from
+one publisher, so there are ~40 lines of a deliberately minimal reader instead —
+central directory only, deflate or stored, anything else skipped rather than
+fatal.
+
+Two smaller things the tests caught, both worth keeping:
+
+- **The reader's EOCD search was wrong for small files.** It scanned
+  `0..len - 65`, which excludes the end-of-central-directory record from any
+  archive under ~87 bytes — so it refused every small zip, including every one a
+  test builds. Found by a test, not by reading.
+- **`encoding_rs`'s Shift-JIS encoder writes an HTML numeric reference** for a
+  character the encoding cannot hold (`录` U+5F55 → `&#24405;`, seven ASCII bytes)
+  and *also* sets `had_errors`. So a `&#nnnn;` in a station name is the
+  encoder's doing and not a decoding fault — pinned, so a future one is
+  recognised rather than chased into the reader. CP932 has the traditional
+  `録` (U+9332); the first version of the test used the simplified one.
+
+`SWL-HANDOVER.md` §6 stage 2 said the whole file "was checked against these
+columns while writing this" — that was a **row count, not a parse**, and it is
+what let the wrong-entry fault through. The parse now runs.
+
 ### The maths is built (2026-10-13) — `ephem::dark_share`
 
 **`along` turned out to be ours already, and writing it a second time was the

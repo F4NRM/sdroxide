@@ -15,3 +15,7 @@ tracing.workspace = true
 # version `sdroxide-solar` uses for its space-weather feeds, so it adds no build
 # time. Pure-Rust TLS.
 ureq = "3.4"
+# Both already in the tree (flate2 via ureq, encoding_rs via symphonia-metadata) —
+# added as direct deps for Aoki's zip and its Shift-JIS, not new downloads.
+flate2 = "1"
+encoding_rs = "0.8"

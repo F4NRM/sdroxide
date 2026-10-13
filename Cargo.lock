@@ -5146,6 +5146,8 @@ name = "sdroxide-config"
 version = "2.0.9"
 dependencies = [
  "directories",
+ "encoding_rs",
+ "flate2",
  "sdroxide-types",
  "serde",
  "serde_json",

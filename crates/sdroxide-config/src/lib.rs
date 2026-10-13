@@ -2420,6 +2420,176 @@ const BROADCAST_CACHE_DIR: &str = "broadcast";
 /// rejected unless it looks like a schedule.
 const EIBI_SKED_URL: &str = "http://www.eibispace.de/dx/sked-{season}.csv";
 
+/// Aoki's schedule, as published: one **zip** per season holding a single `.txt`.
+///
+/// There is no plain-text URL — `.../ncb24.txt` answers **404** — so the zip is
+/// the only way to get it, and unzipping is a step EiBi never needed. The file
+/// inside is **Shift-JIS**, not Latin-1.
+const AOKI_SKED_URL: &str = "https://www1.s2.starcat.ne.jp/ndxc/pc/nc/ncb{season}.zip";
+
+/// Turn a schedule's **bytes** into text, which depends entirely on the source.
+///
+/// EiBi is Latin-1 and Aoki is Shift-JIS, and getting this wrong is silent: the
+/// wrong decode still yields the right *number* of stations and the right
+/// positions, because the columns are aligned by the file's own header, and only
+/// the station **names** come out as mojibake. Aoki's file has four non-ASCII
+/// bytes in 800 kB — almost all of it is ASCII — so a Latin-1 reading is nearly
+/// indistinguishable from a right one until you read a name.
+fn decode_schedule(source: sdroxide_types::ScheduleSource, bytes: &[u8]) -> String {
+    match source {
+        sdroxide_types::ScheduleSource::Aoki => {
+            let (cow, _, _) = encoding_rs::SHIFT_JIS.decode(bytes);
+            cow.into_owned()
+        }
+        _ => sdroxide_types::broadcast::decode_latin1(bytes),
+    }
+}
+
+/// Read the schedule out of Aoki's zip: the one entry ending `.txt`.
+fn aoki_text_from_zip(bytes: &[u8], season: &str) -> Result<String, String> {
+    let text = aoki_schedule_entry(bytes, season)?;
+    // Shift-JIS (CP932). `encoding_rs` is already in the tree via
+    // symphonia-metadata, so this costs nothing new.
+    let (cow, _, had_errors) = encoding_rs::SHIFT_JIS.decode(&text);
+    if had_errors {
+        // A station name with a character CP932 cannot hold comes back as U+FFFD
+        // and keeps its **byte length**, so the columns after it still line up —
+        // but say so, because a schedule quietly full of replacement characters
+        // is worse than one that says which names are affected.
+        warn!(
+            "Aoki's file has bytes CP932 cannot decode; some station names will read as \u{fffd}"
+        );
+    }
+    Ok(cow.into_owned())
+}
+
+/// Every `.txt` entry in a zip, decompressed, as `(name, bytes)`.
+///
+/// **A schedule zip is not a one-file zip.** Aoki's `ncb24.zip` holds three
+/// entries: `ncb24.xlsx`, `userlist1.txt` and `ncb24.txt` — and
+/// `userlist1.txt` is *a listener's own saved list*, 473 kB, in a **different
+/// Aoki format** (kHz, Time, ITU, Station, Lang, Location, Days — no ADM column,
+/// no position column at all).
+///
+/// So "the first `.txt`" is wrong, and wrong in the worst way: it is a real
+/// schedule-shaped file from the right publisher, so nothing about the download
+/// looks amiss. The first version did exactly this and reported **zero**
+/// stations, which is the only reason it was caught — with a user's list in the
+/// older format it would have parsed into plausible, wrong stations.
+///
+/// Enumerating rather than picking keeps the decision explicit and lets the
+/// caller say what it chose.
+fn zip_txt_entries(bytes: &[u8]) -> Result<Vec<(String, Vec<u8>)>, String> {
+    use std::io::Read;
+    const EOCD_SIG: u32 = 0x0605_4b50;
+    const CEN_SIG: u32 = 0x0201_4b50;
+
+    // An EOCD is 22 bytes plus an optional comment, so it **starts** at most
+    // `len - 22`. The first cut searched `0..len - 65`, which excluded the
+    // record from any archive under about 87 bytes and so refused every small
+    // one — including the ones a test builds. Found by the test, not by reading.
+    let eocd = (0..bytes.len().saturating_sub(21))
+        .rev()
+        .find(|&i| u32::from_le_bytes(bytes[i..i + 4].try_into().unwrap()) == EOCD_SIG)
+        .ok_or("not a zip: no end-of-central-directory record")?;
+    let count = u16::from_le_bytes(bytes[eocd + 10..eocd + 12].try_into().unwrap()) as usize;
+    let mut off = u32::from_le_bytes(bytes[eocd + 16..eocd + 20].try_into().unwrap()) as usize;
+    let mut out = Vec::new();
+
+    for _ in 0..count {
+        if off + 46 > bytes.len()
+            || u32::from_le_bytes(bytes[off..off + 4].try_into().unwrap()) != CEN_SIG
+        {
+            return Err("not a zip: central directory is malformed".into());
+        }
+        let method = u16::from_le_bytes(bytes[off + 10..off + 12].try_into().unwrap());
+        let csize = u32::from_le_bytes(bytes[off + 20..off + 24].try_into().unwrap()) as usize;
+        let name_len = u16::from_le_bytes(bytes[off + 28..off + 30].try_into().unwrap()) as usize;
+        let extra_len = u16::from_le_bytes(bytes[off + 30..off + 32].try_into().unwrap()) as usize;
+        let comment_len =
+            u16::from_le_bytes(bytes[off + 32..off + 34].try_into().unwrap()) as usize;
+        let lho = u32::from_le_bytes(bytes[off + 42..off + 46].try_into().unwrap()) as usize;
+        let name = String::from_utf8_lossy(&bytes[off + 46..off + 46 + name_len]).into_owned();
+
+        if name.to_ascii_lowercase().ends_with(".txt") {
+            if lho + 30 > bytes.len() {
+                return Err("not a zip: local header is out of range".into());
+            }
+            let l_name = u16::from_le_bytes(bytes[lho + 26..lho + 28].try_into().unwrap()) as usize;
+            let l_extra =
+                u16::from_le_bytes(bytes[lho + 28..lho + 30].try_into().unwrap()) as usize;
+            let start = lho + 30 + l_name + l_extra;
+            let end = start + csize;
+            if end > bytes.len() {
+                return Err("not a zip: entry data is out of range".into());
+            }
+            let raw = &bytes[start..end];
+            let data = match method {
+                0 => raw.to_vec(),
+                8 => {
+                    let mut buf = Vec::with_capacity(csize * 2);
+                    flate2::read::DeflateDecoder::new(raw)
+                        .read_to_end(&mut buf)
+                        .map_err(|e| format!("zip: {e}"))?;
+                    buf
+                }
+                // Skipped rather than failed: a `.txt` we cannot decompress is
+                // not a reason to reject a schedule sitting beside it.
+                other => {
+                    warn!("zip entry {name} uses unsupported method {other}; skipping it");
+                    off += 46 + name_len + extra_len + comment_len;
+                    continue;
+                }
+            };
+            out.push((name, data));
+        }
+        off += 46 + name_len + extra_len + comment_len;
+    }
+    if out.is_empty() {
+        return Err("not a schedule zip: no .txt entry".into());
+    }
+    Ok(out)
+}
+
+/// Aoki's **schedule** out of its zip: the one `.txt` that is actually the
+/// schedule, chosen in a stated order rather than by position.
+///
+/// 1. An entry named for the season — `ncb26.txt` for season `b26`. Aoki names
+///    its files by two-digit year, so the season letter is dropped.
+/// 2. Otherwise the `.txt` whose head says what it is: Aoki's schedule files
+///    begin `Bnn Shortwave Frequency List …`, and no user list does.
+/// 3. Otherwise the largest `.txt`, with the names reported — a guess, but a
+///    named one.
+///
+/// **Identifying by content is the point.** A user's saved list is a real file
+/// from the right publisher in a real Aoki format, so nothing about picking the
+/// wrong one looks like a mistake until the stations come out wrong.
+fn aoki_schedule_entry(bytes: &[u8], season: &str) -> Result<Vec<u8>, String> {
+    let entries = zip_txt_entries(bytes)?;
+    let names: Vec<&str> = entries.iter().map(|(n, _)| n.as_str()).collect();
+
+    let yy: String = season.chars().filter(|c| c.is_ascii_digit()).take(2).collect();
+    if yy.len() == 2 {
+        let want = format!("ncb{yy}.txt");
+        if let Some((_, d)) = entries.iter().find(|(n, _)| n.eq_ignore_ascii_case(&want)) {
+            info!("Aoki's zip: {want} is the schedule");
+            return Ok(d.clone());
+        }
+    }
+    if let Some((n, d)) = entries.iter().find(|(_, d)| {
+        let head: String = String::from_utf8_lossy(&d[..d.len().min(256)]).into_owned();
+        head.contains("Frequency List")
+    }) {
+        info!("Aoki's zip: {n} names itself a frequency list, so it is the schedule");
+        return Ok(d.clone());
+    }
+    let (name, data) =
+        entries.iter().max_by_key(|(_, d)| d.len()).expect("zip_txt_entries guarantees one entry");
+    warn!(
+        "Aoki's zip has no entry that looks like the schedule; taking the largest .txt ({name}) of {names:?}"
+    );
+    Ok(data.clone())
+}
 /// Where the operator's own station list lives, for showing in the settings panel.
 pub fn broadcast_stations_path() -> Result<PathBuf, ConfigError> {
     Ok(config_dir()?.join(BROADCAST_STATIONS_FILE))
@@ -2431,6 +2601,32 @@ pub fn broadcast_cache_path(season: &str) -> Result<PathBuf, ConfigError> {
     // directory even though it is computed rather than typed in.
     let season: String = season.chars().filter(|c| c.is_ascii_alphanumeric()).take(8).collect();
     Ok(config_dir()?.join(BROADCAST_CACHE_DIR).join(format!("sked-{season}.csv")))
+}
+
+/// Where a season's downloaded schedule is cached, **for a given source**.
+///
+/// EiBi keeps the name it has always had (`sked-b26.csv`), so an existing
+/// download is still found after this change and no operator re-downloads 6 MB
+/// of schedule because we added a second source. Every other source gets its own
+/// file, which is what lets both be **kept** while only one is **active** — the
+/// choice bebepip was asked about, answered as "gone from the waterfall, kept on
+/// disk so switching back is one click".
+pub fn broadcast_cache_path_for(
+    season: &str,
+    source: sdroxide_types::ScheduleSource,
+) -> Result<PathBuf, ConfigError> {
+    use sdroxide_types::ScheduleSource as S;
+
+    // The season is used in a filename, so it must not be able to escape the
+    // directory even though it is computed rather than typed in.
+    let season: String = season.chars().filter(|c| c.is_ascii_alphanumeric()).take(8).collect();
+    let name = match source {
+        S::Eibi => format!("sked-{season}.csv"),
+        S::Aoki => format!("aoki-{season}.txt"),
+        S::Hfcc => format!("hfcc{season}.sked"),
+        S::User => "user-stations.txt".to_string(),
+    };
+    Ok(config_dir()?.join(BROADCAST_CACHE_DIR).join(name))
 }
 
 /// The operator's own broadcast entries. Absent by default — this file holds
@@ -2518,11 +2714,34 @@ fn apply_broadcast_overrides(
 
 /// The cached schedule for the season we are in, if it has been downloaded.
 fn cached_schedule() -> Option<Vec<sdroxide_types::BroadcastStation>> {
+    cached_schedule_for(sdroxide_types::ScheduleSource::Eibi)
+}
+
+/// The cached schedule of **one chosen source**, or `None`.
+///
+/// One source, not all of them: EiBi, Aoki and HFCC overlap heavily, so reading
+/// all three would paint one station on the waterfall two or three times, and the
+/// label is there so a station can be **identified** — three copies of it is
+/// worse than none. `SWL-HANDOVER.md`, fork #69.
+///
+/// A source that is **not** currently downloaded is simply absent: the fallback
+/// to the compiled-in EiBi list happens above this, so an operator who selects
+/// Aoki before it has downloaded sees EiBi and says so, rather than a blend.
+pub fn cached_schedule_for(
+    source: sdroxide_types::ScheduleSource,
+) -> Option<Vec<sdroxide_types::BroadcastStation>> {
     let season = sdroxide_types::broadcast::season_file(now_unix());
-    let path = broadcast_cache_path(&season).ok()?;
+    let path = broadcast_cache_path_for(&season, source).ok()?;
     let bytes = fs::read(&path).ok()?;
-    let text = sdroxide_types::broadcast::decode_latin1(&bytes);
-    let stations = sdroxide_types::broadcast::parse_schedule(&text);
+    // How the bytes are read is the source's business: EiBi is Latin-1 and Aoki
+    // is Shift-JIS. Both are cached as they were **downloaded**, so the decode
+    // here and the one at fetch time must agree — which is why both go through
+    // `decode_schedule`.
+    let text = decode_schedule(source, &bytes);
+    let stations = sdroxide_types::broadcast::parse_from(source, &text).unwrap_or_else(|e| {
+        warn!("cached {source:?} schedule would not parse: {e}");
+        Vec::new()
+    });
     if stations.len() < MIN_SCHEDULE_ROWS {
         warn!("cached schedule {season} has only {} entries; ignoring it", stations.len());
         return None;
@@ -2540,8 +2759,13 @@ const MIN_SCHEDULE_ROWS: usize = 500;
 /// True on a first run, and again after each changeover, because the cache is
 /// keyed by season: October's file simply is not March's.
 pub fn broadcast_schedule_due() -> bool {
+    broadcast_schedule_due_for(sdroxide_types::ScheduleSource::Eibi)
+}
+
+/// Whether the **chosen** source still needs downloading.
+pub fn broadcast_schedule_due_for(source: sdroxide_types::ScheduleSource) -> bool {
     let season = sdroxide_types::broadcast::season_file(now_unix());
-    match broadcast_cache_path(&season) {
+    match broadcast_cache_path_for(&season, source) {
         Ok(p) => !p.exists(),
         Err(_) => false,
     }
@@ -2595,8 +2819,32 @@ pub fn latest_release_tag() -> Result<String, String> {
 /// into a plausible schedule, so a failure leaves the previous file in place
 /// rather than replacing it with a captive portal's login page.
 pub fn fetch_broadcast_schedule() -> Result<Vec<sdroxide_types::BroadcastStation>, String> {
+    fetch_broadcast_schedule_from(sdroxide_types::ScheduleSource::Eibi)
+}
+
+/// Download one chosen source's schedule and cache it.
+///
+/// **Aoki** arrives as a zip holding a Shift-JIS `.txt`, which is two steps EiBi
+/// never needed and both of them quiet if wrong: unzipping the wrong way yields
+/// bytes that still parse as *a* schedule, and decoding Shift-JIS as Latin-1
+/// still yields the right stations and the right columns with only the
+/// non-ASCII names mangled. So the decode goes through [`decode_schedule`] and
+/// the same helper the cache read uses, and the plausibility check below is the
+/// only thing standing between the two files and a plausible wrong answer.
+pub fn fetch_broadcast_schedule_from(
+    source: sdroxide_types::ScheduleSource,
+) -> Result<Vec<sdroxide_types::BroadcastStation>, String> {
+    use sdroxide_types::ScheduleSource as S;
     let season = sdroxide_types::broadcast::season_file(now_unix());
-    let url = EIBI_SKED_URL.replace("{season}", &season);
+    if source == S::User {
+        return Err("the listener's own stations are a local file, not a download".into());
+    }
+    let url = match source {
+        S::Eibi => EIBI_SKED_URL.replace("{season}", &season),
+        S::Aoki => AOKI_SKED_URL.replace("{season}", &season),
+        S::Hfcc => return Err("HFCC needs its companion station-name file; not built yet".into()),
+        S::User => unreachable!("handled above"),
+    };
     let agent: ureq::Agent = ureq::Agent::config_builder()
         .timeout_connect(Some(std::time::Duration::from_secs(15)))
         .timeout_global(Some(std::time::Duration::from_secs(120)))
@@ -2615,8 +2863,15 @@ pub fn fetch_broadcast_schedule() -> Result<Vec<sdroxide_types::BroadcastStation
         .read_to_vec()
         .map_err(|e| e.to_string())?;
 
-    let text = sdroxide_types::broadcast::decode_latin1(&bytes);
-    let stations = sdroxide_types::broadcast::parse_schedule(&text);
+    // Aoki's is a zip; EiBi's is the file itself. Either way the schedule text
+    // ends up in one variable and everything below is source-agnostic.
+    let text = if source == S::Aoki {
+        aoki_text_from_zip(&bytes, &season)?
+    } else {
+        decode_schedule(source, &bytes)
+    };
+    let stations =
+        sdroxide_types::broadcast::parse_from(source, &text).map_err(|e| e.to_string())?;
     if stations.len() < MIN_SCHEDULE_ROWS {
         return Err(format!(
             "{url} yielded {} transmissions, which is not a schedule",
@@ -2624,14 +2879,19 @@ pub fn fetch_broadcast_schedule() -> Result<Vec<sdroxide_types::BroadcastStation
         ));
     }
 
-    let path = broadcast_cache_path(&season).map_err(|e| e.to_string())?;
+    // The cache holds the **bytes as downloaded** — EiBi's CSV or Aoki's zip —
+    // and is re-decoded on read, so the two paths cannot drift.
+    let path = broadcast_cache_path_for(&season, source).map_err(|e| e.to_string())?;
     if let Some(dir) = path.parent() {
         fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     }
     fs::write(&path, &bytes).map_err(|e| e.to_string())?;
     // Last season's file is only dead weight once this one has landed.
     prune_broadcast_cache(&season);
-    info!("downloaded the {season} broadcast schedule: {} transmissions", stations.len());
+    info!(
+        "downloaded the {season} {source:?} broadcast schedule: {} transmissions",
+        stations.len()
+    );
 
     Ok(apply_broadcast_overrides(
         sdroxide_types::broadcast::merge(stations),
@@ -2677,6 +2937,358 @@ pub fn load_voice_names() -> Vec<String> {
 
 pub fn save_voice_names(names: &[String]) -> Result<(), ConfigError> {
     save_json("voice_names.json", &names)
+}
+
+/// The whole-file check, against a zip freshly downloaded from Aoki.
+///
+/// **Ignored by default** because it needs the publisher's file, fetched from
+/// `https://www1.s2.starcat.ne.jp/ndxc/pc/nc/ncb24.zip` (the season changes, so
+/// the name moves with it). It is here because the **fixture** tests cannot
+/// catch the fault this caught: Aoki's zip carries three entries and the
+/// schedule is not the first one, so a reader that picked by position took a
+/// listener's own 474 kB saved list — a real file, in a real Aoki format, from
+/// the right publisher — and reported zero stations. Every fixture in this
+/// module is a one-entry zip, so every one of them passed.
+///
+/// ```sh
+/// curl -o /tmp/ncb24.zip https://www1.s2.starcat.ne.jp/ndxc/pc/nc/ncb24.zip
+/// SDROXIDE_AOKI_ZIP=/tmp/ncb24.zip \
+///   cargo test -p sdroxide-config --release -- --ignored --nocapture a_published
+/// ```
+#[test]
+#[ignore = "needs Aoki's published zip; see the doc comment for the URL"]
+fn a_published_aoki_zip_yields_its_schedule() {
+    let Ok(p) = std::env::var("SDROXIDE_AOKI_ZIP") else {
+        panic!("set SDROXIDE_AOKI_ZIP to a downloaded ncbXX.zip");
+    };
+    let bytes = std::fs::read(&p).expect("the zip");
+
+    // The file must hold more than the schedule, or the test cannot catch
+    // picking the wrong one.
+    let entries = zip_txt_entries(&bytes).expect("a zip");
+    println!("entries: {:?}", entries.iter().map(|(n, d)| (n, d.len())).collect::<Vec<_>>());
+    assert!(
+        entries.len() > 1,
+        "Aoki's zip is expected to hold a user list alongside the schedule; with \
+         one entry this test cannot catch picking the wrong one"
+    );
+
+    let text = aoki_text_from_zip(&bytes, "b24").expect("the schedule");
+    let stations =
+        sdroxide_types::broadcast::parse_from(sdroxide_types::ScheduleSource::Aoki, &text)
+            .expect("a schedule");
+    println!("{} stations from {} chars", stations.len(), text.chars().count());
+    for s in stations.iter().take(5) {
+        println!("  {:8.0} kHz  {:<30} {}", s.freq_khz, s.name, s.country);
+    }
+
+    // A whole published file is thousands of rows, not a handful.
+    assert!(
+        stations.len() > 2_000,
+        "only {} stations from the published file — the wrong entry was probably taken",
+        stations.len()
+    );
+    // And nearly all of them belong on the map, or the position column is being
+    // mis-read. 95% is a floor, not the measured figure.
+    let placed = stations.iter().filter(|s| s.lat.is_some()).count();
+    let pct = 100.0 * placed as f64 / stations.len() as f64;
+    println!("placed on the map: {placed}/{} ({pct:.1}%)", stations.len());
+    assert!(pct > 95.0, "only {pct:.1}% of stations got a position");
+    // The three-letter ADM resolving to a real country is the shared vocabulary
+    // doing its job, and what a wrong entry would lack entirely.
+    let named = stations.iter().filter(|s| !s.country.is_empty()).count();
+    assert!(named > 2_000, "only {named} stations resolved a country");
+}
+
+#[cfg(test)]
+mod aoki_source_tests {
+    use super::{aoki_text_from_zip, broadcast_cache_path_for, decode_schedule, zip_txt_entries};
+    use sdroxide_types::ScheduleSource as S;
+
+    const AOKI_HEADER: &str = concat!(
+        "B24 Shortwave Frequency List  March 23  2025, 1300 UTC   Day 1 = Sunday\n",
+        "FRE   STATION                         UTC       Su-W-Sa Language             Pow Azi Location                ADM L/L             Remarks\n"
+    );
+
+    /// A real zip, built here with the same layout Aoki publishes: deflated
+    /// entries, a central directory, an end-of-central-directory record.
+    ///
+    /// Takes **several** entries because the fault this module guards against is
+    /// only visible with more than one, and because concatenating two archives
+    /// is not an archive — the second one's recorded offsets are relative to
+    /// itself, so a naive concatenation yields a central directory that does not
+    /// point where it says.
+    fn make_zip(entries: &[(&str, &[u8])]) -> Vec<u8> {
+        use flate2::write::DeflateEncoder;
+        use std::io::Write;
+        let mut out = Vec::new();
+        let mut dir = Vec::new();
+
+        for (name, body) in entries {
+            let mut enc = DeflateEncoder::new(Vec::new(), flate2::Compression::default());
+            enc.write_all(body).unwrap();
+            let comp = enc.finish().unwrap();
+            let lho = out.len() as u32;
+
+            // local file header
+            out.extend_from_slice(&0x0403_4b50u32.to_le_bytes());
+            out.extend_from_slice(&20u16.to_le_bytes()); // version needed
+            out.extend_from_slice(&0u16.to_le_bytes()); // flags
+            out.extend_from_slice(&8u16.to_le_bytes()); // method: deflate
+            out.extend_from_slice(&[0, 0, 0, 0]); // time, date
+            out.extend_from_slice(&0u32.to_le_bytes()); // crc (not checked by us)
+            out.extend_from_slice(&(comp.len() as u32).to_le_bytes());
+            out.extend_from_slice(&(body.len() as u32).to_le_bytes());
+            out.extend_from_slice(&(name.len() as u16).to_le_bytes());
+            out.extend_from_slice(&0u16.to_le_bytes()); // extra length
+            out.extend_from_slice(name.as_bytes());
+            out.extend_from_slice(&comp);
+
+            // central directory record
+            dir.extend_from_slice(&0x0201_4b50u32.to_le_bytes());
+            dir.extend_from_slice(&20u16.to_le_bytes()); // version made by
+            dir.extend_from_slice(&20u16.to_le_bytes()); // version needed
+            dir.extend_from_slice(&0u16.to_le_bytes()); // flags
+            dir.extend_from_slice(&8u16.to_le_bytes()); // method
+            dir.extend_from_slice(&[0, 0, 0, 0]); // time, date
+            dir.extend_from_slice(&0u32.to_le_bytes()); // crc
+            dir.extend_from_slice(&(comp.len() as u32).to_le_bytes());
+            dir.extend_from_slice(&(body.len() as u32).to_le_bytes());
+            dir.extend_from_slice(&(name.len() as u16).to_le_bytes());
+            // extra, comment, disk-start, internal-attrs — four u16, then the
+            // external attributes (4) and the local header offset (4). The first
+            // cut wrote only three and put the offset 2 bytes early, which the
+            // reader then reported as "no .txt entry" — a fault in the fixture,
+            // not in the reader, and only visible because the name did not
+            // arrive.
+            dir.extend_from_slice(&[0u8; 8]);
+            dir.extend_from_slice(&0u32.to_le_bytes()); // external attributes
+            dir.extend_from_slice(&lho.to_le_bytes());
+            dir.extend_from_slice(name.as_bytes());
+        }
+
+        let cen = out.len() as u32;
+        let cen_len = dir.len() as u32;
+        out.extend_from_slice(&dir);
+        out.extend_from_slice(&0x0605_4b50u32.to_le_bytes());
+        out.extend_from_slice(&[0, 0, 0, 0]); // disk numbers
+        out.extend_from_slice(&(entries.len() as u16).to_le_bytes());
+        out.extend_from_slice(&(entries.len() as u16).to_le_bytes());
+        out.extend_from_slice(&cen_len.to_le_bytes());
+        out.extend_from_slice(&cen.to_le_bytes());
+        out.extend_from_slice(&0u16.to_le_bytes()); // comment length
+        out
+    }
+
+    /// The reader has to actually inflate, and hand back the original bytes.
+    #[test]
+    fn a_deflated_zip_entry_comes_back_whole() {
+        let body = "station,1000,1200\nsecond,2000,2400\n".repeat(200);
+        let zip = make_zip(&[("ncb24.txt", body.as_bytes())]);
+        assert_eq!(zip_txt_entries(&zip).unwrap().len(), 1);
+        assert_eq!(zip_txt_entries(&zip).unwrap()[0].1, body.as_bytes());
+    }
+
+    /// A stored (uncompressed) entry is method 0 and takes the other arm.
+    #[test]
+    fn a_stored_zip_entry_comes_back_whole() {
+        let mut zip = make_zip(&[("ncb24.txt", b"plain stored bytes")]);
+        // rewrite the method fields to 0 (stored) and leave sizes as they are:
+        // for a stored entry comp size == body size, so make them agree.
+        let body = b"plain stored bytes".to_vec();
+        let mut zip2 = make_zip(&[("ncb24.txt", &body)]);
+        // find the two method fields and zero them
+        for sig in [0x0403_4b50u32, 0x0201_4b50u32] {
+            let at = zip2
+                .windows(4)
+                .position(|w| u32::from_le_bytes(w.try_into().unwrap()) == sig)
+                .unwrap();
+            zip2[at + 8..at + 10].copy_from_slice(&0u16.to_le_bytes());
+        }
+        zip.shrink_to_fit();
+        assert_eq!(zip_txt_entries(&zip2).unwrap()[0].1, &body[..]);
+    }
+
+    /// **The regression guard for picking the wrong file out of Aoki's zip.**
+    ///
+    /// A published `ncbXX.zip` holds three entries — an `.xlsx`, a listener's own
+    /// `userlist1.txt`, and the schedule's `ncb24.txt` — and the schedule is
+    /// **not** the first `.txt`. Taking the first one yielded a real file, from
+    /// the right publisher, in a real Aoki format, holding **zero** stations;
+    /// with a user's list in the older layout it would have yielded plausible,
+    /// wrong ones instead.
+    ///
+    /// The zip is built here with the **user list first**, the order that broke
+    /// it, so this fails on any reader that picks by position.
+    #[test]
+    fn the_schedule_is_chosen_by_name_not_by_position() {
+        // The listener's own list: Aoki's *other* format — frequency first, no
+        // ADM, no position column — so a reader that takes it gets nothing.
+        let user_list =
+            b"kHz           Time(UTC)       ITU Station                Lang. Location    Days \n";
+        let schedule = "B24 Shortwave Frequency List  March 23  2025, 1300 UTC   Day 1 = Sunday\n";
+        let zip = make_zip(&[("userlist1.txt", user_list), ("ncb24.txt", schedule.as_bytes())]);
+        let entries = zip_txt_entries(&zip).unwrap();
+        assert_eq!(entries.len(), 2, "both text entries must be found");
+        assert_eq!(entries[0].0, "userlist1.txt", "the wrong one does come first");
+
+        // Season b24 names the file ncb24.txt, and that is what must be chosen.
+        let chosen = crate::aoki_schedule_entry(&zip, "b24").unwrap();
+        assert_eq!(
+            String::from_utf8(chosen).unwrap(),
+            schedule,
+            "the entry chosen was the user's list, not the schedule"
+        );
+    }
+
+    /// And when the season does not name the file, the one that **says what it
+    /// is** wins — so a season numbered differently still works.
+    #[test]
+    fn a_season_that_does_not_match_the_name_still_finds_the_schedule() {
+        let user_list =
+            b"kHz           Time(UTC)       ITU Station                Lang. Location    Days \n";
+        let schedule = "B26 Shortwave Frequency List  June 1  2026, 1300 UTC   Day 1 = Sunday\n";
+        let zip = make_zip(&[("userlist1.txt", user_list), ("ncb26.txt", schedule.as_bytes())]);
+        // Ask for a season whose file is not in the zip at all.
+        let chosen = crate::aoki_schedule_entry(&zip, "b99").unwrap();
+        assert_eq!(
+            String::from_utf8(chosen).unwrap(),
+            schedule,
+            "it must fall back to the entry that names itself a frequency list"
+        );
+    }
+
+    /// The three failure modes must be **errors**, never a wrong answer: not a
+    /// zip at all, a zip with no text file, and a truncated archive.
+    #[test]
+    fn a_zip_that_is_not_one_is_refused() {
+        assert!(zip_txt_entries(b"this is not a zip at all").is_err());
+        assert!(
+            zip_txt_entries(&make_zip(&[("readme.md", b"# hello")])).is_err(),
+            "a zip with no .txt must be refused, not silently yield nothing"
+        );
+        let mut trunc = make_zip(&[("ncb24.txt", b"some content here")]);
+        trunc.truncate(30);
+        assert!(zip_txt_entries(&trunc).is_err(), "a truncated zip must be refused");
+    }
+
+    /// **The decode is the quiet half.** Shift-JIS read as Latin-1 still yields
+    /// a schedule with the right stations and the right columns, because the
+    /// columns come from the file's own header — only the non-ASCII names are
+    /// wrong. So this test is about the one byte pattern that tells the two
+    /// apart.
+    #[test]
+    fn shift_jis_is_not_latin_one() {
+        // U+65E5  日 in Shift-JIS is two bytes: 0x93 0xFA. Latin-1 would read
+        // those as " control characters instead of a character.
+        let sjis = [0x93u8, 0xFA];
+        let shift = decode_schedule(S::Aoki, &sjis);
+        assert_eq!(shift, "\u{65e5}", "Aoki is Shift-JIS and must decode as it");
+        let latin = decode_schedule(S::Eibi, &sjis);
+        assert_ne!(latin, "\u{65e5}", "EiBi is Latin-1 and must not");
+        assert_eq!(latin.chars().count(), 2, "Latin-1 turns one CJK char into two mojibake");
+    }
+
+    /// Aoki's Shift-JIS file decodes through the whole zip path, and the
+    /// station names survive.
+    #[test]
+    fn aoki_text_survives_the_zip_and_the_shift_jis() {
+        // Traditional forms throughout, and every one of them **in CP932**: the
+        // first cut used \u{5f55} (录, simplified) which CP932 does not hold,
+        // and came back as a numeric character reference. See the test below for
+        // why that is worth knowing rather than just avoiding.
+        let name = "\u{65e5}\u{672c}\u{8a18}\u{9332}\u{53f0}"; // \u65e5\u672c\u8a18\u9332\u53f0
+        let row = format!(
+            " 2350 {:<29} 2000-1800 1234567 Japanese            100  NE Tokyo                 JPN 4014N12549E     test\n",
+            name
+        );
+        // Encode the whole file as Shift-JIS, which is what Aoki publishes.
+        let whole = format!("{AOKI_HEADER}{row}");
+        let (file, _, _) = encoding_rs::SHIFT_JIS.encode(&whole);
+        let zip = make_zip(&[("ncb24.txt", file.as_ref())]);
+        let text = aoki_text_from_zip(&zip, "b24").unwrap();
+        assert!(
+            text.contains(name),
+            "the name must come back whole through zip and Shift-JIS: {text:?}"
+        );
+        // And it must parse into a station carrying that name.
+        let stations = sdroxide_types::broadcast::parse_from(S::Aoki, &text).unwrap();
+        assert_eq!(stations.len(), 1, "one row, one station: {stations:?}");
+        assert!(
+            stations[0].name.contains(name),
+            "name {:?} should contain {name:?}",
+            stations[0].name
+        );
+    }
+
+    /// **Two sources must not share a cache file.** If they did, selecting Aoki
+    /// would show EiBi's stations under Aoki's name, or the other way round,
+    /// and neither would look wrong.
+    #[test]
+    fn each_source_has_its_own_cache_file() {
+        let a = broadcast_cache_path_for("b26", S::Eibi).unwrap();
+        let b = broadcast_cache_path_for("b26", S::Aoki).unwrap();
+        assert_ne!(a, b, "EiBi and Aoki cannot share a cache file");
+        assert_ne!(a, broadcast_cache_path_for("b26", S::Hfcc).unwrap(), "nor can HFCC");
+        // EiBi's name is unchanged, so an existing download is still found.
+        assert!(a.to_string_lossy().ends_with("sked-b26.csv"), "{}", a.display());
+        assert!(b.to_string_lossy().ends_with("aoki-b26.txt"), "{}", b.display());
+        // Same rules for the season sanitising as the original: a season is
+        // computed, not typed, but it must not be able to escape the directory.
+        let nasty = broadcast_cache_path_for("../../etc/passwd", S::Aoki).unwrap();
+        assert!(nasty.to_string_lossy().contains("aoki"), "{}", nasty.display());
+        assert!(
+            !nasty.to_string_lossy().contains(".."),
+            "a season must not escape the cache directory"
+        );
+    }
+
+    /// **A `&#nnnn;` in a station name is not a decoding bug.** Found while
+    /// writing the test above: `encoding_rs`'s Shift-JIS **encoder** follows the
+    /// WHATWG rule and, for a character the encoding cannot hold, writes an
+    /// HTML numeric reference instead of refusing — so `录` (U+5F55, simplified;
+    /// CP932 has the traditional 録, U+9332, not this) encodes to the seven
+    /// ASCII bytes `&#24405;` and decodes back to exactly that text. It **also
+    /// sets `had_errors`**, so a caller that checks hears about it; the trap is
+    /// only for a caller that does not, and ours does not decode at all.
+    ///
+    /// Nothing in the **read** path does this: decoding Aoki's own bytes never
+    /// produces one, and `had_errors` is what tells us a name had a byte CP932
+    /// could not read. This is pinned so that a future `&#…;` in a name is
+    /// recognised as the encoder's doing rather than chased into the reader.
+    #[test]
+    fn an_unrepresentable_character_becomes_a_numeric_reference_not_a_mojibake() {
+        let (bytes, _, had_errors) = encoding_rs::SHIFT_JIS.encode("\u{5f55}");
+        assert!(
+            had_errors,
+            "and it does flag it — the substitution is loud to a caller that checks"
+        );
+        assert_eq!(
+            String::from_utf8(bytes.to_vec()).unwrap(),
+            "&#24405;",
+            "it writes the reference as literal ASCII, which survives a round trip"
+        );
+        // And our decode path reads that back as the text it is, not as U+5F55.
+        assert_eq!(decode_schedule(S::Aoki, b"&#24405;"), "&#24405;");
+    }
+
+    /// The source's own reader must be what the cache uses, or selecting Aoki
+    /// and then reading it back would need two code paths.
+    #[test]
+    fn a_cached_aoki_file_is_read_back_as_aoki() {
+        let text = format!(
+            "{AOKI_HEADER}\n 2350 {:<29} 2000-1800 1234567 Japanese            100  NE Tokyo                 JPN 4014N12549E     test\n",
+            "NHK Radio"
+        );
+        let stations = sdroxide_types::broadcast::parse_from(S::Aoki, &text).unwrap();
+        assert_eq!(stations.len(), 1);
+        // And EiBi must not read it: two formats, two readers, never each other.
+        assert!(
+            sdroxide_types::broadcast::parse_from(S::Eibi, &text).is_err()
+                || sdroxide_types::broadcast::parse_from(S::Eibi, &text).unwrap().is_empty(),
+            "EiBi's reader must not make sense of Aoki's file"
+        );
+    }
 }
 
 #[cfg(test)]
