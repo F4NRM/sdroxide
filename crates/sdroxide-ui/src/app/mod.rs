@@ -1118,6 +1118,10 @@ pub struct SdroxideApp {
     show_spots: bool,
     /// Show only spots that fall inside the current panadapter view span.
     spot_in_view_only: bool,
+    /// What the SPOTS window's KML chip last did, shown beside it: the spots
+    /// that were dropped because they carry no position, or that there were none
+    /// to save. Session-only, and cleared by the next save.
+    kml_note: Option<String>,
     /// Fuzzy search query for the spot list. Narrows the list in the SPOTS
     /// window only — the waterfall labels are positioned by frequency, so
     /// reordering them by match quality would mean nothing.
@@ -2008,6 +2012,7 @@ impl SdroxideApp {
             adopted_spots_gen: None,
             show_spots: false,
             spot_in_view_only: false,
+            kml_note: None,
             spot_search: String::new(),
             broadcast: sdroxide_types::broadcast::with_utilities(load_broadcast_stations()),
             broadcast_spots: Vec::new(),

@@ -320,7 +320,7 @@ pub use speech::{
     CallsignStyle, CategoryFlags, DecodeSpeech, FreqStyle, SpeechSettings, TextSpeech, TuneSpeech,
     Verbosity,
 };
-pub use spot::{Spot, SpotKind};
+pub use spot::{Spot, SpotKind, spots_to_kml};
 pub use sstv::{SstvMode, SstvStatus};
 pub use state::{
     CESSB_MAX_DB, MAX_DECIMATION, MAX_MANUAL_GAIN_DB, MIN_DECIMATED_RATE_HZ, OffsetState,

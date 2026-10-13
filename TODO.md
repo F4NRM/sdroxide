@@ -41,7 +41,13 @@ window. I/Q out over UDP is #594.)*
 **Fork-relevant, medium**
 - ~~#617 HFDL custom frequency chips~~ — **done** in `1bddef9c`; offered upstream
   as **#663** (built on `upstream/main`, four files, no wire change).
-- #458 bulk/automatic QRZ lookup + KML export
+- **#458 QRZ lookup + KML export** — the **KML export is done** (2026-10-12): a
+  **KML** chip in the SPOTS window saves what is on screen for Google Earth.
+  `spots_to_kml` lives in `sdroxide-types`, so the browser client writes the same
+  bytes. Only the kinds and frequencies the filters have lit are exported, and a
+  spot with no grid is left out rather than pinned at null island — the chip says
+  how many were dropped. The **bulk/automatic lookup half is still open**:
+  `lookup.rs` has single-call lookup and the per-mode grid lookups use it.
 - #322 PC-keyboard as a Morse key
 - #536 RX audio to the radio's own local speaker (HPSDR Protocol-1 EP2)
 - #653 split screen

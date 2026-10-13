@@ -517,6 +517,46 @@ impl SdroxideApp {
                 self.view.spots_openings = !self.view.spots_openings;
             }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if crate::chrome::chip(ui, false, "KML")
+                    .on_hover_text(
+                        "Save the spots you can see as a KML file — Google Earth, and any \
+                         other mapping tool that reads it. Only the filters switched on, and \
+                         only the spots that carry a position, since a pin with no \
+                         coordinates is a pin at the wrong end of the world.",
+                    )
+                    .clicked()
+                {
+                    // What is on screen, not the whole buffer: exporting all
+                    // seven kinds when four chips are lit would hand the
+                    // operator a file that does not match the window it came
+                    // from.
+                    let spots: Vec<Spot> =
+                        self.spots.iter().filter(|s| self.spot_visible(s)).cloned().collect();
+                    if spots.is_empty() {
+                        self.kml_note = Some("No spots to save — the filters are all off".into());
+                    } else {
+                        let placed = spots.iter().filter(|s| s.loc.is_some()).count();
+                        let kml = sdroxide_types::spots_to_kml(&spots);
+                        let name = if placed == spots.len() {
+                            "sdroxide-spots.kml".to_string()
+                        } else {
+                            format!("sdroxide-spots-{placed}-of-{}.kml", spots.len())
+                        };
+                        // Say what was dropped rather than letting a file
+                        // quietly hold fewer pins than the window showed.
+                        self.kml_note = (placed < spots.len()).then(|| {
+                            format!(
+                                "{placed} of {} saved — the rest carry no position and cannot \
+                                 be pinned",
+                                spots.len()
+                            )
+                        });
+                        crate::download::save(&name, kml.as_bytes());
+                    }
+                }
+                if let Some(note) = self.kml_note.as_deref() {
+                    ui.label(RichText::new(note).size(10.0).color(crate::theme::CYAN_DIM()));
+                }
                 if crate::chrome::chip(ui, false, "⚙ SETUP")
                     .on_hover_text("Feeds, lookup & upload settings")
                     .clicked()
