@@ -23,6 +23,37 @@ and the [README](https://github.com/madmedicnl/sdroxide-brown#readme).
 
 ## [Unreleased]
 
+## [2.0.10_brown] - 2026-10-13
+
+### Added — the schedule store, and a LISTEN window for it
+
+- **Three schedule sources in one store** — EiBi, **Aoki** and **HFCC**, all
+  fetched automatically, each tagged with where it came from and each reporting
+  its own failure so one being unavailable never costs the others.
+- **A Source filter in the SCHEDULE window**, defaulting to *all of them* — the
+  repetition is accepted here, and the panadapter is where it collapses.
+- **The LISTEN window** — what is on this span, where it is coming from, and the
+  share of the path in night. Clicking a station tunes it.
+- **Your own station list can be imported** — CSV, plain text or JSON, with the
+  unit decided by the number.
+- **A Download button per source**, and every source listed whether or not it has
+  been fetched, so "did Aoki download?" has an answer.
+- **The waterfall names only the station you are tuned to**, and shows one name
+  where two sources list the same broadcaster.
+- **The grey line on a path** — every dot lit or dim by its own twilight, so you
+  can see which half of a path is dark.
+
+### Fixed
+- **A schedule source that quietly holds nothing** — a zip read as text, a
+  season's filename guessed rather than asked for, and a column off by one all
+  loaded cleanly and returned the wrong answer. All three are pinned by tests
+  that fail against the old code.
+
+### Not proven
+- **The grey line has been seen on one path only**, one entirely in night. A
+  partly daylit path is the case it exists for and the one to check.
+
+
 ### Fixed
 - **The spectrum on a phone** — a phone held upright drew the waterfall alone,
   with the whole WFALL tab to spare. It now shows the spectrum above the
@@ -1364,7 +1395,8 @@ those are kept for the record.
   upstream install.
 - The RX reset chip is drawn once, not twice.
 
-[Unreleased]: https://github.com/madmedicnl/sdroxide-brown/compare/v1.9.12_brown...main
+[Unreleased]: https://github.com/madmedicnl/sdroxide-brown/compare/v2.0.10_brown...main
+[2.0.10_brown]: https://github.com/madmedicnl/sdroxide-brown/compare/v2.0.9.1_brown...v2.0.10_brown
 [1.9.12_brown]: https://github.com/madmedicnl/sdroxide-brown/compare/v1.9.11_brown...v1.9.12_brown
 [1.9.11_brown]: https://github.com/madmedicnl/sdroxide-brown/compare/v1.9.10_brown...v1.9.11_brown
 [1.9.10_brown]: https://github.com/madmedicnl/sdroxide-brown/compare/v1.9.9_brown...v1.9.10_brown
