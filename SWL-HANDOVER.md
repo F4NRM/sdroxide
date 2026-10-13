@@ -380,3 +380,87 @@ write our code, carry the notice.
   is, and a listener with two machines probably wants them on both. Not decided;
   it would be a `PROTO_VERSION` bump, so it is worth deciding early rather than
   bolting on.
+
+## 12. The LISTEN window — map, station, comment, LOG (operator's idea, 2026-10-13)
+
+**What was asked for, in the operator's words:** *"make a listen panel with a map
+on in the right part and station info in the left part where they can immediately
+add a comment and hit log."*
+
+**And the correction worth making first, because the two are easy to confuse:**
+`dark_share` is **not** the grey line. The grey line is a *picture* — where night
+is, everywhere, at this instant, one texture over the whole map. `dark_share` is a
+*number* about **one path**: the fraction of the route from home to that station
+that is in darkness now. The grey line is its input.
+
+### What already exists, so nothing is duplicated
+
+Checked before designing, per the house rule:
+
+- **SWL LOG** (`swl_log.rs`, app-id `swl-log`, 720×520) — the reception log: list,
+  filters, QSL loop, reports, exports, and an entry form that **already has the
+  comment** (`SwlEntry::notes`) and pre-fills station/language/site from the
+  schedule at the dial.
+- **SCHEDULE** (`schedule.rs`) — the broadcast schedule as a table.
+- **Neither has a map.** Nothing anywhere in the tree is map-driven.
+
+So this is a genuine gap, not a re-skin. It is **map-first capture feeding the
+same `swl_log` file**, so the QSL/report loop is untouched.
+
+### Decisions the operator settled
+
+1. **A window, not a docked panel.** The docked column caps at ~280 pt and the
+   operating panels are built for ~680 pt; a map beside station info wants ~700,
+   so docked it squeezes what is below it (the #643 fault). As a window it gets
+   the `⇱` chip, remembered geometry, and joins `workspaces` like every other
+   tool window.
+2. **History is a toggle, off by default.** The operator's reason, and it is the
+   right one: *an experienced listening station does not want its history
+   cluttering the band*. Off, the map is only what is on now; on, it is also
+   everything ever logged. It also makes a far better screenshot.
+3. Map default = **schedule stations in the span around the dial**, logged ones
+   drawn differently. Signal spots and decodes are deliberately **not** mixed in —
+   two populations on one picture.
+
+### How it fits the existing map, with nothing changed in it
+
+`worldmap::show` is shared by three panels, so it is **not touched**. Both station
+kinds already have a slot in its signature:
+
+| what | passed as | drawn as |
+|---|---|---|
+| schedule stations in span | `stations: &[DigiStation]` — `{lat, lon, fade: 1.0, call: Some(name), band: None}` | plain dots, name on hover |
+| logged stations (history toggle) | `spots: &[(lat, lon, tint)]` | **tinted diamonds** (`worldmap.rs:785`) |
+
+So "logged looks different" is free — the map already draws spots as diamonds and
+stations as dots, and it already returns `Option<(f64, f64)>`, **the clicked
+lat/lon**, which is the whole of click-to-select.
+
+**A `MapView` of its own is required.** `SdroxideApp::map_view` is one per radio
+and `show` eases toward a target fitted to the stations it was *given*, so a
+second map sharing it would pull the first toward its own fit — the two would
+fight. So `listen_map_view: MapView` is a separate field.
+
+### The one type change, and why it is cheap
+
+`SwlEntry` has **no coordinates** — only a `site` *string*. `BroadcastStation`
+has `lat`/`lon`, so a schedule station arrives pre-placed, but **logging** one
+needs the pair added:
+
+- `lat: Option<f64>`, `lon: Option<f64>`, both `#[serde(default)]`.
+- `SwlEntry` is local `swl.json` and appears in **no wire message** — checked
+  against `crates/sdroxide-proto/src/lib.rs` — so this is **no `PROTO_VERSION`
+  bump**. An old log file loads unchanged.
+
+### The chip, and the width trap beside it
+
+LISTEN opens from the **SWL row** next to SCHEDULE and SWL LOG, in
+`listener_screen()`/`swl_mode()` only. `system_top_row` **mirrors** the top bar's
+labels and the two must agree or the strip overflows — issue **#211**. So adding
+a chip means editing both, and that is the guard.
+
+### Sequenced after this, not before
+
+`dark_share` goes **inside** LISTEN, on the selected station's path, as a
+readout — not as a thing of its own. The number earns its place beside a station
+being decided on; on its own it is a statistic nobody asks for.
