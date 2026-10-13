@@ -15546,8 +15546,8 @@ Click one to tune it in AM; unlike a cluster spot it opens no log entry and look
 up no callsign.
 
 Only stations **on the air now** are labelled, which is what makes a schedule of
-this size usable: it holds around 4,600 transmissions, of which roughly 350–550
-are on the air at any moment. Each carries a UTC window and, where the broadcast
+this size usable: the three schedules below hold around 8,000 transmissions
+between them, of which some hundreds are on the air at any moment. Each carries a UTC window and, where the broadcast
 does not run daily, a day mask; the list is re-filtered against the clock every
 minute. Entries with no window — the longwave transmitters, the standard-time
 stations, the round-the-clock private shortwave stations — are always shown. Turn
@@ -15564,32 +15564,63 @@ labelled with the station and site, exactly as a QSO or a weather-fax chart is.
 That turns "a signal on 15400" into "this came 8,000 km from Ascension Island".
 It needs your grid set on the **General** tab, and the **QSO** layer on.
 
+**Only the station you are actually tuned to is named.** A crowded band carries
+dozens of schedules at once, and labelling all of them buries the one under the
+dial. So the waterfall names the station on your frequency and nothing else; the
+rest — country, city, transmitter coordinates — is in the SCHEDULE window. If
+two broadcasters genuinely share a carrier, both are named, because those are two
+facts about what is on air and hiding one would be a lie.
+
+The path to a station is drawn with **its own twilight**: each dot along it is lit
+or dim according to whether that point is in daylight, so you can see *which half*
+of a path is dark rather than being told a percentage. It fades through twilight
+rather than switching at the terminator, and a night dot keeps a faint outline —
+a path that vanished would read as "no path".
+
 #### The schedule downloads itself
 
-Shortwave schedules are reissued twice a year, so SDRoxide keeps its own copy
-current instead of shipping a snapshot that goes stale:
+Shortwave schedules are reissued twice a year, so SDRoxide keeps its own copies
+current instead of shipping a snapshot that goes stale. **Three sources are
+fetched**, each on its own terms, and all of them go into **one store**:
 
-- **On first run** it downloads the current season's schedule from
-  [EiBi](https://www.eibispace.de/) in the background and caches it under
+| Source | What it is | Notes |
+| --- | --- | --- |
+| **EiBi** | The long-standing schedule, from [eibispace.de](https://www.eibispace.de/). | Plain HTTP, because its certificate is expired — see below. |
+| **Aoki** | A second schedule, read from the season's own package. | The same station often appears in both. |
+| **HFCC** | The [HFCC](https://new.hfcc.org/) operational schedule. | Carries transmitter sites and positions. |
+
+How each is fetched:
+
+- **On first run** they download in the background and are cached under
   `broadcast/` in the config directory ([§13](#13-configuration-files)).
 - **At each season change** — the last Sunday in March and the last Sunday in
-  October — the cache no longer matches the season SDRoxide is in, so the new
-  file is fetched. The check happens at startup and once a day thereafter, and
-  the previous season's file is deleted once the new one lands.
-- **Until then, or if there is no network**, the copy compiled into the binary is
-  used. A failed download changes nothing except how fresh the schedule is; it is
-  reported on the **Spots** settings tab and retried on the next start.
+  October — the cache no longer matches the season, so the new files are fetched.
+  The check happens at startup and once a day thereafter, and the previous
+  season's files are deleted once the new ones land.
+- **Until then, or if there is no network**, the EiBi copy compiled into the binary
+  is used. A failed download changes nothing except freshness; each source
+  reports its own failure and the others carry on, so one that cannot be had
+  never costs you the rest.
 
-The download runs on a worker thread, so it never delays startup, and it is only
-written to the cache after it parses into a plausible schedule — a captive
-portal's login page cannot replace your station list. The **Spots** tab shows
-which season is in use and whether it came from the network, with **Download
-schedule now** to fetch it again immediately.
+The **Spots** settings tab lists **every** source whether or not it has been
+fetched, showing how many transmissions each holds and giving it its own
+**Download** button beside **Download all now**. A source that has never been
+fetched reads *not downloaded* rather than simply being absent — a row that only
+appeared once it had worked makes "did it download?" unanswerable.
 
-The schedule is fetched over plain HTTP because eibispace.de's certificate is
-expired. Nothing is trusted on the strength of the transport: the file is parsed
-into typed rows and rejected unless it looks like a season's worth of
-transmissions.
+Downloads run on a worker thread, so they never delay startup, and a file is
+written to the cache only after it parses into a plausible schedule: a captive
+portal's login page cannot replace your station list. **Aoki** arrives as a zip
+holding a Shift-JIS text file, so it is unpacked and decoded as its own format
+rather than as CSV; **HFCC** arrives as one package holding the schedule *and* its
+reference tables, so the names cannot go stale against the schedule they belong
+to. Each source's own week numbering is converted to this program's as it is
+parsed — **Aoki and HFCC both count the week from Sunday, this one from Monday** —
+because doing it in two places is how every station ends up a day out.
+
+The EiBi download is plain HTTP for the expired certificate. Nothing is trusted on
+the strength of the transport: the file is parsed into typed rows and rejected
+unless it looks like a season's worth of transmissions.
 
 #### Your own stations
 
@@ -15603,7 +15634,28 @@ writes it, and merges it over the downloaded schedule each time it loads:
 
 The file does not exist until you create it, and holds only your entries rather
 than a copy of everything, so it stays small and never goes stale. **Reload** on
-the **Spots** tab re-reads it after an edit. (Upgrading from an earlier SDRoxide
+the **Spots** tab re-reads it after an edit.
+
+**Import my station list…**, beside it, reads a list you already keep somewhere
+else and merges it in. It accepts this JSON, a CSV, or a plain text list, because
+a listener's list comes from wherever they kept it and being asked to convert it
+first is what stops them:
+
+```
+BBC World Service 15400 kHz
+5010,Radio Prague
+```
+
+**The unit is decided by the number.** Shortwave here runs from 3 kHz to 130 MHz,
+so a bare number at or above 1000 is kHz and anything below it is MHz — `15400`,
+`15400 kHz` and `15.4` all land on the same row without being told. Rows merge by
+name and frequency rather than being added twice, and a line with no frequency in
+it is skipped rather than half-read. Your own list is a **schedule** — what you
+expect to hear — and is not the reception log, which records what you did hear.
+
+**This is a schedule, not the log.** The SWL LOG records what you *heard*; this
+records what is expected to be on air, which is what the waterfall labels against.
+Mixing them would put a station in the picture that was never transmitted. (Upgrading from an earlier SDRoxide
 that seeded a full copy here: that copy is moved aside to
 `broadcast_stations.json.bak` on first start, because laying a stale season back
 over a fresh one would duplicate hundreds of transmissions. Nothing you wrote
@@ -15637,8 +15689,18 @@ window is where the listener browses the table: it turns the same EiBi schedule
 the waterfall labels into the list a listener works from.
 
 At the top are the filters — a UTC time (or **now**), free text over name, site,
-country, language and target, language, target, and a metre band — plus **★
-FAVS**, which shows only the stations you have starred. A row can be **TUNE**d
+country, language and target, language, target, and a metre band. On the chip row
+below them are **★ FAVS**, which shows only the stations you have starred, and
+**Source**, which narrows the list to one schedule or shows all of them.
+
+**Source reads *all of them* by default**, and that is deliberate. The store
+holds every downloaded schedule, so one broadcaster listed by two of them appears
+twice — and the repetition is the point here: this window is where the detail
+belongs, and the repetition is accepted in exchange for never querying several
+databases to answer one question. It is the **panadapter** that collapses it, by
+naming each station once. The label says *all of them* rather than any source's
+name, because a box reading "EiBi" while three schedules are loaded would be a
+control that cannot be misread. A row can be **TUNE**d
 (the same tune as clicking its label on the waterfall) or **LOG**ged straight
 into the reception log with the station, language and site already filled in.
 
@@ -15667,6 +15729,33 @@ tools/gen_broadcast_codes.py --season b26
 Longwave and the HF standard-time stations are not in EiBi's file — it starts at
 2300 kHz and skips time signals — and are maintained by hand in
 `crates/sdroxide-types/src/broadcast_seed.json`.
+
+#### The LISTEN window
+
+Where the SCHEDULE window is a table to browse, LISTEN is the band to listen on.
+It opens beside SCHEDULE and answers two questions at once: **what is on around
+this frequency**, and **where is it coming from**.
+
+- **ON THIS SPAN** lists every station whose schedule covers the part of the band
+  currently in view. A station listed by two schedules appears twice — the same
+  repetition the SCHEDULE window keeps, and for the same reason.
+- **Click a station**, on the map or in the list, to select it. **Clicking it also
+  tunes there**, which is what a click on a map means everywhere else in this
+  program: the SCHEDULE rows tune, and the decode maps steer the beam. Earlier,
+  LISTEN only selected, and the operator found it in a minute — *"clicking a
+  station is not changing the frequency"*.
+- Under the station: its frequency, country, transmitter site and language, then
+  **distance, bearing, and the share of the path in night**. Grey-line absorption
+  is why a long path is open or not, and that last figure is the one to read
+  before chasing a weak signal.
+- The **map** shows the path from your locator to the station, lit by its own
+  twilight. A station whose position no schedule carries says so rather than
+  drawing a line to nowhere.
+- **Write what you heard** in the box, then **LOG** — which files it in the
+  reception log with the station, site and language already filled in.
+
+Its own geometry: **HISTORY** (off by default) keeps the span you were on rather
+than following the dial.
 
 #### The SWL LOG window
 
