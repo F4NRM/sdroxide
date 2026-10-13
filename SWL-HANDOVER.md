@@ -515,6 +515,29 @@ own arithmetic.
 So LISTEN stays reachable from **SCHEDULE's MAP chip**, and the rebalance is
 recorded here rather than shipped. The row is still held to two rows for AM.
 
+**And the #643 guard was lying about which panel it was.** Bisecting the failure
+to the 2.9 pt move found that `the_operating_panel_stays_inside_its_column`
+collects **every painted rect in the frame**, so with the box 3 pt wider it caught
+a **top bar** overflow while claiming to be about SSTV. The SSTV panel is fine.
+
+The real fault, on clean `HEAD` with nothing else changed:
+
+```
+window 1920   fits
+window 1930   ink to 1933.50   3.50 pt past
+window 2000   ink to 2003.50   3.50 pt past
+window 2560   ink to 2562.09   2.09 pt past
+```
+
+**The strip's plate paints past the right edge above 1920 pt** — and *both* width
+guards stop at exactly 1920, so it has been invisible. `chrome`'s own recorder
+names it: `1996x92 panel, 3.5 pt past the edge (offered 1984.0, pinned 1964.0)` —
+pinned 1964 plus the frame's own 10+10 is 1984, and the frame came out 1996, so
+something **inside** the pin demands more than `set_min_width`/`set_max_width` can
+both give. Left as `the_strip_plate_paints_past_the_window_above_1920`,
+**`#[ignore]`d** rather than deleted: it is a real shipped fault and a guard that
+stops just short of one is worse than one that reaches it and says so.
+
 **The naming is worth knowing about:** LISTEN is now also the band menu's
 *Explore the dial* **tab**, which is a different thing in a different place. The
 operator's word won, and both stay.

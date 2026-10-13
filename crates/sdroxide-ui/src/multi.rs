@@ -2255,6 +2255,90 @@ mod split_tests {
         }
     }
 
+    /// **The same oracle at the width where it fails, currently ignored.**
+    ///
+    /// `no_panel_paints_past_the_window_edge` sweeps 360 and **1920** — and 1920
+    /// is precisely where the fault stops being visible. At 1930 and above the
+    /// strip's plate paints past the window edge:
+    ///
+    /// ```text
+    /// 1996x92 panel, 3.5 pt past the edge (offered 1984.0, pinned 1964.0)
+    /// ```
+    ///
+    /// Read that line rather than the symptom. The panel was **offered** 1984
+    /// (the window less its margins) and **pinned** its content to 1964 (that
+    /// less the frame's own 10+10). Pinned plus margins is **1984**, and the
+    /// frame came out **1996** — twelve points past its own budget. So this is
+    /// **not** the plate being drawn at the wrong width, and not the packer
+    /// ignoring `avail`: something *inside* the pinned width demands more than
+    /// the pin allows, and `set_min_width`/`set_max_width` cannot both hold when
+    /// a child insists.
+    ///
+    /// The child is a strip box — its own natural width plus the System box's
+    /// `CHIP_STRETCH_FACTOR` stretch — and the stretch is what tips it over,
+    /// which is why it only appears once there is width to stretch into.
+    ///
+    /// **Ignored rather than deleted** because it is a real, shipped fault at
+    /// window widths above 1920 — a strip plate 3.5 pt past the right edge — and
+    /// a guard that stops just short of the fault is worse than one that reaches
+    /// it and says so. Un-ignore it with the fix.
+    ///
+    /// It is also why the **#643 operating-panel guard** appeared to fail when
+    /// PUBLIC SDR was moved between rows: that guard collects every painted rect
+    /// in the frame, so it caught a *top bar* overflow while claiming to be
+    /// about the SSTV panel.
+    #[test]
+    #[ignore = "known fault: the strip plate paints past the window above 1920 pt"]
+    fn the_strip_plate_paints_past_the_window_above_1920() {
+        for (w, h) in [(2000.0_f32, 1080.0_f32)] {
+            let _guard = frame_test_lock();
+            let dir = std::env::temp_dir().join(format!("sdroxide-spans-{w}"));
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(&dir).unwrap();
+            unsafe { std::env::set_var("SDROXIDE_CONFIG_DIR", &dir) };
+
+            let ctx = egui::Context::default();
+            let cc = eframe::CreationContext::_new_kittest(ctx.clone());
+            let tabs = vec![RadioTab {
+                id: 1,
+                name: "RADIO 1".into(),
+                enabled: true,
+                ctrl: Box::new(SilentController) as Box<dyn RadioController>,
+            }];
+            let mut multi = MultiApp::new(&cc, tabs, None, None);
+            let input = egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(w, h))),
+                time: Some(0.0),
+                ..Default::default()
+            };
+            let mut out = ctx.run_ui(input, |ui| {
+                eframe::App::ui(&mut multi, ui, &mut eframe::Frame::_new_kittest());
+            });
+            out.textures_delta.clear();
+
+            let over: Vec<String> = crate::chrome::take_frame_spans()
+                .into_iter()
+                .filter(|f| f.over > 0.0)
+                .map(|f| {
+                    format!(
+                        "{outer:.0}x{height:.0} panel, {over:.1} pt past the edge \
+                         (offered {available:.1}, pinned {pinned:.1})",
+                        outer = f.outer,
+                        height = f.height,
+                        over = f.over,
+                        available = f.available,
+                        pinned = f.pinned,
+                    )
+                })
+                .collect();
+            assert!(
+                over.is_empty(),
+                "{w}x{h}: a panel painted past the window (see the doc comment):\n  {}",
+                over.join("\n  ")
+            );
+        }
+    }
+
     /// The sweep: every size and radio count, and how far past the window the
     /// page container reached. One line per offending case.
     fn page_overflow(slack: f32) -> Vec<String> {
