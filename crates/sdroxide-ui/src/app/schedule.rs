@@ -126,6 +126,8 @@ impl SdroxideApp {
                 &s.site,
                 &s.email,
                 &s.address,
+                s.lat,
+                s.lon,
                 smeter,
                 grid,
                 antenna,

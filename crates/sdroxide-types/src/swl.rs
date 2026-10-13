@@ -112,6 +112,23 @@ pub struct SwlEntry {
     pub antenna: String,
     /// Programme notes — what was on, what was said.
     pub notes: String,
+    /// Where the **transmitter** stands, when the entry was logged off the
+    /// schedule and the schedule knew it.
+    ///
+    /// The entry already carried [`Self::site`] as a *string* ("Solec Kujawski"),
+    /// which is no use to a map: this is the same fact as coordinates. Kept
+    /// beside it rather than instead of it, because the site's name is what goes
+    /// on the reception report and what the operator recognises.
+    ///
+    /// `None` for an entry typed by hand, and for an old log file written before
+    /// these fields existed — which is why both are `Option` and `serde(default)`
+    /// and why the file loads unchanged. **No `PROTO_VERSION` bump:** `SwlEntry`
+    /// is local `swl.json` and appears in no wire message.
+    #[serde(default)]
+    pub lat: Option<f64>,
+    /// Longitude of the transmitter, paired with [`Self::lat`]. West negative.
+    #[serde(default)]
+    pub lon: Option<f64>,
     /// The broadcaster's reception-report email, copied from the schedule when
     /// the entry was logged from it. Free text; empty when the schedule carried
     /// no contact. It goes on the report's **Send to:** block, and the log
@@ -154,6 +171,8 @@ impl Default for SwlEntry {
             recv_grid: String::new(),
             antenna: String::new(),
             notes: String::new(),
+            lat: None,
+            lon: None,
             email: String::new(),
             address: String::new(),
             report_sent_unix: None,
@@ -344,12 +363,66 @@ pub fn swl_log_to_adif(entries: &[SwlEntry]) -> String {
 mod tests {
     use super::*;
 
+    /// **An existing log file must load unchanged.** Every listener's `swl.json`
+    /// was written before these fields existed, and a load that cannot parse
+    /// quarantines the file — so if these ever stopped being **optional**, the
+    /// first thing an operator would notice is their whole reception history
+    /// gone, with the cause in a `.quarantined` file.
+    ///
+    /// Worth being precise about *what* makes that safe, because the obvious
+    /// guess is wrong: not the `#[serde(default)]`, which turned out to be
+    /// redundant — **serde already reads a missing `Option` field as `None`**,
+    /// so dropping the attribute changed nothing and this test still passed. It
+    /// is the `Option` itself. Changing `lat` to a bare `f64` fails this test,
+    /// and that is the mutation it is here to catch.
+    #[test]
+    fn a_log_written_before_coordinates_still_loads() {
+        let old = r#"{
+            "id": 3,
+            "heard_at_unix": 1789587720,
+            "station": "Radio Prague",
+            "freq_hz": 9550000.0,
+            "mode": "Am",
+            "language": "English",
+            "site": "Prague",
+            "recv_grid": "JN79",
+            "antenna": "80m dipole",
+            "notes": "Interval signal, then news",
+            "pirate": false
+        }"#;
+        let e: SwlEntry = serde_json::from_str(old).expect("an old log file must still load");
+        assert_eq!(e.station, "Radio Prague", "and it must be intact");
+        assert_eq!(e.notes, "Interval signal, then news");
+        // The new fields are absent, so they read as "unknown" rather than 0,0
+        // off the coast of Ghana.
+        assert_eq!(e.lat, None, "absent means unknown, not zero");
+        assert_eq!(e.lon, None);
+        // And a round trip does not invent them either.
+        let back: SwlEntry = serde_json::from_str(&serde_json::to_string(&e).unwrap()).unwrap();
+        assert_eq!(back.lat, None);
+        assert_eq!(back.station, "Radio Prague");
+    }
+
+    /// And a new entry with coordinates keeps them, so a station logged off the
+    /// schedule can be plotted on the LISTEN map afterwards.
+    #[test]
+    fn coordinates_survive_the_round_trip() {
+        let e = entry();
+        let back: SwlEntry =
+            serde_json::from_str(&serde_json::to_string(&e).unwrap()).expect("round trip");
+        assert_eq!(back.lat, e.lat);
+        assert_eq!(back.lon, e.lon);
+        assert_eq!(back.station, e.station);
+    }
+
     fn entry() -> SwlEntry {
         SwlEntry {
             id: 7,
             // 2026-09-16 19:42:00 UTC
             heard_at_unix: 1_789_587_720,
             station: "Radio Taiwan International".into(),
+            lat: Some(24.79),
+            lon: Some(121.54),
             freq_hz: 6_185_000.0,
             mode: crate::Mode::Am,
             language: "English".into(),

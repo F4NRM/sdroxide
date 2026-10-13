@@ -131,6 +131,13 @@ impl SwlFilter {
 pub(in crate::app) struct SwlEditForm {
     /// 0 = new entry; otherwise the id of the entry being edited.
     id: u64,
+    /// Where the transmitter stands, when that is known — carried rather than
+    /// typed, so an edit round-trips and a station logged off the schedule can
+    /// be plotted afterwards. There is no field for it in the form on purpose:
+    /// coordinates are not something an operator enters by hand, and a box that
+    /// invites it is a box that gets it wrong.
+    lat: Option<f64>,
+    lon: Option<f64>,
     heard_at: u64,
     station: String,
     freq_khz: String,
@@ -171,6 +178,8 @@ impl Default for SwlEditForm {
     fn default() -> Self {
         SwlEditForm {
             id: 0,
+            lat: None,
+            lon: None,
             heard_at: 0,
             station: String::new(),
             freq_khz: String::new(),
@@ -211,6 +220,8 @@ impl SwlEditForm {
     ) -> Self {
         SwlEditForm {
             id: 0,
+            lat: None,
+            lon: None,
             heard_at: now_unix().max(0) as u64,
             freq_khz: format!("{:.0}", freq_hz / 1e3),
             mode,
@@ -237,11 +248,15 @@ impl SwlEditForm {
         site: &str,
         email: &str,
         address: &str,
+        lat: Option<f64>,
+        lon: Option<f64>,
         smeter_dbm: Option<f32>,
         grid: String,
         antenna: String,
     ) -> Self {
         let mut f = Self::new(freq_hz, mode, smeter_dbm, grid, antenna);
+        f.lat = lat;
+        f.lon = lon;
         f.station = station.to_string();
         f.language = language.to_string();
         f.site = site.to_string();
@@ -258,6 +273,8 @@ impl SwlEditForm {
         };
         SwlEditForm {
             id: e.id,
+            lat: e.lat,
+            lon: e.lon,
             heard_at: e.heard_at_unix,
             station: e.station.clone(),
             freq_khz: format!("{:.0}", e.freq_hz / 1e3),
@@ -314,6 +331,8 @@ impl SwlEditForm {
             recv_grid: self.recv_grid.trim().to_uppercase(),
             antenna: self.antenna.trim().to_string(),
             notes: self.notes.trim().to_string(),
+            lat: self.lat,
+            lon: self.lon,
             pirate: self.pirate,
             report_sent_unix: self.report_sent_unix,
             qsl_received_unix: self.qsl_received_unix,
@@ -1512,6 +1531,8 @@ mod report_tests {
             id: 1,
             heard_at_unix: 1_790_622_960, // 2026-09-28 19:16 UTC
             station: "Radio Example".into(),
+            lat: Some(25.13),
+            lon: Some(121.24),
             freq_hz: 3_730_000.0,
             mode: Mode::Am,
             language: "English".into(),
