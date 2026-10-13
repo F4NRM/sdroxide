@@ -1552,7 +1552,22 @@ fn chip_padding(ui: &Ui) -> egui::Vec2 {
     } else {
         vec2(0.0, 0.0)
     };
-    ui.spacing().button_padding + vec2(2.0, 1.0) + brackets
+    // The operator's observation, and it was the right one to make: the padding
+    // was **royal on every chip**, and it is a lever on all of them at once where
+    // shortening a label is a lever on one.
+    //
+    // A chip used to add its own 2 pt each side on top of the button's, so a
+    // desktop chip carried **9 pt a side** — 18 pt of pure air around a five
+    // letter label, which is most of the chip's width. The +2 is gone; the chip
+    // now takes the style's padding as it stands (7 pt a side on a desktop,
+    // 11 on a touched screen, which is a fingertip and is left alone).
+    //
+    // Only the *chip's* own bonus goes: `button_padding` itself is untouched, so
+    // every plain button, field and combo in the program keeps the room it had.
+    // Removing that one term is worth about 2 pt a side on **every chip in the
+    // tree**, which is 28 pt across the SWL row and rather more across the whole
+    // top strip — see `chips_are_not_padded_like_a_button` for the guard.
+    ui.spacing().button_padding + vec2(0.0, 1.0) + brackets
 }
 
 /// The colour a chip wears instead of the cyan a selected one takes by
@@ -2536,6 +2551,52 @@ fn tab_shape(
 
 #[cfg(test)]
 mod tests {
+    /// **A chip is the button's padding, not the button's padding plus a
+    /// bonus.** The operator noticed the padding was excessive on every chip,
+    /// and the fix was to drop the chip's own extra 2 pt a side rather than to
+    /// touch `button_padding` — which would have shrunk every button, field and
+    /// combo in the program as well, a much wider thing to change on somebody's
+    /// screen unseen.
+    ///
+    /// What it pins, both of which would otherwise drift:
+    ///
+    /// - **no chip-side bonus**, so the 18 pt of air a desktop chip used to
+    ///   carry around a five-letter label does not quietly come back;
+    /// - **the touched screen keeps its fingertip padding.** 11 pt a side is a
+    ///   finger and must not follow the desktop down.
+    #[test]
+    fn chips_are_not_padded_like_a_button() {
+        // The style is set here rather than taken from the app, so the assertion
+        // is about the chip's own term and not about today's theme.
+        let ctx = egui::Context::default();
+        ctx.run_ui(egui::RawInput::default(), |ui| {
+            // The style is set here rather than taken from the app, so the
+            // assertion is about the chip's own term and not about today's theme.
+            ui.style_mut().spacing.button_padding = vec2(7.0, 3.0);
+            let bp = ui.spacing().button_padding.x;
+            assert_eq!(
+                chip_padding(ui).x,
+                bp,
+                "a chip must add nothing to the button's horizontal padding, and it adds {}",
+                chip_padding(ui).x - bp
+            );
+            assert!(
+                chip_padding(ui).x >= 2.0,
+                "a chip still needs some air: {} pt a side",
+                chip_padding(ui).x
+            );
+
+            // The touched screen is a different style and a different target.
+            ui.style_mut().spacing.button_padding = vec2(11.0, 9.0);
+            assert!(
+                chip_padding(ui).x >= 11.0,
+                "a touched chip must keep its fingertip padding, and it has {}",
+                chip_padding(ui).x
+            );
+        })
+        .drop_without_applying_deltas();
+    }
+
     use super::*;
 
     /// Press Return with `modifiers` into a fresh context and report whether

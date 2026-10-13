@@ -6455,12 +6455,25 @@ impl SdroxideApp {
                 hz: self.state.hfdl.frequency_hz,
             });
         }
-        // Grid tracker: the worked squares on a map. A listener's tool too —
-        // the HEARD layer shades what is on the air now — so it stays in both
-        // interfaces and in SWL mode.
-        if chip_stretched(ui, self.show_grid, grid_label, extra)
-            .on_hover_text("Grid tracker — worked Maidenhead squares on a map, with what is heard")
-            .clicked()
+        // Grid tracker: worked Maidenhead squares on a map.
+        //
+        // **Not in SWL mode**, on the operator's judgement, and it is right: the
+        // window counts *worked* squares and *confirmed* ones, which come from
+        // QSOs — and a listener has none. The HEARD layer was the argument for
+        // keeping it ("a listener's tool too"), and it is weak: it shades grids
+        // off decoded stations, while shortwave listening is mostly AM broadcast
+        // reception, which carries no grid to shade. An almost-empty map is worse
+        // than no chip, because it looks like something is wrong.
+        //
+        // **Nothing is lost** — the SYS menu's "Decode windows" group still opens
+        // it (`windows_controls`), for the listener who also runs FT8 or WSPR and
+        // does want to see who hears them.
+        if !self.swl_mode()
+            && chip_stretched(ui, self.show_grid, grid_label, extra)
+                .on_hover_text(
+                    "Grid tracker — worked Maidenhead squares on a map, with what is heard",
+                )
+                .clicked()
         {
             self.show_grid = !self.show_grid;
         }
@@ -7664,11 +7677,21 @@ fn system_top_row(simple: bool, swl: bool) -> Vec<&'static str> {
 /// question, and the signal guide answers it. It stays even in the simple
 /// interface, because it is a listening tool rather than the ham extras simple
 /// drops (radio email included).
+/// The System box's bottom-row labels, with GRID dropped in SWL mode.
+///
+/// **Mirrored with `system_chips_bottom`**, which draws it; the two must agree
+/// or the box is reserved for a chip that is not there. GRID goes because a
+/// listener has no worked squares — see the drawing for the argument.
 fn system_bottom_row(simple: bool, swl: bool) -> Vec<&'static str> {
     SYSTEM_CHIPS_BOTTOM
         .iter()
         .enumerate()
         .filter(|(i, _)| !(simple && !swl && *i == 0))
+        // GRID is index 4. Dropped in SWL mode on the operator's judgement: it
+        // counts worked and confirmed squares, which are QSOs, and a listener has
+        // none — the window stays reachable from the SYS menu for the listener
+        // who also runs FT8.
+        .filter(|(i, _)| !(swl && *i == 4))
         .map(|(i, l)| if swl && i == 0 { "SIG ID" } else { *l })
         .collect()
 }
@@ -9729,15 +9752,17 @@ mod tests {
             vec!["MEM", "SCAN", "HFDL", "GRID", "⚙", "? HELP"]
         );
         // SWL mode puts the signal guide in the MAIL slot, and keeps it even
-        // when the simple interface would have dropped radio email. GRID stays:
-        // a map of worked squares with a heard layer is a listener's tool too.
+        // when the simple interface would have dropped radio email. **GRID goes**:
+        // it counts worked and confirmed squares, which are QSOs, and a listener
+        // has none — the operator's judgement, and the SYS menu still opens the
+        // window for the listener who also runs FT8.
         assert_eq!(
             system_bottom_row(false, true),
-            vec!["SIG ID", "MEM", "SCAN", "HFDL", "GRID", "⚙", "? HELP"]
+            vec!["SIG ID", "MEM", "SCAN", "HFDL", "⚙", "? HELP"]
         );
         assert_eq!(
             system_bottom_row(true, true),
-            vec!["SIG ID", "MEM", "SCAN", "HFDL", "GRID", "⚙", "? HELP"]
+            vec!["SIG ID", "MEM", "SCAN", "HFDL", "⚙", "? HELP"]
         );
     }
 
@@ -9814,7 +9839,63 @@ mod tests {
         .drop_without_applying_deltas();
     }
 
-    /// The LOG chip opens the listener's reception log in SWL mode and the QSO
+    /// **Which row actually sizes the System box** — and the answer decides where
+    /// a width-saving has to happen.
+    ///
+    /// `system_rows_w` is `max(top, bottom)`, so a saving on the *shorter* row
+    /// changes nothing at all. That is not a subtlety to leave in the code: the
+    /// settings chip was shortened by 61 pt and the GRID chip removed, **both on
+    /// the bottom row**, and the box came out **byte-identical** — because in SWL
+    /// mode the **top** row is the wider one and it is the top row that binds.
+    ///
+    /// So a chip that has to fit belongs on whichever row is measured widest, and
+    /// the way to find out is to measure rather than to reason about which chips
+    /// "look long". This prints both so the next change knows where to aim.
+    #[test]
+    fn the_top_row_is_what_sizes_the_system_box_in_swl_mode() {
+        let (ctx, input) = desktop_ctx();
+        ctx.run_ui(input, |ui| {
+            let top = chip_row_w(ui, &system_top_row(false, true));
+            let bottom = chip_row_w(ui, &system_bottom_row(false, true));
+            println!("SWL top row: {top} pt   bottom row: {bottom} pt");
+            assert!(
+                top >= bottom,
+                "the top row is expected to be the wider one, and it is not: \
+                 top {top} bottom {bottom}"
+            );
+            // And the box is the wider of the two plus its margins — so a
+            // saving on the bottom row is worth nothing while this holds.
+            assert_eq!(
+                system_rows_w(ui, false, true),
+                top + 2.0 * crate::chrome::MODULE_MARGIN_X,
+                "the box is sized by the top row"
+            );
+        })
+        .drop_without_applying_deltas();
+    }
+
+    /// What the chip-padding trim is worth, on the row that binds.
+    ///
+    /// A scratch figure kept as a test so the next person who widens a chip
+    /// knows what one point of padding costs across a whole strip: it is about
+    /// **2 pt per chip**, on every chip in the program.
+    #[test]
+    fn chip_padding_is_measured_on_the_binding_row() {
+        let (ctx, input) = desktop_ctx();
+        ctx.run_ui(input, |ui| {
+            let swl = system_top_row(false, true);
+            let now = chip_row_w(ui, &swl);
+            ui.style_mut().spacing.button_padding.x += 2.0;
+            let fatter = chip_row_w(ui, &swl);
+            assert!(fatter > now, "padding must move the row width, or the trim saved nothing");
+            println!(
+                "SWL top row {now:.1} pt; +2 pt of chip padding a side makes it {fatter:.1} pt"
+            );
+        })
+        .drop_without_applying_deltas();
+    }
+
+    /// The LOG chip opens the listener's reception log in SWL mode and the QSO    /// The LOG chip opens the listener's reception log in SWL mode and the QSO    /// The LOG chip opens the listener's reception log in SWL mode and the QSO    /// The LOG chip opens the listener's reception log in SWL mode and the QSO
     /// logbook otherwise — the operator's "my log" is whichever they keep. A
     /// listener logging a pirate station was being handed the QSO log.
     #[test]
