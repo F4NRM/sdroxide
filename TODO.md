@@ -13,6 +13,11 @@ upstream feature requests **this fork** may pick up, not a promise to upstream.
   clock), **#661** (output-audio routing), **#663** (HFDL custom frequency chips).
 - **#257 — undocked mode / separate windows on a second monitor.** In progress;
   the SDRuno window set. See `SDRUNO-UI-HANDOVER.md` and `UNDOCKED-HANDOVER.md`.
+- **#69 — a second broadcast schedule source (Aoki / HFCC / your own).** Fork-only,
+  designed and scoped, **no code written yet**: see **`SWL-HANDOVER.md`**, which
+  carries the three file formats decoded, the evidence bebepip gave, the staged
+  plan and the globe work. Not a quick change — the display side is already
+  built and the whole job is getting rows in.
 
 ## In progress / parked
 
@@ -41,6 +46,9 @@ window. I/Q out over UDP is #594.)*
 **Fork-relevant, medium**
 - ~~#617 HFDL custom frequency chips~~ — **done** in `1bddef9c`; offered upstream
   as **#663** (built on `upstream/main`, four files, no wire change).
+- ~~#69 import a broadcast schedule other than EiBi~~ — **scoped, not built.**
+  See `SWL-HANDOVER.md`. bebepip runs Aoki and answered our scoping questions on
+  2026-10-12; the three formats are decoded from his own pasted data.
 - **#458 QRZ lookup + KML export** — the **KML export is done** (2026-10-12): a
   **KML** chip in the SPOTS window saves what is on screen for Google Earth.
   `spots_to_kml` lives in `sdroxide-types`, so the browser client writes the same

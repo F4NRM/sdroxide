@@ -98,6 +98,16 @@
 > *not yet verifiable*, and those paragraphs are **history, not the state**.
 > Same shape as the phone UI being delegated on 2026-10-09.
 >
+> **The SWL schedule-sources work is in [`SWL-HANDOVER.md`](SWL-HANDOVER.md)** —
+> fork-only, from fork issue #69, **scoped but not written**. It is the second
+> broadcast schedule source (bebepip runs **Aoki**; **HFCC** also, and it needs a
+> *pair* of files), plus the listener's own stations as a real source, plus
+> great-circle paths with a **dark-share** on the 3D globe. The three file formats
+> are decoded in that file from bebepip's own pasted rows, so **read it before
+> touching `broadcast::parse_schedule`** — and note the standing decision:
+> **one active source at a time**, not "all of them", because the three overlap
+> heavily and he wants the station name on the waterfall for signal ID.
+>
 > ⛔ **DO NOT MERGE `upstream/main` INTO THIS FORK — WITHOUT EXCEPTION.**
 >
 > **Upstream is BEHIND this fork, not ahead of it. Merging it in is a regression,
