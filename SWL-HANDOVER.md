@@ -261,6 +261,46 @@ Two smaller things the tests caught, both worth keeping:
 columns while writing this" — that was a **row count, not a parse**, and it is
 what let the wrong-entry fault through. The parse now runs.
 
+### bebepip's answer (2026-10-13) — he overruled our one-source decision
+
+He answered both questions and said something different from what we assumed, with
+reasons, which is the right way to answer.
+
+**Sources: a master database, not one at a time.** He wants EiBi, Aoki, HFCC and
+his own list **imported into a single master store**, standardised — field widths,
+**and the start day of the week**, which is the Aoki/Sunday trap we already handle
+— with **a source column** so a row says where it came from. The Schedule window
+filters by source, or shows all of them.
+
+**And duplicates in that list are fine.** His words: *"it does not matter if for a
+single frequency has two or more records with identical information … the
+resulting list will simply be long and somewhat repetitive."* That is right for
+the Schedule tab, where the detail is the point.
+
+So the handover's **"one active source at a time"** — our decision, not his — is
+**superseded**. The waterfall is the only place duplicates are a problem, because
+he said so himself:
+
+> only the name of the station on the tuned frequency will appear—nothing else.
+> No names of stations on neighboring frequencies will be shown.
+
+**Which is the request he opened the issue with**, and it is now built:
+`spot_visible` names a broadcast station only when the dial is within **±1 kHz**
+of it (`BROADCAST_TUNED_HZ`), and everything else — country, city, coordinates —
+stays in the SCHEDULE window where it belongs. That is the checkbox he asked for,
+expressed as behaviour rather than as a switch.
+
+**Two things from his answer are not built yet, and are the next work:**
+
+1. **The label dedupe.** He flagged that a merged master list would print the same
+   broadcaster **twice on the waterfall**. The right fix is a *label* dedupe and
+   nowhere else — both records stay in the master list, both editable, both
+   exportable; only the panadapter prints one name. An attempt at this landed in
+   the **skimmer overlay** rather than the broadcast one and was reverted: the two
+   carry different types (`SkimmerSpot` vs `Spot`), which is the trap.
+2. **The master store and the source filter** — the merged database, the
+   standardised fields, the source column and the Schedule window's filter.
+
 ### The maths is built (2026-10-13) — `ephem::dark_share`
 
 **`along` turned out to be ours already, and writing it a second time was the

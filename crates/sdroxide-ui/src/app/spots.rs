@@ -12,6 +12,16 @@ use crate::theme::ThemedScroll;
 use crate::time::now_unix;
 
 use crate::app::SdroxideApp;
+
+/// How close a broadcast station has to be to the dial to be named on the
+/// panadapter.
+///
+/// The schedule lists a **carrier**, and a receiver sitting on it is rarely
+/// exactly on it — a few hundred hertz off is the same transmission. So this is
+/// a "the same station" window, not a tuning tolerance: wide enough that a dial
+/// parked beside a broadcaster still names it, narrow enough that the next
+/// channel up does not get one too.
+pub(in crate::app) const BROADCAST_TUNED_HZ: f64 = 1_000.0;
 use crate::app::logbook::LogEditForm;
 use crate::app::settings::SettingsTab;
 use crate::app::util::fmt_age;
@@ -282,6 +292,19 @@ impl SdroxideApp {
     ///
     /// The search query is deliberately *not* part of this: it narrows the list
     /// in the SPOTS window only. See [`App::spot_search`].
+    /// Only the tuned broadcaster is named on the panadapter, and a `Spot` that
+    /// is not it is not a spot — pinned as a pure function of the dial.
+    ///
+    /// The rule is bebepip's, from fork #69, and it has two halves: a station is
+    /// shown when the dial is **on it**, and a dial 1 kHz away is a different
+    /// station. The window is wide enough that a receiver parked beside a
+    /// carrier still names it, because a schedule row is a carrier and a dial is
+    /// rarely exactly on one — and narrow enough that the next channel up does
+    /// not get a name it does not own.
+    fn broadcast_named_at(dial_hz: f64, station_hz: f64) -> bool {
+        (station_hz - dial_hz).abs() <= BROADCAST_TUNED_HZ
+    }
+
     pub(in crate::app) fn spot_visible(&self, s: &Spot) -> bool {
         // "Who heard me" is a map overlay, not a station to tune: it never
         // belongs in the spot list or on the panadapter, where a dot placed at
@@ -297,6 +320,22 @@ impl SdroxideApp {
             && matches!(s.kind, SpotKind::DxCluster | SpotKind::Pota | SpotKind::Sota)
         {
             return false;
+        }
+        // **Only the station you are tuned to, on the broadcast overlay.**
+        //
+        // bebepip's answer on fork #69, and it settles the request he opened the
+        // issue with — *"a checkbox so only the station you are tuned to is
+        // shown, rather than the whole band labelled."* He then said what it
+        // should mean, and it is narrower than a checkbox: **the name on the
+        // tuned frequency and nothing else**, no neighbouring frequencies, with
+        // everything else — country, city, coordinates — left to the SCHEDULE
+        // window, which is where that detail belongs.
+        //
+        // A band panel already labels a couple of dozen stations at once, and on
+        // 11 m that is a wall of names over the passband you are trying to read.
+        // One name, for the thing you are listening to.
+        if s.kind == SpotKind::Broadcast {
+            return Self::broadcast_named_at(self.state.rx_freq_hz(), s.freq_hz);
         }
         if !self.view.spot_kinds_shown[s.kind.index()] {
             return false;
@@ -668,5 +707,42 @@ impl SdroxideApp {
         } else {
             spot_rows_pane(ui, &rows, query, visible.len(), now, &worked_entities, clicked);
         }
+    }
+}
+
+#[cfg(test)]
+mod broadcast_only_the_tuned_tests {
+    use crate::app::SdroxideApp;
+
+    /// The rule bebepip asked for: **the name on the tuned frequency and nothing
+    /// else.** He asked for it as a checkbox and then said what it should mean —
+    /// no neighbouring frequencies — because a band panel labelling a dozen
+    /// stations at once is a wall of names over the passband being listened to.
+    #[test]
+    fn only_the_station_you_are_tuned_to_is_named() {
+        let dial = 9_580_000.0;
+        assert!(SdroxideApp::broadcast_named_at(dial, 9_580_000.0), "on it");
+        // Beside it is still it — a schedule row is a carrier and a dial is
+        // rarely exactly on one.
+        assert!(
+            SdroxideApp::broadcast_named_at(dial, 9_580_400.0),
+            "400 Hz off is the same station"
+        );
+        assert!(
+            SdroxideApp::broadcast_named_at(dial, 9_579_600.0),
+            "and the same on the other side"
+        );
+        // The next channel is not. Shortwave channels are 4–5 kHz apart, so a
+        // 2 kHz-wide window in total has room for the dial to sit off the
+        // carrier and still stops well short of the neighbour.
+        assert!(!SdroxideApp::broadcast_named_at(dial, 9_582_000.0), "2 kHz up is another station");
+        assert!(!SdroxideApp::broadcast_named_at(dial, 9_578_000.0), "and 2 kHz down");
+        // The boundary, stated rather than felt: **±1 kHz inclusive**, so the
+        // width is a number this test holds rather than a feeling in the code.
+        assert!(
+            SdroxideApp::broadcast_named_at(dial, 9_581_000.0),
+            "exactly 1 kHz is the edge, and it is inside"
+        );
+        assert!(!SdroxideApp::broadcast_named_at(dial, 9_581_001.0), "1 Hz past it is out");
     }
 }
