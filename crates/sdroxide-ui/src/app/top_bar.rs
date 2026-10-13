@@ -1601,7 +1601,16 @@ impl SdroxideApp {
                         self.show_grid = !self.show_grid;
                         opened = true;
                     }
-                    if crate::chrome::chip(ui, self.show_settings, "⚙ SETTINGS")
+                    // **Icon only.** The operator's call, and right: the gear is a
+                    // universal symbol, so the word beside it repeats what the
+                    // glyph already says and costs width the row does not have —
+                    // this is the same row that once pushed SCAN, SETTINGS and
+                    // HELP off the right-hand edge entirely.
+                    //
+                    // The word has not gone away, it has moved: the hover says
+                    // what the chip opens, which is where an icon-only control
+                    // has to carry its meaning.
+                    if crate::chrome::chip(ui, self.show_settings, "⚙")
                         .on_hover_text("Settings — device gains, antennas, audio devices")
                         .clicked()
                     {
@@ -6599,8 +6608,12 @@ impl PttPress {
 const SYSTEM_CHIPS_TOP: [&str; 7] = ["LOG", "SPOTS", "AWARDS", "BANDS", "SAT", "ISM", "PUBLIC SDR"];
 
 /// The rest of them. See [`SYSTEM_CHIPS_TOP`].
-const SYSTEM_CHIPS_BOTTOM: [&str; 7] =
-    ["MAIL", "MEM", "SCAN", "HFDL", "GRID", "⚙ SETTINGS", "? HELP"];
+/// Settings is the **gear glyph alone** here, with no "SETTINGS" beside it — the
+/// operator's simplification, and the same word the hover already carried. This
+/// list is the width reservation and it is destructured exhaustively, so the
+/// label here and the label drawn have to be the same string; see
+/// [`SYSTEM_CHIPS_TOP`].
+const SYSTEM_CHIPS_BOTTOM: [&str; 7] = ["MAIL", "MEM", "SCAN", "HFDL", "GRID", "⚙", "? HELP"];
 
 /// Which log the main-screen LOG chip opens: the listener's reception log in
 /// SWL mode, the QSO logbook otherwise.
@@ -9713,18 +9726,18 @@ mod tests {
         // row — where the simple interface keeps it, unlike radio email.
         assert_eq!(
             system_bottom_row(true, false),
-            vec!["MEM", "SCAN", "HFDL", "GRID", "⚙ SETTINGS", "? HELP"]
+            vec!["MEM", "SCAN", "HFDL", "GRID", "⚙", "? HELP"]
         );
         // SWL mode puts the signal guide in the MAIL slot, and keeps it even
         // when the simple interface would have dropped radio email. GRID stays:
         // a map of worked squares with a heard layer is a listener's tool too.
         assert_eq!(
             system_bottom_row(false, true),
-            vec!["SIG ID", "MEM", "SCAN", "HFDL", "GRID", "⚙ SETTINGS", "? HELP"]
+            vec!["SIG ID", "MEM", "SCAN", "HFDL", "GRID", "⚙", "? HELP"]
         );
         assert_eq!(
             system_bottom_row(true, true),
-            vec!["SIG ID", "MEM", "SCAN", "HFDL", "GRID", "⚙ SETTINGS", "? HELP"]
+            vec!["SIG ID", "MEM", "SCAN", "HFDL", "GRID", "⚙", "? HELP"]
         );
     }
 
@@ -9768,6 +9781,35 @@ mod tests {
                     rows = rows_needed(avail, gap, &boxes),
                 );
             }
+        })
+        .drop_without_applying_deltas();
+    }
+
+    /// **How much the gear-alone chip saves, measured rather than assumed.**
+    ///
+    /// The operator's point was space, and this is the number, so the next chip
+    /// anyone wants to shorten has a figure to compare against instead of an
+    /// impression. `chip_row_w` is the same function the box reservation uses.
+    ///
+    /// It is also a **guard, not just a measurement**: if the word ever creeps
+    /// back onto the chip, this fails, because a label the strip reserves for and
+    /// a label it draws are the same string by construction and the width comes
+    /// back silently.
+    #[test]
+    fn the_settings_chip_is_the_gear_alone_and_it_saves_its_width() {
+        let (ctx, input) = desktop_ctx();
+        ctx.run_ui(input, |ui| {
+            let with_word = chip_row_w(ui, &["⚙ SETTINGS"]);
+            let icon_only = chip_row_w(ui, &["⚙"]);
+            assert!(
+                icon_only < with_word,
+                "the gear alone must be narrower than the gear and the word: \
+                 {icon_only} vs {with_word}"
+            );
+            // And it must actually be a saving worth having, not a rounding.
+            let saved = with_word - icon_only;
+            assert!(saved > 30.0, "only {saved} pt saved — is the word really gone?");
+            println!("settings chip: {with_word} pt with the word, {icon_only} pt without");
         })
         .drop_without_applying_deltas();
     }
