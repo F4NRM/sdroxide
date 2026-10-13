@@ -397,10 +397,13 @@ impl SdroxideApp {
 
         // ── the header: what is on, and the history toggle ──
         ui.horizontal(|ui| {
-            ui.label(RichText::new("LISTEN").size(12.0).strong().color(crate::theme::CYAN()));
+            // No second "LISTEN" here — the window's own title bar already says
+            // it, two lines up. What this line has to add is the thing that is
+            // not otherwise visible: **what span the map is showing**, which is
+            // what makes the station list below it make sense.
             ui.label(
-                RichText::new(format!("what is on around {}", khz_text(dial / 1e3)))
-                    .size(11.0)
+                RichText::new(format!("What is on around {}", khz_text(dial / 1e3)))
+                    .size(11.5)
                     .color(crate::theme::gray(150)),
             );
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -491,6 +494,9 @@ impl SdroxideApp {
         ui.separator();
         ui.add_space(4.0);
 
+        // Half the span, the same measure the map's own filter uses, so "on
+        // this span" means one thing throughout the window.
+        let span = (self.view.span() / 2.0).max(4_000.0);
         let Some(s) = self.listen_sel.clone() else {
             ui.colored_label(
                 crate::theme::gray(150),
@@ -511,6 +517,19 @@ impl SdroxideApp {
         ui.label(RichText::new(line).size(11.0).color(crate::theme::gray(150)));
         if !s.site.is_empty() {
             ui.label(RichText::new(&s.site).size(11.0).color(crate::theme::gray(150)));
+        }
+        // **Say when the selected station is not what the dial is on.** Clicking a
+        // station tunes to it, so this only happens if the operator retuned
+        // afterwards — and with no word for it the window reads as broken: the
+        // header says one frequency, the list says another, and the station in
+        // the middle belongs to neither. A beginner cannot tell that from a
+        // fault, and a house rule says never leave one guessing.
+        if (s.freq_hz() - self.state.rx_freq_hz()).abs() > span {
+            ui.label(
+                RichText::new("Not on this dial — click it on the map to tune there")
+                    .size(10.5)
+                    .color(crate::theme::YELLOW()),
+            );
         }
 
         // Geometry and the dark share — the number this window exists to make
