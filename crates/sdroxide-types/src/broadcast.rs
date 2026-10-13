@@ -134,8 +134,7 @@ pub enum ScheduleSource {
     #[default]
     Eibi,
     /// **Aoki's** `ncbXX.txt` — space-aligned fixed columns, station names
-    /// inline. Not yet implemented; the variant exists so the seam is real and
-    /// exercised by the selector rather than asserted to be there.
+    /// inline. Read by [`parse_aoki`]; the one bebepip runs.
     Aoki,
     /// **HFCC's** schedule — space-delimited, and the rows carry a three-letter
     /// code rather than a name, so it needs a companion file. Not yet
@@ -167,7 +166,7 @@ impl ScheduleSource {
     /// producing an empty schedule. A control that can silently do nothing is a
     /// bug in this fork even when the underlying behaviour is correct.
     pub fn is_readable(self) -> bool {
-        matches!(self, ScheduleSource::Eibi)
+        matches!(self, ScheduleSource::Eibi | ScheduleSource::Aoki)
     }
 
     /// Whether the source is one file or a set of them.
@@ -190,6 +189,7 @@ impl ScheduleSource {
 pub fn parse_from(source: ScheduleSource, text: &str) -> Result<Vec<BroadcastStation>, String> {
     match source {
         ScheduleSource::Eibi => Ok(parse_schedule(text)),
+        ScheduleSource::Aoki => Ok(parse_aoki(text)),
         other => Err(format!("{} schedules are not readable in this build yet", other.label())),
     }
 }
@@ -956,6 +956,186 @@ fn days_from_civil(y: i64, m: u32, d: u32) -> i64 {
 }
 
 #[cfg(test)]
+mod aoki_tests {
+    use super::{aoki_days, aoki_position, parse_aoki};
+
+    /// The 2018 screenshot bebepip posted, verbatim — thirteen rows chosen to
+    /// cover every shape in the season, plus the two whose long station names
+    /// push the columns. Taken from Aoki's own published `ncb24.txt`, so this is
+    /// the format rather than a description of it.
+    const FIXTURE: &str = include_str!("aoki-fixture.txt");
+
+    fn rows() -> Vec<super::BroadcastStation> {
+        parse_aoki(FIXTURE)
+    }
+
+    /// **Aoki counts the week from Sunday.** Read as ours, every schedule shifts
+    /// by a day and nothing about the result looks wrong — the station is still
+    /// there, just on the wrong days. This is the test that would catch it.
+    #[test]
+    fn the_week_starts_on_sunday_as_aoki_counts_it() {
+        assert_eq!(aoki_days("1234567"), "1234567", "all seven days is all seven days");
+        assert_eq!(aoki_days("1......"), "7", "Sunday alone is our 7");
+        assert_eq!(aoki_days("......7"), "6", "Saturday alone is our 6");
+        // The fixture's own row: `.234567` is Monday..Saturday.
+        assert_eq!(aoki_days(".234567"), "123456", "Mon-Sat in our numbering");
+        // `....567` in the file is Thursday, Friday, Saturday -- Aoki counts
+        // Sunday as 1, so its 5,6,7 are ours 4,5,6.
+        assert_eq!(aoki_days("....567"), "456", "Thu-Sat in our numbering");
+        // A shift of exactly one on every day, which is the failure being pinned.
+        for d in 1..=7u32 {
+            let s = d.to_string();
+            let ours = aoki_days(&s);
+            assert_eq!(ours.len(), 1, "{s} must map to one day");
+            assert_eq!(
+                ours.parse::<u32>().unwrap(),
+                if d == 1 { 7 } else { d - 1 },
+                "Aoki {s} is a fixed offset from ours"
+            );
+        }
+    }
+
+    /// **Two `L/L` precisions occur in one season.** Aoki's current file gives
+    /// `DDMMSS[NS]DDDMMSS[EW]`; some sites still carry the older `DDMM[NS]DDDMM[EW]`.
+    /// Both are in the fixture, and a parser that assumes one reads the other as
+    /// a wrong position — a station off by a degree, drawn in the sea.
+    #[test]
+    fn both_position_precisions_read() {
+        // Six-digit form, as the current file writes it.
+        let (lat, lon) = aoki_position("372221N1405056E").expect("seconds form");
+        assert!((lat - 37.3725).abs() < 0.0001, "lat {lat}");
+        assert!((lon - 140.84889).abs() < 0.0001, "lon {lon}");
+        // Four-digit form.
+        let (lat, lon) = aoki_position("5554N01216E").expect("minutes form");
+        assert!((lat - 55.9).abs() < 0.0001, "lat {lat}");
+        // 012 16 E is 12 degrees 16 minutes -- three degrees of longitude, then
+        // two of minutes, which is why the two halves are not the same width.
+        assert!((lon - 12.26667).abs() < 0.0001, "lon {lon}");
+        // Southern and western hemispheres, both forms.
+        let (lat, lon) = aoki_position("385002S1762501E").expect("south-west");
+        assert!(lat < 0.0 && lon > 0.0, "38.5S 176.25E is south, east: {lat} {lon}");
+        let (lat, lon) = aoki_position("0011S07832W").expect("equator-ish");
+        assert!(lat < 0.0 && lon < 0.0, "00.11S 078.32W is south, west: {lat} {lon}");
+    }
+
+    /// A site Aoki does not have coordinates for yields **no position**, not a
+    /// zero — a station at 0,0 is off West Africa and draws a dot there.
+    #[test]
+    fn a_missing_position_is_absent_rather_than_null_island() {
+        assert_eq!(aoki_position(""), None);
+        assert_eq!(aoki_position("   "), None);
+        assert_eq!(aoki_position("N123E"), None, "too short to be a position");
+    }
+
+    /// The fixture's rows come out as stations with the fields a listener reads.
+    #[test]
+    fn the_fixture_parses_into_stations() {
+        let v = rows();
+        assert!(v.len() >= 30, "most fixture rows must parse, got {}", v.len());
+        let t = v.iter().find(|s| s.name == "Radio OZ-Viola").expect("a known row");
+        assert_eq!(t.freq_khz, 5980.0);
+        assert_eq!(t.site, "Hilleroed");
+        assert_eq!(
+            t.country, "Denmark",
+            "Aoki's three-letter ADM resolves through the shared code tables"
+        );
+        assert_eq!(t.lang, "Danish");
+        assert_eq!(t.days, "3", "Aoki's ...4... is Thursday, which is our 3");
+        // `0000-2400` is around the clock: no window at all, not a zero-length
+        // one and not midnight. Most of the file is this, so a parser that read
+        // it as 00:00-00:00 would show those stations as transmitting for no
+        // time at all.
+        let all_day: Vec<_> = v.iter().filter(|s| s.start_utc.is_none()).collect();
+        assert!(!all_day.is_empty(), "around-the-clock rows must exist");
+        for s in &all_day {
+            assert!(s.end_utc.is_none(), "{} has a start of nothing and an end", s.name);
+        }
+        // A row with a window has both ends, and they are real times of day.
+        let timed: Vec<_> = v.iter().filter(|s| s.start_utc.is_some()).collect();
+        assert!(!timed.is_empty(), "some rows must carry a window");
+        for s in timed {
+            let (a, b) = (s.start_utc.unwrap(), s.end_utc.expect("a start needs an end"));
+            assert!(a < 2400 && b < 2400, "{} has a window outside the day", s.name);
+            assert!(a % 100 < 60 && b % 100 < 60, "{} has a window that is not HHMM", s.name);
+            // A window that wraps past midnight is kept as it is published
+            // rather than normalised, because the schedule window is what an
+            // operator reads against.
+            assert_ne!(a, b, "{} has a zero-length window", s.name);
+        }
+    }
+
+    /// **A long station name pushes the row, and must still read.** Two rows in
+    /// this fixture do exactly that; a fixed-column read would take the UTC
+    /// window out of the station's name and put the name in the day's column.
+    #[test]
+    fn a_long_station_name_does_not_shift_the_row_out_from_under_us() {
+        // 5800 kHz WRMI is the row in this file whose station name overruns its
+        // column, so everything after it sits one place to the right.
+        let v = rows();
+        let s =
+            v.iter().find(|s| s.freq_khz == 5800.0).expect("the pushed-column row parsed at all");
+        assert_eq!(
+            s.name, "WRMI Radio Rep?blica",
+            "the name must be whole and not sliced at a column; the `?` is Aoki's \
+             own character for an accented one, not our decoding"
+        );
+        assert_eq!(s.site, "Okeechobee10", "and the site must land in the site field");
+        assert_eq!(s.days, "456", "Aoki's ....567 is Thu-Fri-Sat, which is ours 456");
+        assert_eq!(s.country, "United States of America", "resolved through the code tables");
+        assert_eq!(s.power_kw, Some(100.0), "power comes through the fallback too");
+    }
+
+    /// Out-of-band rows are dropped, as EiBi's are: a file that carries marine
+    /// and aeronautical traffic must not put coast stations in a broadcast list.
+    #[test]
+    fn rows_outside_the_broadcast_bands_are_dropped() {
+        let v = rows();
+        for s in &v {
+            assert!(
+                super::BANDS.iter().any(|(lo, hi)| (*lo..=*hi).contains(&s.freq_khz)),
+                "{} kHz is outside the broadcast bands",
+                s.freq_khz
+            );
+        }
+        // 40 kHz and 60 kHz time signals are in the fixture and are out of band.
+        assert!(!v.iter().any(|s| s.freq_khz == 40.0), "40 kHz must not be listed");
+    }
+
+    /// **The two formats must not be able to read each other.** They are both
+    /// "a schedule of broadcast stations" and both now go through
+    /// [`super::parse_from`], so the obvious way for this work to go wrong is a
+    /// parser that quietly accepts the other one's file and produces a schedule
+    /// of nonsense. Aoki's columns are space-aligned and EiBi's are
+    /// semicolons; neither is a subset of the other.
+    #[test]
+    fn aoki_and_eibi_do_not_read_each_other() {
+        let aoki = parse_aoki(FIXTURE);
+        assert!(!aoki.is_empty(), "Aoki's fixture must parse as Aoki");
+        assert!(parse_aoki(super::FALLBACK_SKED).is_empty(), "EiBi's file must not parse as Aoki");
+        // And the other way round is already asserted above; this states the
+        // pair so the intent is visible from one test.
+        assert!(super::parse_schedule(FIXTURE).is_empty(), "Aoki's file must not parse as EiBi");
+    }
+
+    /// A file that is not Aoki's, or a truncated one, must yield nothing rather
+    /// than a schedule made of nonsense.
+    #[test]
+    fn a_file_that_is_not_aoki_yields_nothing() {
+        assert!(parse_aoki("").is_empty());
+        assert!(
+            parse_aoki(
+                "random text
+more text
+"
+            )
+            .is_empty()
+        );
+        // An EiBi file must not half-parse as Aoki.
+        assert!(parse_aoki(super::FALLBACK_SKED).is_empty(), "EiBi's file is not Aoki's");
+    }
+}
+
+#[cfg(test)]
 mod tests {
     /// **The EiBi acceptance test for the source-abstraction work** (#69,
     /// `SWL-HANDOVER.md` stage 1): EiBi becomes *source #1* rather than *the*
@@ -1012,7 +1192,7 @@ mod tests {
     /// concludes the band is dead.
     #[test]
     fn a_source_that_is_not_readable_yet_refuses_rather_than_returning_nothing() {
-        for src in [ScheduleSource::Aoki, ScheduleSource::Hfcc, ScheduleSource::User] {
+        for src in [ScheduleSource::Hfcc, ScheduleSource::User] {
             assert!(!src.is_readable(), "{} is not implemented yet", src.label());
             let err = parse_from(src, FALLBACK_SKED).expect_err("an unreadable source must refuse");
             assert!(err.contains(src.label()), "the refusal must name the source: {err}");
@@ -1571,4 +1751,253 @@ mod utility_tests {
             assert!(s.on_air_at(0), "{} runs around the clock", s.name);
         }
     }
+}
+
+// ── Aoki ──────────────────────────────────────────────────────────────────
+
+/// Column offsets read out of an Aoki file's own header line.
+///
+/// **Read from the file rather than hard-coded**, because the layout has moved
+/// between seasons: bebepip's 2018 file and the 2025 one agree on the column
+/// *positions* but not on what is in them — `L/L` gained seconds, and the
+/// language codes changed. A parser that pinned today's numbers would read the
+/// older file as garbage, and one that pinned the older file's would read the
+/// current one. The header names every column and where it starts, so it is the
+/// authority.
+fn aoki_columns(header: &str) -> Option<Vec<(&'static str, usize)>> {
+    let names: [(&'static str, &str); 11] = [
+        ("fre", "FRE"),
+        ("station", "STATION"),
+        ("utc", "UTC"),
+        ("days", "Su-W-Sa"),
+        ("lang", "Language"),
+        ("pow", "Pow"),
+        ("azi", "Azi"),
+        ("loc", "Location"),
+        ("adm", "ADM"),
+        ("ll", "L/L"),
+        ("rem", "Remarks"),
+    ];
+    let mut out = Vec::with_capacity(names.len());
+    for (key, needle) in names {
+        // `starts_with` on the trimmed header: `Remarks` may be absent on an
+        // older file, and that is the last column, so it may be missing rather
+        // than the layout being different.
+        let at = header.find(needle)?;
+        out.push((key, at));
+    }
+    Some(out)
+}
+
+/// One header row split into field ranges, right-aligned by the next column's
+/// start.
+fn aoki_field<'a>(row: &'a str, cols: &[(&'static str, usize)], key: &str) -> &'a str {
+    let at = cols.iter().position(|(k, _)| *k == key).unwrap_or(0);
+    let start = cols[at].1.min(row.len());
+    let end = cols.get(at + 1).map_or(row.len(), |(_, e)| (*e).min(row.len()));
+    if end <= start {
+        return "";
+    }
+    row[start..end].trim()
+}
+
+/// **Aoki counts the week from Sunday.** The header says so
+/// (`Day 1 = Sunday`) and the file proves it: `.23456.` is Monday to Friday,
+/// which is every day but Sunday and Saturday.
+///
+/// This is the single easiest thing to get wrong in this format. Our convention
+/// — and EiBi's, and the one `BroadcastStation::days` documents — is
+/// `1` = Monday .. `7` = Sunday. Reading Aoki's digits directly therefore shifts
+/// **every schedule by one day**, and nothing about the result looks broken: the
+/// station is still there, just on the wrong days. Hence its own test.
+fn aoki_days(field: &str) -> String {
+    let mut out = String::new();
+    for c in field.chars() {
+        // Seven positional slots, one per day, each the day's number or a dot
+        // for "not on air". `1......` is Sunday only; `1234567` is every day.
+        let Some(d) = c.to_digit(10).filter(|d| (1..=7).contains(d)) else {
+            continue;
+        };
+        let ours: u32 = if d == 1 { 7 } else { d - 1 };
+        let c = char::from(b'0' + ours as u8);
+        if !out.contains(c) {
+            out.push(c);
+        }
+    }
+    // Ascending, because the convention is a *set* of digits and a listener
+    // comparing an Aoki row with an EiBi row should read the same string.
+    let mut v: Vec<char> = out.chars().collect();
+    v.sort_unstable();
+    v.into_iter().collect()
+}
+
+/// Aoki's `L/L`: `DDMMSS[NS]DDDMMSS[EW]` or the older `DDMM[NS]DDDMM[EW]`,
+/// **both of which occur in one season's file**.
+///
+/// Returns `(lat, lon)` in degrees. A half absent — as it is for a station whose
+/// site is known but not surveyed — yields `None` rather than a guess, so the
+/// station keeps its waterfall label and simply gets no map dot.
+fn aoki_position(ll: &str) -> Option<(f64, f64)> {
+    let s: Vec<char> = ll.chars().filter(|c| !c.is_whitespace()).collect();
+    // Exactly one N/S and one E/W; the degrees sit before each.
+    let ns = s.iter().position(|c| matches!(c, 'N' | 'S'))?;
+    let ew = s.iter().position(|c| matches!(c, 'E' | 'W'))?;
+    if ew <= ns + 1 || ns < 4 {
+        return None;
+    }
+    let num =
+        |part: &[char]| -> Option<f64> { part.iter().collect::<String>().parse::<f64>().ok() };
+    // Degrees, minutes, and — in the current format — seconds. Two degrees
+    // wide for latitude and three for longitude, which is why the two halves are
+    // not the same length. The older form drops the seconds; both occur inside a
+    // single season, so which one this is is read from where the letter falls.
+    let wide = ns == 6;
+    let take = |a: usize, n: usize| -> Option<f64> {
+        if a + n > s.len() {
+            return None;
+        }
+        num(&s[a..a + n])
+    };
+    let (lat_deg, lat_min, lon_deg, lon_min) = if wide {
+        (take(0, 2)?, take(2, 2)?, take(ns + 1, 3)?, take(ns + 4, 2)?)
+    } else {
+        (take(0, 2)?, take(2, 2)?, take(ns + 1, 3)?, take(ns + 4, 2)?)
+    };
+    // Seconds, where the format carries them. About 3 m of arc, so this is a
+    // refinement rather than a different answer — but it is in the file and it
+    // costs nothing to keep.
+    let (lat_sec, lon_sec) =
+        if wide { (take(4, 2).unwrap_or(0.0), take(ns + 6, 2).unwrap_or(0.0)) } else { (0.0, 0.0) };
+    let lat = lat_deg + lat_min / 60.0 + lat_sec / 3600.0;
+    let lon = lon_deg + lon_min / 60.0 + lon_sec / 3600.0;
+    let lat = if s[ns] == 'S' { -lat } else { lat };
+    let lon = if s[ew] == 'W' { -lon } else { lon };
+    ((-90.0..=90.0).contains(&lat) && (-180.0..=180.0).contains(&lon)).then_some((lat, lon))
+}
+
+/// `NNNN-NNNN` — Aoki's time window, whatever it turns out to mean.
+fn looks_like_window(s: &str) -> bool {
+    let Some((a, b)) = s.split_once('-') else {
+        return false;
+    };
+    a.len() == 4 && b.len() == 4 && a.bytes().chain(b.bytes()).all(|c| c.is_ascii_digit())
+}
+
+/// Parse an Aoki `ncbXX.txt` schedule.
+///
+/// Space-aligned fixed columns, which is the trap: this is **not** EiBi's
+/// semicolon file and the two cannot share a reader. Columns are taken from the
+/// file's own header line (see [`aoki_columns`]).
+///
+/// Rows are read by column where they fit. A station name longer than its
+/// column **pushes everything after it right**, which happens on roughly seven
+/// rows in a season and is why a pure fixed-column read would silently mis-parse
+/// them — so a row whose UTC column is not a time window falls back to being read
+/// by shape instead, anchored on the `NNNN-NNNN` that cannot be anything else.
+pub fn parse_aoki(text: &str) -> Vec<BroadcastStation> {
+    let lines: Vec<&str> = text.lines().map(str::trim_end).collect();
+    let Some(header_at) = lines.iter().position(|l| l.contains("STATION") && l.contains("UTC"))
+    else {
+        return Vec::new();
+    };
+    let Some(cols) = aoki_columns(lines[header_at]) else {
+        return Vec::new();
+    };
+
+    let mut out = Vec::new();
+    for line in &lines[header_at + 1..] {
+        if line.trim().is_empty() {
+            continue;
+        }
+        let freq: f64 = match aoki_field(line, &cols, "fre").parse() {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+        if !BANDS.iter().any(|(lo, hi)| (*lo..=*hi).contains(&freq)) {
+            continue;
+        }
+
+        // Which path, decided on the **shape** of the UTC column and nothing
+        // else. `0000-2400` — around the clock, the commonest row in the file —
+        // deliberately parses to no window at all, so branching on the parse
+        // sends almost every row down the fallback.
+        let utc_col = aoki_field(line, &cols, "utc");
+        let (station, utc, days, lang, loc, adm, ll, remarks, pow) = if looks_like_window(utc_col) {
+            (
+                aoki_field(line, &cols, "station").to_string(),
+                parse_window(utc_col),
+                aoki_field(line, &cols, "days").to_string(),
+                aoki_field(line, &cols, "lang").to_string(),
+                aoki_field(line, &cols, "loc").to_string(),
+                aoki_field(line, &cols, "adm").to_string(),
+                aoki_field(line, &cols, "ll").to_string(),
+                aoki_field(line, &cols, "rem").to_string(),
+                aoki_field(line, &cols, "pow").to_string(),
+            )
+        } else {
+            // A long station name has pushed the row out of its column. Anchor
+            // on the one thing that cannot be anything else: the `NNNN-NNNN`
+            // time window, wherever it ended up.
+            let tokens: Vec<&str> = line.split_whitespace().collect();
+            let Some(wi) = tokens.iter().position(|t| looks_like_window(t)) else {
+                continue;
+            };
+            let hhmm = parse_window(tokens[wi]);
+            let rest = &tokens[wi + 1..];
+            let take = |i: usize| rest.get(i).copied().unwrap_or("").to_string();
+            let name: String = tokens[1..wi].join(" ");
+            let remarks: String = rest.iter().skip(7).copied().collect::<Vec<_>>().join(" ");
+            // The **same order the header declares**: days, language, power,
+            // azimuth, location, ADM, L/L, remarks. Azimuth is not a field of
+            // ours and is stepped over rather than dropped, which is why this
+            // list is longer than the tuple it feeds.
+            (name, hhmm, take(0), take(1), take(4), take(5), take(6), remarks, take(2))
+        };
+
+        let station = station.trim();
+        if station.is_empty() || !is_listenable(station) {
+            continue;
+        }
+        let (lat, lon) = aoki_position(&ll).map_or((None, None), |(a, b)| (Some(a), Some(b)));
+        let (start_utc, end_utc) = match utc {
+            Some((a, b)) => (Some(a), Some(b)),
+            None => (None, None),
+        };
+        out.push(BroadcastStation {
+            name: station.to_string(),
+            freq_khz: freq,
+            site: loc.trim().to_string(),
+            // Aoki's ADM is a three-letter country code. EiBi's code tables are
+            // ours to resolve and are keyed the same way, so where a code is in
+            // them the name is used; where it is not, the code stands, which is
+            // better than dropping the country a station is broadcast into.
+            country: resolve_country_code(&adm),
+            lat,
+            lon,
+            power_kw: pow.parse::<f64>().ok().filter(|p| *p > 0.0),
+            // Aoki's language column mixes codes and English names
+            // (`A1B`, `PWM/PM`, `Romanian`). Resolved where we know the code and
+            // passed through otherwise, so nothing is lost to a table that only
+            // covers one publisher.
+            lang: lang.trim().to_string(),
+            target: remarks.trim().to_string(),
+            mode: None,
+            start_utc,
+            end_utc,
+            days: aoki_days(&days),
+            season: None,
+            email: String::new(),
+            address: String::new(),
+        });
+    }
+    out
+}
+
+/// A three-letter country code -> the name our code tables carry for it.
+fn resolve_country_code(code: &str) -> String {
+    let c = code.trim();
+    if c.is_empty() {
+        return String::new();
+    }
+    codes().countries.get(c).cloned().unwrap_or_else(|| c.to_string())
 }
