@@ -114,6 +114,86 @@ pub fn decode_latin1(bytes: &[u8]) -> String {
     bytes.iter().map(|&b| b as char).collect()
 }
 
+/// Where a schedule came from, and therefore how its bytes are read.
+///
+/// One enum, and the point of it is that **`Eibi` is first and is what the
+/// program does by default.** Nothing about the existing path changes: the
+/// switch is where a *second* schedule plugs in, not a rewrite of the one that is
+/// already here. `SWL-HANDOVER.md` stage 1.
+///
+/// A variant is **not** a per-source settings block — it says how to *read*,
+/// nothing about whether the schedule is active, and the active choice is a
+/// separate thing ([`ScheduleOrigin`] below). Keeping those apart is what stops
+/// "which format is this file" and "which schedule is in use" becoming one
+/// question, which is how a program ends up unable to say what it is showing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum ScheduleSource {
+    /// EiBi's published `sked-XNN.csv`, semicolon-delimited with its own code
+    /// tables. The default, and the schedule this program has always used.
+    #[default]
+    Eibi,
+    /// **Aoki's** `ncbXX.txt` — space-aligned fixed columns, station names
+    /// inline. Not yet implemented; the variant exists so the seam is real and
+    /// exercised by the selector rather than asserted to be there.
+    Aoki,
+    /// **HFCC's** schedule — space-delimited, and the rows carry a three-letter
+    /// code rather than a name, so it needs a companion file. Not yet
+    /// implemented, and the reason a source cannot be assumed to be one file.
+    Hfcc,
+    /// The listener's own list, in this program's own format. Not yet
+    /// implemented.
+    User,
+}
+
+impl ScheduleSource {
+    /// Every source, for a settings row that picks one.
+    pub const ALL: [ScheduleSource; 4] =
+        [ScheduleSource::Eibi, ScheduleSource::Aoki, ScheduleSource::Hfcc, ScheduleSource::User];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            ScheduleSource::Eibi => "EiBi",
+            ScheduleSource::Aoki => "Aoki",
+            ScheduleSource::Hfcc => "HFCC",
+            ScheduleSource::User => "Mine",
+        }
+    }
+
+    /// Whether this build can actually read the source.
+    ///
+    /// **False is the honest answer until the reader exists**, and it is why the
+    /// selector greys the unimplemented ones rather than offering them and
+    /// producing an empty schedule. A control that can silently do nothing is a
+    /// bug in this fork even when the underlying behaviour is correct.
+    pub fn is_readable(self) -> bool {
+        matches!(self, ScheduleSource::Eibi)
+    }
+
+    /// Whether the source is one file or a set of them.
+    ///
+    /// HFCC is a **pair**: its rows name stations by a three-letter code that a
+    /// companion file resolves. A single-file assumption is not a simplification
+    /// here, it is a way of showing a schedule full of `WCR` as if it were a
+    /// schedule — see `SWL-HANDOVER.md` §4.
+    pub fn needs_companion_file(self) -> bool {
+        matches!(self, ScheduleSource::Hfcc)
+    }
+}
+
+/// Read a schedule from the given source.
+///
+/// EiBi's reader is [`parse_schedule`], unchanged; the others are not written
+/// yet, so this **refuses rather than returning nothing**, because an empty
+/// schedule and an unreadable one look identical on screen and only one of them
+/// is a bug.
+pub fn parse_from(source: ScheduleSource, text: &str) -> Result<Vec<BroadcastStation>, String> {
+    match source {
+        ScheduleSource::Eibi => Ok(parse_schedule(text)),
+        other => Err(format!("{} schedules are not readable in this build yet", other.label())),
+    }
+}
+
 /// Parse one EiBi `sked-XNN.csv` into stations.
 ///
 /// The format is documented in EiBi's README: eleven semicolon-separated fields,
@@ -877,6 +957,125 @@ fn days_from_civil(y: i64, m: u32, d: u32) -> i64 {
 
 #[cfg(test)]
 mod tests {
+    /// **The EiBi acceptance test for the source-abstraction work** (#69,
+    /// `SWL-HANDOVER.md` stage 1): EiBi becomes *source #1* rather than *the*
+    /// source, and the price of that refactor is that this program's schedule
+    /// must come out of it byte-for-byte identical.
+    ///
+    /// A digest rather than a row count, because a count cannot see a station
+    /// that lost its language, moved a megahertz or gained a day — the changes a
+    /// refactor to a parser is most likely to make. It digests every field the
+    /// schedule window, the spots and the reception log's pre-fill read, so any
+    /// of them moving shows here first.
+    ///
+    /// The digest is pinned to whatever EiBi produced **before** the abstraction
+    /// landed. If a future change moves it, that is either a deliberate
+    /// behavioural change to be justified in the commit that makes it, or a bug.
+    /// Either way it must not be updated on reflex.
+    #[test]
+    fn the_eibi_schedule_comes_out_unchanged() {
+        let stations = parse_schedule(FALLBACK_SKED);
+        assert!(
+            stations.len() > 3_000,
+            "the compiled-in fallback should parse to a real schedule, got {}",
+            stations.len()
+        );
+        let digest = eibi_digest(&stations);
+        println!("EiBi: {} stations, digest {digest:#018x}", stations.len());
+        assert_eq!(
+            digest, 0xad42_0e0d_17ba_48bf,
+            "the EiBi parse changed — see SWL-HANDOVER.md; a count alone would not \
+             have caught a station that lost a field"
+        );
+    }
+
+    /// The seam must be **real**: EiBi read through `parse_from` has to give
+    /// exactly what `parse_schedule` gives, or the abstraction is a second
+    /// implementation that can drift from the first — which is the thing a
+    /// single implementation exists to prevent.
+    #[test]
+    fn reading_through_the_source_seam_is_the_same_parse() {
+        let direct = parse_schedule(FALLBACK_SKED);
+        let through = parse_from(ScheduleSource::Eibi, FALLBACK_SKED).expect("EiBi is readable");
+        assert_eq!(direct.len(), through.len(), "the seam changed the row count");
+        assert_eq!(
+            eibi_digest(&direct),
+            eibi_digest(&through),
+            "the seam changed the parse — it must dispatch, not reimplement"
+        );
+    }
+
+    /// **A source that cannot be read must say so, not return nothing.**
+    ///
+    /// An empty schedule and an unreadable one look identical on screen, and only
+    /// one of them is a fault: the operator sees a band with nothing on it and
+    /// concludes the band is dead.
+    #[test]
+    fn a_source_that_is_not_readable_yet_refuses_rather_than_returning_nothing() {
+        for src in [ScheduleSource::Aoki, ScheduleSource::Hfcc, ScheduleSource::User] {
+            assert!(!src.is_readable(), "{} is not implemented yet", src.label());
+            let err = parse_from(src, FALLBACK_SKED).expect_err("an unreadable source must refuse");
+            assert!(err.contains(src.label()), "the refusal must name the source: {err}");
+        }
+    }
+
+    /// EiBi is the default and stays readable, because a default that stops
+    /// being readable would take the program's schedule with it.
+    #[test]
+    fn eibi_is_the_default_and_the_one_readable_source() {
+        assert_eq!(ScheduleSource::default(), ScheduleSource::Eibi);
+        assert!(ScheduleSource::Eibi.is_readable());
+        assert_eq!(
+            ScheduleSource::ALL.len(),
+            4,
+            "every source is listed, so a new one cannot be forgotten"
+        );
+        for src in ScheduleSource::ALL {
+            // Each label is what a settings row shows; an empty one is a blank chip.
+            assert!(!src.label().is_empty(), "{src:?} has no label");
+        }
+    }
+
+    /// **HFCC is two files and every other source is one.** The seam has to be
+    /// able to say so, because loading half of it is the failure mode: a schedule
+    /// that is full of three-letter codes and nothing to resolve them.
+    #[test]
+    fn hfcc_needs_a_companion_file_and_nothing_else_does() {
+        assert!(
+            ScheduleSource::Hfcc.needs_companion_file(),
+            "HFCC's rows carry codes that a second file resolves"
+        );
+        for src in [ScheduleSource::Eibi, ScheduleSource::Aoki, ScheduleSource::User] {
+            assert!(!src.needs_companion_file(), "{} is a single file", src.label());
+        }
+    }
+
+    /// FNV-1a over the fields a listener actually sees.
+    fn eibi_digest(stations: &[BroadcastStation]) -> u64 {
+        let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+        let mut feed = |s: &str| {
+            for b in s.bytes() {
+                h ^= u64::from(b);
+                h = h.wrapping_mul(0x100_0000_01b3);
+            }
+            h ^= 0x0a;
+            h = h.wrapping_mul(0x100_0000_01b3);
+        };
+        for s in stations {
+            feed(&s.name);
+            feed(&format!("{}", s.freq_khz));
+            feed(&s.site);
+            feed(&s.country);
+            feed(&s.lang);
+            feed(&s.target);
+            feed(&format!("{:?}{:?}", s.lat, s.lon));
+            feed(&format!("{:?}{:?}", s.mode, s.season));
+            feed(&format!("{:?}{:?}", s.start_utc, s.end_utc));
+            feed(&s.days);
+        }
+        h
+    }
+
     use super::*;
 
     /// 2026-07-30 12:34:00 UTC — a Thursday, day 20664 of the epoch.
@@ -1126,8 +1325,20 @@ mod tests {
         // An enriched file appends the broadcaster's report contact as fields
         // twelve and thirteen; the published EiBi file stops at eleven.
         let row = [
-            "15400", "1800-1900", "Mo-Fr", "G", "BBC", "E", "WAf", "/ASC", "0", "", "",
-            "reports@bbc.example", "BBC, London", "",
+            "15400",
+            "1800-1900",
+            "Mo-Fr",
+            "G",
+            "BBC",
+            "E",
+            "WAf",
+            "/ASC",
+            "0",
+            "",
+            "",
+            "reports@bbc.example",
+            "BBC, London",
+            "",
         ]
         .join(";");
         let got = parse_schedule(&format!("header\n{row}\n"));
