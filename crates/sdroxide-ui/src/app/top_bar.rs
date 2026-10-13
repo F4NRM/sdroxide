@@ -1617,7 +1617,7 @@ impl SdroxideApp {
                         self.show_settings = !self.show_settings;
                         opened = true;
                     }
-                    if crate::chrome::chip(ui, self.help.open, "? HELP")
+                    if crate::chrome::chip(ui, self.help.open, "?")
                         .on_hover_text("User manual (F1)")
                         .clicked()
                     {
@@ -6626,7 +6626,7 @@ const SYSTEM_CHIPS_TOP: [&str; 7] = ["LOG", "SPOTS", "AWARDS", "BANDS", "SAT", "
 /// list is the width reservation and it is destructured exhaustively, so the
 /// label here and the label drawn have to be the same string; see
 /// [`SYSTEM_CHIPS_TOP`].
-const SYSTEM_CHIPS_BOTTOM: [&str; 7] = ["MAIL", "MEM", "SCAN", "HFDL", "GRID", "⚙", "? HELP"];
+const SYSTEM_CHIPS_BOTTOM: [&str; 7] = ["MAIL", "MEM", "SCAN", "HFDL", "GRID", "⚙", "?"];
 
 /// Which log the main-screen LOG chip opens: the listener's reception log in
 /// SWL mode, the QSO logbook otherwise.
@@ -9747,23 +9747,14 @@ mod tests {
         );
         // HFDL is a decode window, so it sits with the others in the bottom
         // row — where the simple interface keeps it, unlike radio email.
-        assert_eq!(
-            system_bottom_row(true, false),
-            vec!["MEM", "SCAN", "HFDL", "GRID", "⚙", "? HELP"]
-        );
+        assert_eq!(system_bottom_row(true, false), vec!["MEM", "SCAN", "HFDL", "GRID", "⚙", "?"]);
         // SWL mode puts the signal guide in the MAIL slot, and keeps it even
         // when the simple interface would have dropped radio email. **GRID goes**:
         // it counts worked and confirmed squares, which are QSOs, and a listener
         // has none — the operator's judgement, and the SYS menu still opens the
         // window for the listener who also runs FT8.
-        assert_eq!(
-            system_bottom_row(false, true),
-            vec!["SIG ID", "MEM", "SCAN", "HFDL", "⚙", "? HELP"]
-        );
-        assert_eq!(
-            system_bottom_row(true, true),
-            vec!["SIG ID", "MEM", "SCAN", "HFDL", "⚙", "? HELP"]
-        );
+        assert_eq!(system_bottom_row(false, true), vec!["SIG ID", "MEM", "SCAN", "HFDL", "⚙", "?"]);
+        assert_eq!(system_bottom_row(true, true), vec!["SIG ID", "MEM", "SCAN", "HFDL", "⚙", "?"]);
     }
 
     /// **The SWL row has no room for a third chip — measured, not assumed.**

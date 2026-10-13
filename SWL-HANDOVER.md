@@ -477,6 +477,44 @@ accept the pre-existing three-row states would hide the thing it measures.
 is worth asking: `SAT` and `ISM` in that row are ham extras a shortwave listener
 rarely opens, and freeing one would put LISTEN on the bar where it is obvious.
 
+### The real estate, and why LISTEN still is not on the bar (2026-10-13)
+
+The operator pointed at **chip padding being excessive on every chip**, which was
+right and a far bigger lever than any label: a chip added 2 pt a side on top of
+`button_padding`, so a desktop chip carried **9 pt a side — 18 pt of air around a
+five-letter label**. Removed (`3085a941`), worth 28 pt across the SWL row.
+`? HELP` became `?` beside the gear-alone settings chip.
+
+**Then the measurement that explains everything:**
+
+```
+SWL top row     446.9 pt     <- this one sizes the box
+SWL bottom row  258.6 pt     <- ~190 pt sitting idle
+```
+
+`system_rows_w` is `max(top, bottom)`, so **the bottom row's spare room was never
+reachable**. That is why the gear and the `?` changed nothing: both landed on the
+non-binding row. Each is a real saving on its own chips; the box never saw either.
+
+**Moving PUBLIC SDR down rebalances the rows almost exactly** (356.0 against
+349.5 — the closest they have ever been) **and does fit LISTEN on the top row.** It
+was built, measured, and then **withdrawn**, for a reason that matters more than
+the chip:
+
+> Moving it changes the System box by **2.9 pt** in the ordinary ham screen, and
+> that is enough to make **`the_operating_panel_stays_inside_its_column` fail** —
+> the #643 guard: *`Sstv at 1920 pt: ink x 8..1923.5938 runs past the window`*.
+
+**A 3 pt change anywhere flips that guard**, which says the SSTV panel's budget is
+still width-sensitive: it fits at the widths tested and overflows by 3.6 pt a
+couple of points either side. That is the #643 class, and the house rule is
+explicit that it is **not** fixed with a clamp at the panel boundary — that hides
+the cause and only catches the window case. It wants its own job, in the panel's
+own arithmetic.
+
+So LISTEN stays reachable from **SCHEDULE's MAP chip**, and the rebalance is
+recorded here rather than shipped. The row is still held to two rows for AM.
+
 **The naming is worth knowing about:** LISTEN is now also the band menu's
 *Explore the dial* **tab**, which is a different thing in a different place. The
 operator's word won, and both stay.
