@@ -267,6 +267,44 @@ mod tests {
         assert_eq!(other.name, "elsewhere");
     }
 
+    /// **A station's frequency is what a click resolves to**, so the map can
+    /// name the station *and* the number the dial has to go to.
+    ///
+    /// The window's first version selected a station and left the dial alone,
+    /// which is the one behaviour every other map here does not have — the
+    /// SCHEDULE window's rows tune, the decodes map points the beam. The
+    /// operator's report was the whole diagnosis: *"clicking a station is not
+    /// changing the frequency"*. This pins the half that is pure arithmetic,
+    /// which is the half that can be wrong without anyone noticing: a click
+    /// yields **coordinates**, so the frequency has to come back by name, and a
+    /// wrong lookup would tune somewhere plausible.
+    #[test]
+    fn a_clicked_station_carries_the_frequency_to_tune_to() {
+        use sdroxide_types::ScheduleSource as S;
+        let s = vec![
+            station("Voice of Nigeria", 6_350.0, Some(9.08), Some(7.26)),
+            station("Radio Romania", 6_040.0, Some(45.28), Some(28.20)),
+        ];
+        // Clicking near the first station picks it, and its frequency is what a
+        // click on it means.
+        let hit = station_near(&s, (9.1, 7.3), 6.0).expect("a click 0.06 deg away must hit");
+        assert_eq!(hit.name, "Voice of Nigeria");
+        assert_eq!(
+            hit.freq_hz(),
+            6_350_000.0,
+            "the dial has to be sent the station's own frequency, in hertz"
+        );
+        // The same for the other, so it is not an off-by-one on the list order.
+        let other = station_near(&s, (45.3, 28.2), 6.0).expect("the other must hit too");
+        assert_eq!(other.freq_hz(), 6_040_000.0);
+        // And a schedule row carries the **mode** it is meant to be heard on, so
+        // a click can put the radio in the right mode as well as the right place
+        // — which is the difference between tuning *to* a station and merely
+        // landing on its frequency. Absent on this row, so the fallback is AM.
+        assert_eq!(other.mode(), sdroxide_types::Mode::Am);
+        let _ = S::Eibi;
+    }
+
     /// **Clicking open ocean selects nothing.** Without the tolerance, "the
     /// closest station" would happily return one 8,000 km away, and the side
     /// panel would fill in with a station the operator did not click.
@@ -407,10 +445,10 @@ impl SdroxideApp {
             let mut log_now = false;
             ui.vertical(|ui| {
                 ui.set_width(left_w);
-                self.listen_side(ui, &set, home, &mut log_now);
+                self.listen_side(ui, &set, home, &mut log_now, cmds);
             });
             ui.vertical(|ui| {
-                self.listen_map(ui, &set, home, avail.y);
+                self.listen_map(ui, &set, home, avail.y, cmds);
             });
             if log_now {
                 self.listen_log_now(cmds);
@@ -425,6 +463,7 @@ impl SdroxideApp {
         set: &ListenSet,
         home: Option<(f64, f64)>,
         log_now: &mut bool,
+        cmds: &mut Vec<Command>,
     ) {
         // The nearest stations by frequency, clickable — selecting on a world
         // map means finding a dot, and on a busy evening the list is faster.
@@ -435,9 +474,16 @@ impl SdroxideApp {
             }
             for name in &set.near {
                 let picked = self.listen_sel.as_ref().is_some_and(|s| &s.name == name);
-                if ui.selectable_label(picked, name).on_hover_text("Select this station").clicked()
+                if ui
+                    .selectable_label(picked, name)
+                    .on_hover_text("Pick this station and tune to it")
+                    .clicked()
                 {
+                    let hz = self.broadcast.iter().find(|s| &s.name == name).map(|s| s.freq_hz());
                     self.listen_select(name);
+                    if let Some(hz) = hz {
+                        cmds.push(Command::SetVfo { vfo: self.state.active_vfo, hz });
+                    }
                 }
             }
         });
@@ -522,6 +568,7 @@ impl SdroxideApp {
         set: &ListenSet,
         home: Option<(f64, f64)>,
         max_h: f32,
+        cmds: &mut Vec<Command>,
     ) {
         let heat = self.prop_texture(ui.ctx(), self.state.rx_freq_hz());
         let night = self.night_texture(ui.ctx());
@@ -543,10 +590,23 @@ impl SdroxideApp {
         ) {
             // A click is coordinates, so this picks the station under it — or
             // nothing, if the click was open ocean.
+            // A click is coordinates, so this picks the station under it — or
+            // nothing, if the click was open ocean.
+            //
+            // **And it tunes**, which is what a click on a map means everywhere
+            // else in this program: the SCHEDULE window's rows tune, and the
+            // decodes map steers the beam at the spot it was clicked. This one
+            // selected only, and the operator found it in a minute — *"the map
+            // is not clickable, clicking a station is not changing the
+            // frequency"*. That is the house rule about a control that silently
+            // does less than it looks like it does, caught by the only person who
+            // can see the whole picture; the hover says what it will do, and now
+            // the dial moves.
             match station_near(&self.broadcast, (lat, lon), 6.0) {
                 Some(s) => {
-                    let name = s.name.clone();
+                    let (name, hz) = (s.name.clone(), s.freq_hz());
                     self.listen_select(&name);
+                    cmds.push(Command::SetVfo { vfo: self.state.active_vfo, hz });
                 }
                 None => {
                     self.listen_sel = None;

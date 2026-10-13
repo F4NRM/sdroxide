@@ -538,6 +538,24 @@ both give. Left as `the_strip_plate_paints_past_the_window_above_1920`,
 **`#[ignore]`d** rather than deleted: it is a real shipped fault and a guard that
 stops just short of one is worse than one that reaches it and says so.
 
+**And then the operator found it on screen, in a way the harness never did.**
+
+Their screenshot is **split view** — two radios side by side — and the right
+pane's strip is **clipped at the screen edge**: `DEC off | AG…`, `REC` cut to
+`RE`. So the fault is not "a wide window", which is what the harness reproduced
+and what the test is named after. `desktop_strip` takes its width **pane-local**:
+
+> Pane-local, not viewport: in split view each radio packs its own strip against
+> its own pane.
+
+So the same box that overflows a 1930 pt single window also overflows **any pane
+narrow enough to need it**, and a split screen makes that reachable with no large
+monitor at all. **Two triggers, one cause** — a strip module that draws wider than
+the plan gave it — and the harness only ever found the wider-of-the-two doors.
+
+That is worth more than the fix: a sweep that varies the **viewport** while the
+code varies the **pane** tests one of two doors.
+
 **The naming is worth knowing about:** LISTEN is now also the band menu's
 *Explore the dial* **tab**, which is a different thing in a different place. The
 operator's word won, and both stay.
