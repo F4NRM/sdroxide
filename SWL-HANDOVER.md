@@ -186,8 +186,8 @@ beams draw on them. What is missing is the path itself:
 
 | Their function | What it is | Do we have it |
 |---|---|---|
-| `along(a, b, f)` | the point a fraction `f` along the great circle | **no** — needed to draw |
-| `dark_share(a, b, unix)` | **the share of the path currently in darkness** | **no** — and this is the good one |
+| `along(a, b, f)` | the point a fraction `f` along the great circle | **had it** — `great_circle_points`, theirs is the single-point form |
+| `dark_share(a, b, unix)` | **the share of the path currently in darkness** | **yes, ours** — `ephem::dark_share` |
 | `dist_bearing(a, b)` | haversine + initial bearing | yes, ours |
 | `subsolar(unix)`, `sun_at` | solar position and day/twilight/night | yes, ours |
 
@@ -202,6 +202,50 @@ QTH to the transmitter, and show its dark share. Our globe is `solar3d`
 portable and must not be attempted**; the Rust `geo` maths is the portable part.
 
 Open question for the operator: on the **3D globe**, the flat maps, or both.
+
+### The maths is built (2026-10-13) — `ephem::dark_share`
+
+**`along` turned out to be ours already, and writing it a second time was the
+find.** `great_circle_points` (`geo.rs`) has been in the tree since the
+propagation work and does the same interpolation in the all-at-once form; their
+`along(a, b, f)` is the single-point version of the same slerp. So the first
+pass at stage 3 wrote `along` and `along_many`, and the honest move was to
+**delete both and keep theirs** rather than leave two implementations of one
+formula to drift. What was kept from the deleted pair was folded into the
+existing function's tests, so the coverage is not lost — and one of those tests
+found a real hole:
+
+- **`great_circle_points` divided by zero on antipodal points.** `sin(d)` is
+  zero when `d = π`, so every sample came back identical — a "path" through the
+  Earth. It is now guarded, answering the start point, because two points a
+  whole hemisphere apart have **no single great circle** and asking for the one
+  between them is asking for something that does not exist.
+- Three new tests pin what the function is *for*: the midpoint **halves the
+  distance** (a straight-line lerp of lat/lon does not, which is the whole
+  point), crossing the antimeridian takes the **short** way round, and the
+  endpoints land where they started.
+
+**`dark_share` is ours and genuinely new**, in `sdroxide-solar::ephem` because
+that is where our Sun already lives — it reuses `is_daylight_at` and the
+existing `great_circle_points` rather than carrying a second copy of either.
+
+What it answers: **how much of the route between this station and that
+transmitter is currently in night**, as a fraction. Twilight counts as light —
+"dark" means the Sun is actually below the horizon, not "below −6°".
+
+It is **sampled** (nine points, an eighth of the path apart), not solved, so a
+narrow dark region falling between two samples is under-reported. That is the
+deliberate trade for something cheap enough to call while a map is being dragged,
+and it is right to within about a tenth of the path. The doc says so.
+
+**Verified failing against a constant.** The tests that bite are the two
+solstice ones — a 60°N path in December must be darker than the same path in
+June, and a midday equatorial path must be mostly light. Replacing the body
+with `filter(|_| true)` fails **both** and passes the two structural ones, so
+the pair is what is doing the work.
+
+**Not drawn anywhere yet.** This is the maths only; §7's open question (3D globe
+/ flat maps / both) is still open and nothing renders it.
 
 ## 8. shortwave-atlas — what it is and what it is not
 
@@ -221,7 +265,9 @@ an audio waterfall, and listening stats. Its feature list is not news.
   shared `Vocabulary` and `Gazetteer`. This is the architecture of stage 1.
 - `user_stations.rs` — the listener's own stations as a real source, with
   import/export and honest limits (500 stations, 24 slots, 4 languages per slot).
-- `geo.rs`'s `along` and `dark_share`, per §7.
+- `geo.rs`'s `dark_share`, per §7 — **built, and ours**. `along` was a
+  duplicate of our own `great_circle_points`, which is the half of §7 worth
+  recording: check whether we already have it before porting it.
 
 ## 9. Licence and attribution — not optional
 
@@ -232,6 +278,12 @@ ordinary work.
 This is the same rule as the OpenHamClock-derived work already in the tree, and
 it is a house rule, not a courtesy. A stage that adapts `source.rs` gets Juan
 Toledo Carrasco's copyright in that file.
+
+`ephem.rs` carries the credit in `dark_share`'s own doc comment rather than at
+the top of the file, because it credits an **idea** and uses **our own** solar
+geometry and our own existing great-circle code — nothing was copied. If a later
+stage adapts actual code rather than an idea, the notice goes at the top of the
+file as the rule above says.
 
 **Nothing may be vendored.** No submodule, no copy of the crate. Adapt the ideas,
 write our code, carry the notice.

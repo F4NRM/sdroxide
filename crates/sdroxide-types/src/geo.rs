@@ -132,6 +132,15 @@ pub fn great_circle_points(
     if d < 1e-9 {
         return vec![(lat1, lon1)];
     }
+    // Antipodal points have **no single great circle** and no defined path
+    // between them, so `sin(d)` below is zero and every sample comes out the
+    // same. Answering the start is the honest one: a map asking for the path
+    // between two points a whole hemisphere apart has asked for something that
+    // does not exist, and a straight line through the Earth is worse than the
+    // point it started from.
+    if (std::f64::consts::PI - d).abs() < 1e-9 {
+        return vec![(lat1, lon1)];
+    }
     (0..=n)
         .map(|i| {
             let f = i as f64 / n as f64;
@@ -199,6 +208,75 @@ mod tests {
         // A multi-byte character inside the first four bytes is not a square.
         assert_eq!(grid4("JOxé"), None);
         assert_eq!(grid4("éé"), None);
+    }
+
+    /// **The path must follow the arc, not cut inside it.** This is what a
+    /// great-circle path is *for*, and the naive alternative — interpolating
+    /// latitude and longitude in a straight line — is what it is not: over
+    /// 10,000 km it sits hundreds of kilometres inside the curve.
+    ///
+    /// The midpoint test is the one that bites: the point at `f = 0.5` must
+    /// halve the **distance**, which only a point on the arc does.
+    #[test]
+    fn the_path_follows_the_arc_and_halves_the_distance() {
+        let a = (51.5, -0.13);
+        let b = (35.68, 139.69);
+        let pts = great_circle_points(a, b, 8);
+        assert_eq!(pts.len(), 9, "nine points, ends included");
+        let mid = pts[4];
+        // The naive midpoint is nowhere near the arc.
+        let naive = ((a.0 + b.0) / 2.0, (a.1 + b.1) / 2.0);
+        assert!(
+            distance_km(naive, mid) > 100.0,
+            "the naive midpoint came within 100 km of the arc, which would mean there              is nothing here to fix"
+        );
+        // Equal halves is the property of a great circle.
+        let total = distance_km(a, b);
+        assert!(
+            (distance_km(a, mid) - distance_km(mid, b)).abs() < 1.0,
+            "the midpoint must halve the path: {} vs {}",
+            distance_km(a, mid),
+            distance_km(mid, b)
+        );
+        assert!(
+            (distance_km(a, mid) * 2.0 - total).abs() < 1.0,
+            "and the halves must sum to the whole path"
+        );
+    }
+
+    /// **Antipodal points have no great circle.** Every sample coming back
+    /// identical is the symptom, and it was reachable before the guard above.
+    #[test]
+    fn antipodal_points_do_not_divide_by_zero() {
+        let pts = great_circle_points((0.0, 0.0), (0.0, 180.0), 8);
+        assert!(!pts.is_empty(), "it must answer something");
+        for &(lat, lon) in &pts {
+            assert!(lat.is_finite() && lon.is_finite(), "no NaN: {lat} {lon}");
+            assert!((-90.0..=90.0).contains(&lat) && (-180.0..=180.0).contains(&lon));
+        }
+        // Every point the same would be the divide-by-zero symptom.
+        assert!(
+            pts.iter().all(|p| *p == pts[0]),
+            "antipodes answer the start, not a path through the Earth"
+        );
+    }
+
+    /// Crossing the antimeridian must take the **short** way round. A path that
+    /// goes the other way is 358 degrees long and puts a Pacific route through
+    /// the Atlantic — the classic wrap bug.
+    #[test]
+    fn crossing_the_antimeridian_takes_the_short_way() {
+        let a = (0.0, 179.0);
+        let b = (0.0, -179.0);
+        assert!(distance_km(a, b) < 250.0, "two degrees apart is a short hop");
+        let pts = great_circle_points(a, b, 4);
+        for (lat, lon) in &pts {
+            assert!(
+                lon.abs() > 178.0,
+                "every point must stay at the antimeridian, not go the long way: {lon}"
+            );
+            assert!((*lat).abs() < 1.0, "and on the equator: {lat}");
+        }
     }
 
     #[test]

@@ -1003,3 +1003,93 @@ mod tests {
         );
     }
 }
+
+/// The share of the great-circle path from `a` to `b` that is **in darkness**,
+/// `0.0` to `1.0`, at a given time.
+///
+/// This is the question a listener on a long path actually has: *how much of the
+/// route between me and this station is currently in night?* A grey line across
+/// a map answers it by eye; this answers it as a number, so a path can be drawn
+/// in two parts — the daylight third and the rest — which is the difference
+/// between decoration and something to read.
+///
+/// Sampled rather than solved: `n` points along the arc, counting how many are
+/// dark. Nine is the useful resolution — a step of an eighth of the path — and
+/// costs nothing. It is a *sample*, so a path whose dark region is narrow and
+/// happens to fall between two samples is under-reported; that is the trade for
+/// a function cheap enough to call while dragging a map, and the answer is
+/// right to within about a tenth of the path.
+///
+/// Twilight counts as light. [`is_daylight_at`] is the Sun above the horizon,
+/// not above −6° or −18°, so "dark" here means the Sun is actually down.
+///
+/// The idea is [shortwave-atlas](https://github.com/juantoledo/shortwave-atlas)'s
+/// (`atlas-core/src/geo.rs`, MIT, © 2026 Juan Toledo Carrasco); ours uses this
+/// crate's own solar geometry rather than a second one.
+pub fn dark_share(a: (f64, f64), b: (f64, f64), unix_s: i64, n: usize) -> f32 {
+    let pts = sdroxide_types::great_circle_points(a, b, n.max(2).saturating_sub(1));
+    let dark = pts.iter().filter(|(lat, lon)| !is_daylight_at(*lat, *lon, unix_s)).count();
+    dark as f32 / pts.len() as f32
+}
+
+#[cfg(test)]
+mod dark_share_tests {
+    use super::dark_share;
+
+    /// A station at local noon is in daylight: the whole share must be light.
+    /// Anchoring on "a fixed instant" without checking the geometry is how a
+    /// propagation helper becomes a constant.
+    #[test]
+    fn a_path_in_full_daylight_is_entirely_light() {
+        // 2026-06-21, the solstice: the northern hemisphere is lit all day.
+        let solstice = 1_782_456_000; // 2026-06-21T12:00:00Z
+        // Two points both well inside the arctic circle, so even at midnight
+        // one of them is lit; here both are near the equator at local noon.
+        let share = dark_share((10.0, 20.0), (10.0, 40.0), solstice, 9);
+        assert!(share < 0.35, "a midday equatorial path should be mostly daylight, got {share}");
+    }
+
+    /// At the **winter** solstice the same northern path is in night. That is
+    /// the assertion that says the function is reading the Sun and not
+    /// returning a constant.
+    #[test]
+    fn the_same_path_is_darker_at_the_winter_solstice() {
+        let summer = 1_782_456_000;
+        let winter = 1_767_225_600; // 2025-12-21T12:00:00Z
+        let a = (60.0, 5.0);
+        let b = (60.0, 25.0);
+        let light_summer = dark_share(a, b, summer, 9);
+        let light_winter = dark_share(a, b, winter, 9);
+        assert!(
+            light_winter > light_summer,
+            "a 60N path in December must be darker than in June: {light_winter} vs \
+             {light_summer}"
+        );
+    }
+
+    /// The share is a fraction: never below zero, never above one, whatever it
+    /// is asked.
+    #[test]
+    fn the_share_is_always_a_fraction() {
+        for &(lat, lon) in &[(0.0, 0.0), (80.0, 170.0), (-80.0, -170.0), (45.0, 90.0)] {
+            for &t in &[0_i64, 1_767_225_600, 1_782_456_000, 1_700_000_000] {
+                let s = dark_share((lat, lon), (lat + 10.0, lon + 10.0), t, 9);
+                assert!((0.0..=1.0).contains(&s), "{s} is not a fraction");
+            }
+        }
+    }
+
+    /// A path whose two ends are on the **same** meridian and close together is
+    /// short, and whatever the answer, it must not be a division by zero or a
+    /// NaN — a degenerate path is what a map pan at the limit produces.
+    #[test]
+    fn a_degenerate_path_does_not_blow_up() {
+        let s = dark_share((10.0, 10.0), (10.0, 10.0), 1_767_225_600, 9);
+        assert!(s.is_finite(), "a zero-length path must still answer: {s}");
+        assert!((0.0..=1.0).contains(&s), "and it must be a fraction: {s}");
+        // Fewer than two samples is a straight line, which the maths cannot
+        // sample; it must not divide by zero.
+        let s = dark_share((10.0, 10.0), (50.0, 50.0), 1_767_225_600, 1);
+        assert!(s.is_finite(), "one sample must not divide by zero: {s}");
+    }
+}
