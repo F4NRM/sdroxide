@@ -38,6 +38,25 @@ upstream feature requests **this fork** may pick up, not a promise to upstream.
 
 ## In progress / parked
 
+- **The grey line on a path — built, and verified by one screenshot only**
+  (`88d2bd0c`, `7ed1e7a5`). Each dot on a great-circle path now carries its own
+  twilight, drawn with the same ramp the flat map's night shading uses, so a dot
+  and the land beneath it agree. It **fades rather than flips** — a binary
+  light/dark split would lay a hard edge across the line exactly where the
+  terminator is soft — and a night dot keeps a faint ring, because dim is legible
+  while absent is a claim about the signal that is not true.
+  **One site then drifted: the first cut gave the *selected station's* path the
+  twilight and left the *per-station* paths flat — and LISTEN passes no selected
+  station, so the window where the feature lives was showing an undarkened path.
+  Both now go through one `twilight_dot` (`88d2bd0c`), because the drift was the
+  bug: the same treatment applied twice by hand is how one site gets it and the
+  other does not.
+  **Open — one run by the operator:** it has only ever been seen on a path that is
+  *entirely* in night ("100% of this path in night", Fuzhou → NL, 22:11 local).
+  Pick a station whose path is **partly** daylit and check the gradient runs the
+  right way along the line. That is the case the feature exists for and the case
+  the screenshot cannot demonstrate. `dark_share` has always been unit-tested as a
+  number; the *drawing* cannot be, so the window is the oracle.
 - **Antenna modelling tool** — parked on branch `fork/antenna-tool` (a validated
   MoM solver: dipole, monopole-over-perfect-ground, delta loop, Yagi; `.maa` and
   `antennas.json`; 2D pattern). Next: the source-between-terminals junction
