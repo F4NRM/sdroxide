@@ -2796,53 +2796,66 @@ pub fn fetch_broadcast_master() -> Result<Vec<sdroxide_types::BroadcastStation>,
 /// Picks the highest-numbered season in `pc/nc/`, because that is the newest file
 /// they have published and not necessarily the season we are in.
 fn aoki_latest(agent: &ureq::Agent) -> Result<(String, String), String> {
-    let mut resp = agent
-        .get(AOKI_INDEX_URL)
-        .call()
-        .map_err(|e| format!("Aoki's index would not load: {e}"))?;
-    if !resp.status().is_success() {
-        return Err(format!("Aoki's index answered HTTP {}", resp.status()));
+    let season = sdroxide_types::broadcast::season_file(now_unix());
+    // **The season's own package first.** `xt{season}.zip` is what the season's
+    // schedule is actually published as, and it is the one a working third-party
+    // downloader uses. The fallback below exists because the shortwave folder
+    // lags: it still held **B24** while we were in A26, which is a file eighteen
+    // months stale and a schedule of last season's transmitters.
+    let url = format!("https://www1.m2.mediacat.ne.jp/binews/ut/xt/xt{season}.zip");
+    let resp = agent.get(&url).call().map_err(|e| e.to_string())?;
+    if resp.status().is_success() {
+        return Ok((url, format!("xt{season}")));
     }
-    let bytes = resp
+    // Fall back to Aoki's own index: the newest **shortwave** file it lists, which
+    // is not necessarily the season we are in. Better than nothing, and it names
+    // itself so the cache says which file it holds.
+    let mut index = agent.get(AOKI_INDEX_URL).call().map_err(|e| {
+        format!(
+            "Aoki's seasonal package 404s ({}) and its index would not load: {e}",
+            resp.status()
+        )
+    })?;
+    if !index.status().is_success() {
+        return Err(format!(
+            "Aoki's seasonal package is HTTP {} and its index is HTTP {}",
+            resp.status(),
+            index.status()
+        ));
+    }
+    let bytes = index
         .body_mut()
         .with_config()
         .limit(4 * 1024 * 1024)
         .read_to_vec()
         .map_err(|e| e.to_string())?;
     let (page, _, _) = encoding_rs::SHIFT_JIS.decode(&bytes);
-    // The season **kind** as well as the year, because that is what names the
-    // file inside the zip (`ncb24.txt`), and because our own season is not it.
     let mut best: Option<(String, String)> = None;
     for link in page.split("href=\"") {
-        let Some(url) = link.split('"').next() else {
+        let Some(href) = link.split('"').next() else {
             continue;
         };
-        let Some(name) = url.rsplit('/').next() else {
+        let Some(name) = href.rsplit('/').next() else {
             continue;
         };
-        // `pc/nc/` is Aoki's **shortwave** folder. `pc/ns/` is the satellite one
-        // and `pc/ad/` something else, so the folder is what tells them apart —
-        // taking any `nc*.zip` anywhere would fetch the wrong schedule.
-        if !url.contains("/pc/nc/") {
+        let stem = name.strip_suffix(".zip").unwrap_or(name);
+        if !href.contains("/pc/nc/") || !stem.starts_with("nc") || stem.len() < 2 {
             continue;
         }
-        let stem = name.strip_suffix(".zip").unwrap_or(name);
-        let (kind, year) = match stem.split_at(stem.len().saturating_sub(2)) {
-            (k, y) if !y.is_empty() && y.chars().all(|c| c.is_ascii_digit()) => (k, y),
-            _ => continue,
-        };
-        if !kind.starts_with("nc") {
+        let year = &stem[stem.len() - 2..];
+        if !year.chars().all(|c| c.is_ascii_digit()) {
             continue;
         }
         if best.as_ref().is_none_or(|(_, y)| year > y.as_str()) {
-            best = Some((kind.to_string(), year.to_string()));
+            best = Some((href.to_string(), stem.to_string()));
         }
     }
-    let (kind, year) = best.ok_or("Aoki's index lists no shortwave schedule this year")?;
-    Ok((
-        format!("https://www1.s2.starcat.ne.jp/ndxc/pc/nc/{kind}{year}.zip"),
-        format!("{kind}{year}"),
-    ))
+    let (href, stem) =
+        best.ok_or("Aoki publishes neither a seasonal package nor a shortwave schedule")?;
+    warn!(
+        "Aoki's seasonal package is unavailable; falling back to its newest shortwave file, {stem}"
+    );
+    Ok((href, stem))
 }
 
 /// Which sources are cached, and how many rows each holds — the Settings page's
