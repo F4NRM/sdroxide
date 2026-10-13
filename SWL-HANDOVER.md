@@ -421,6 +421,44 @@ write our code, carry the notice.
   it would be a `PROTO_VERSION` bump, so it is worth deciding early rather than
   bolting on.
 
+## 12. The master store — BUILT (types half)
+
+`87d763b0` is the waterfall half. The **store** is this, on `sdroxide-types`:
+
+- **`BroadcastStation::source`** (`ScheduleSource::Eibi|Aoki|Hfcc|User`,
+  `#[serde(default)]`), on the row rather than in a side table — a schedule row is
+  where the question is asked. **`BroadcastStation` is local only: it appears in no
+  wire message, so this is no `PROTO_VERSION` bump.** `Default` is `Eibi`, which is
+  what every row in an existing `broadcast_stations.json` was, and guessing beats
+  discarding somebody's own corrections over a missing field.
+- **`master_store(&[(source, rows)])`** — every source in one list, each row
+  tagged, sorted by frequency then start then name then source rank
+  (EiBi, Aoki, HFCC, User) so a stable list does not reshuffle between frames.
+- **`filter_by_source(&rows, Option<source>)`** — `None` is **all of them**, which
+  is the default, because the repetition is bebepip's accepted cost.
+
+**Duplicates are kept.** One broadcaster listed by two sources is two rows, both
+editable, both exportable. The Schedule window is where the detail belongs; the
+waterfall is where the repetition is wrong, and `87d763b0` collapses it there.
+Collapsing in the store would throw away data to tidy a picture.
+
+**There is no week-start handling in the store, and that is the finding.** Aoki
+publishes Sunday as `1......` and counts from Sunday; everything else counts from
+Monday. That is resolved **inside each parser** (`aoki_days` maps `1`→our `7`),
+pinned by `the_week_start_is_already_normalised_by_the_parser` against the
+**published** fixture. Doing it again at this layer would shift every station by a
+day with nothing looking broken.
+
+**Still to do — this commit is the store, not the feature:**
+1. `Settings::schedule_source` — no source *selection* yet; the runtime still loads
+   one source (default EiBi).
+2. The app must build `self.broadcast` from **all available** cached sources, not
+   one.
+3. The Schedule window's **source filter** chip.
+4. **Aoki cache round-trip** — `fetch_broadcast_schedule_from` writes the raw ZIP
+   under an Aoki cache path while `cached_schedule_for` follows the generic text
+   decode. Verify before step 2 depends on it.
+
 ## 12. The LISTEN window — map, station, comment, LOG (operator's idea, 2026-10-13)
 
 **What was asked for, in the operator's words:** *"make a listen panel with a map

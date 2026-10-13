@@ -126,7 +126,7 @@ pub fn decode_latin1(bytes: &[u8]) -> String {
 /// separate thing ([`ScheduleOrigin`] below). Keeping those apart is what stops
 /// "which format is this file" and "which schedule is in use" becoming one
 /// question, which is how a program ends up unable to say what it is showing.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ScheduleSource {
     /// EiBi's published `sked-XNN.csv`, semicolon-delimited with its own code
@@ -246,6 +246,7 @@ pub fn parse_schedule(csv: &str) -> Vec<BroadcastStation> {
         let address = f.get(12).map(|s| s.trim().to_string()).unwrap_or_default();
 
         out.push(BroadcastStation {
+            source: ScheduleSource::Eibi,
             name: station.to_string(),
             freq_khz: khz,
             site,
@@ -456,6 +457,20 @@ pub struct BroadcastStation {
     /// thirteenth field when the schedule file carries one.
     #[serde(default)]
     pub address: String,
+    /// Which schedule this row came from — `eibi`, `aoki`, `hfcc` or `user`.
+    ///
+    /// **The master store's one field**, and it is on the row rather than in a
+    /// side table because a schedule row is where the question is asked: this is
+    /// what the Schedule window's source filter reads, and what lets a listener
+    /// see that one broadcaster is listed by three of them.
+    ///
+    /// `Default` is `Eibi`, which is what every row written before this field
+    /// existed was: `broadcast_stations.json` is the listener's own corrections
+    /// file, and assuming the source they added from is far better than discarding
+    /// their work over a missing field. `BroadcastStation` is **local only** — it
+    /// appears in no wire message — so this is no `PROTO_VERSION` bump.
+    #[serde(default)]
+    pub source: ScheduleSource,
 }
 
 /// The file format: a version, some provenance, and the stations.
@@ -834,6 +849,69 @@ pub fn merge(schedule: Vec<BroadcastStation>) -> Vec<BroadcastStation> {
             .then_with(|| a.name.cmp(&b.name))
     });
     all
+}
+
+/// **The master store**: every available source in one list, each row tagged with
+/// where it came from.
+///
+/// bebepip's answer on fork #69, and it replaced the handover's *"one active
+/// source at a time"*: he wants EiBi, Aoki, HFCC and his own list **imported into
+/// one repository**, with a source column, because filtering one store is simpler
+/// than querying several — and says the resulting list *"will simply be long and
+/// somewhat repetitive"*, which is accepted: the Schedule window is where the
+/// detail belongs.
+///
+/// **There is no week-start handling here, and that is the point.** Aoki counts the
+/// week from Sunday and everything else here counts from Monday; that difference
+/// is already resolved **inside each parser** (`aoki_days` maps its Sunday to our
+/// Sunday), so a row in this store is already in our terms whichever file it came
+/// from. Putting the conversion here instead would be the one place it could be
+/// applied twice, and applied twice it shifts every station by a day with nothing
+/// looking broken.
+///
+/// Duplicates are **kept**. One broadcaster listed by three sources is three rows,
+/// all editable and all exportable; the waterfall is where that repetition is
+/// wrong, and it collapses it there. Collapsing here would throw away data to
+/// tidy a picture.
+pub fn master_store(sources: &[(ScheduleSource, Vec<BroadcastStation>)]) -> Vec<BroadcastStation> {
+    let mut all: Vec<BroadcastStation> = Vec::new();
+    for (source, rows) in sources {
+        for row in rows {
+            all.push(BroadcastStation { source: *source, ..row.clone() });
+        }
+    }
+    all.sort_by(|a, b| {
+        a.freq_khz
+            .total_cmp(&b.freq_khz)
+            .then_with(|| a.start_utc.cmp(&b.start_utc))
+            .then_with(|| a.name.cmp(&b.name))
+            // And the source last, so a stable list does not reshuffle when the
+            // same station is listed twice.
+            .then_with(|| source_rank(a.source).cmp(&source_rank(b.source)))
+    });
+    all
+}
+
+/// The store's order: EiBi, then Aoki, then HFCC, then the listener's own.
+fn source_rank(s: ScheduleSource) -> u8 {
+    match s {
+        ScheduleSource::Eibi => 0,
+        ScheduleSource::Aoki => 1,
+        ScheduleSource::Hfcc => 2,
+        ScheduleSource::User => 3,
+    }
+}
+
+/// The rows of a store from one source — the Schedule window's filter, and the
+/// "all of them" case the filter's default is.
+pub fn filter_by_source(
+    rows: &[BroadcastStation],
+    source: Option<ScheduleSource>,
+) -> Vec<BroadcastStation> {
+    match source {
+        None => rows.to_vec(),
+        Some(want) => rows.iter().filter(|r| r.source == want).cloned().collect(),
+    }
 }
 
 /// The compiled-in schedule, parsed once — the offline fallback, and what the
@@ -1287,6 +1365,7 @@ mod tests {
         BroadcastStation {
             name: "test".into(),
             freq_khz: 6070.0,
+            source: ScheduleSource::Eibi,
             site: String::new(),
             country: String::new(),
             lat: None,
@@ -1964,6 +2043,7 @@ pub fn parse_aoki(text: &str) -> Vec<BroadcastStation> {
             None => (None, None),
         };
         out.push(BroadcastStation {
+            source: ScheduleSource::Aoki,
             name: station.to_string(),
             freq_khz: freq,
             site: loc.trim().to_string(),
@@ -2000,4 +2080,109 @@ fn resolve_country_code(code: &str) -> String {
         return String::new();
     }
     codes().countries.get(c).cloned().unwrap_or_else(|| c.to_string())
+}
+
+#[cfg(test)]
+mod master_store_tests {
+    use super::{ScheduleSource, filter_by_source, master_store, parse_aoki};
+    use crate::broadcast::BroadcastStation;
+
+    fn st(name: &str, khz: f64, days: &str) -> BroadcastStation {
+        BroadcastStation {
+            name: name.into(),
+            freq_khz: khz,
+            days: days.to_string(),
+            ..Default::default()
+        }
+    }
+
+    /// **Every source lands in one list, tagged.** That is the whole of the
+    /// request: one repository, and a row that says where it came from.
+    #[test]
+    fn every_source_lands_in_one_store_tagged() {
+        let store = master_store(&[
+            (ScheduleSource::Eibi, vec![st("BBC World Service", 15_490.0, "1234567")]),
+            (ScheduleSource::Aoki, vec![st("NHK World", 15_475.0, "1234567")]),
+        ]);
+        assert_eq!(store.len(), 2);
+        // By name, not by index: the store is in **frequency** order, so which
+        // row is first is a property of the frequencies, not of the sources.
+        let eibi = store.iter().find(|s| s.name == "BBC World Service").unwrap();
+        let aoki = store.iter().find(|s| s.name == "NHK World").unwrap();
+        assert_eq!(eibi.source, ScheduleSource::Eibi);
+        assert_eq!(aoki.source, ScheduleSource::Aoki);
+    }
+
+    /// **Duplicates are kept.** bebepip is explicit that a merged list *"will
+    /// simply be long and somewhat repetitive"*, and he is right: this list is
+    /// where the detail lives, so dropping a row to tidy it throws away data. The
+    /// waterfall is what collapses them.
+    #[test]
+    fn one_broadcaster_from_two_sources_is_two_rows() {
+        let store = master_store(&[
+            (ScheduleSource::Eibi, vec![st("Radio Prague", 5_010.0, "1234567")]),
+            (ScheduleSource::Aoki, vec![st("Radio Prague", 5_010.0, "1234567")]),
+        ]);
+        assert_eq!(store.len(), 2, "two sources, two rows, both kept");
+        let mut sources: Vec<ScheduleSource> = store.iter().map(|s| s.source).collect();
+        sources.sort_by_key(|s| *s as u8);
+        assert_eq!(sources, vec![ScheduleSource::Eibi, ScheduleSource::Aoki]);
+    }
+
+    /// **The filter is the whole reason for the store.** One store, and a filter
+    /// on it, is what bebepip said beats queries across several databases — and
+    /// "all of them" must be the default, because the repetition is his accepted
+    /// cost.
+    #[test]
+    fn the_store_filters_to_one_source_or_all_of_them() {
+        let store = master_store(&[
+            (ScheduleSource::Eibi, vec![st("a", 10.0, "1234567")]),
+            (ScheduleSource::Aoki, vec![st("b", 20.0, "1234567")]),
+            (ScheduleSource::Hfcc, vec![st("c", 30.0, "1234567")]),
+        ]);
+        assert_eq!(filter_by_source(&store, None).len(), 3, "all of them is the default");
+        assert_eq!(filter_by_source(&store, Some(ScheduleSource::Aoki)).len(), 1);
+        assert_eq!(filter_by_source(&store, Some(ScheduleSource::Hfcc))[0].name, "c");
+    }
+
+    /// **The store is sorted by frequency**, because that is what the Schedule
+    /// window shows and what a listener scans. Two rows on one frequency are
+    /// ordered by name and then by source, so the list does not reshuffle
+    /// between frames.
+    #[test]
+    fn the_store_is_in_frequency_order() {
+        let store = master_store(&[
+            (ScheduleSource::Aoki, vec![st("later", 9_000.0, "1234567")]),
+            (ScheduleSource::Eibi, vec![st("earlier", 5_000.0, "1234567")]),
+        ]);
+        let names: Vec<&str> = store.iter().map(|s| s.name.as_str()).collect();
+        assert_eq!(names, vec!["earlier", "later"]);
+    }
+
+    /// **The week start is not this store's problem** — and that is the finding
+    /// worth pinning, because it is the one silent way this feature could go
+    /// wrong. Aoki publishes Sunday as `1......` and counts the week from Sunday;
+    /// everything else here counts from Monday. That difference is resolved
+    /// **inside each parser**, so a row in this store is already in our terms
+    /// whichever file it came from — and doing it again at this layer would shift
+    /// every station by a day with nothing looking broken.
+    ///
+    /// Read from the **published** file rather than a typed-in header, so the
+    /// assertion cannot pass on a plausible invention.
+    #[test]
+    fn the_week_start_is_already_normalised_by_the_parser() {
+        let aoki = include_str!("aoki-fixture.txt");
+        let rows: Vec<BroadcastStation> =
+            parse_aoki(aoki).into_iter().filter(|r| r.name == "ReflectionsEurope").collect();
+        let row = rows.first().expect("the fixture has that station, on `1......`");
+        assert_eq!(
+            row.days, "7",
+            "Aoki's Sunday-only row is already our Sunday, and the parser did it"
+        );
+
+        // Merging must not touch it, and an EiBi row beside it must not need
+        // converting either — both are already ours, which is the whole point.
+        let store = master_store(&[(ScheduleSource::Aoki, rows)]);
+        assert_eq!(store[0].days, "7", "the store did not touch the week start");
+    }
 }

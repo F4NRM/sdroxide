@@ -3926,6 +3926,7 @@ mod tests {
         sdroxide_types::BroadcastStation {
             name: name.into(),
             freq_khz: khz,
+            source: sdroxide_types::broadcast::ScheduleSource::User,
             site: String::new(),
             country: String::new(),
             lat: None,
