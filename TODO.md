@@ -1,7 +1,7 @@
 # TODO — SDR Oxide Brown
 
 What this fork is working on. Kept here so it survives a session and is visible
-to everyone on the repo. Last updated **2026-10-12**.
+to everyone on the repo. Last updated **2026-10-13**.
 
 Upstream issues are the *maintainer's* queue; the items below marked `#NNN` are
 upstream feature requests **this fork** may pick up, not a promise to upstream.
@@ -13,11 +13,28 @@ upstream feature requests **this fork** may pick up, not a promise to upstream.
   clock), **#661** (output-audio routing), **#663** (HFDL custom frequency chips).
 - **#257 — undocked mode / separate windows on a second monitor.** In progress;
   the SDRuno window set. See `SDRUNO-UI-HANDOVER.md` and `UNDOCKED-HANDOVER.md`.
-- **#69 — a second broadcast schedule source (Aoki / HFCC / your own).** Fork-only,
-  designed and scoped, **no code written yet**: see **`SWL-HANDOVER.md`**, which
-  carries the three file formats decoded, the evidence bebepip gave, the staged
-  plan and the globe work. Not a quick change — the display side is already
-  built and the whole job is getting rows in.
+  - **A tool window's ⇱/⇲ chip is drawn after its window is covered.** From the
+    operator's screenshots of 2026-10-13 (22:11:44 against 22:11:53, nine seconds
+    apart, only the windows moved): with LISTEN on top of SCHEDULE, SCHEDULE's
+    open-in-window button still paints **over** LISTEN's body, at (941, 530),
+    while the rest of its title bar is correctly hidden underneath.
+    **Likely cause, not yet verified:** a window icon chip is drawn for a module
+    that is currently undocked — there are **seven** sites that draw one
+    (`tool_window_chip`, plus six in `frame.rs` and `top_bar.rs`, which are the
+    docked-module headers and the band popup's ⇱ WINDOW). The BandMenu work already
+    established the rule this should follow: *"while the window is out the docked
+    column is not drawn (one selector on screen)"*.
+    **Do not fix this from the screenshot.** I named a cause from one before today
+    and was wrong three times in a row; find which site draws it, then pin it with
+    a test that two overlapping tool windows leave nothing of the lower one visible
+    outside its own rect.
+- **~~#69 — a second broadcast schedule source (Aoki / HFCC / your own).~~ BUILT**
+  (`4b4311c2`, `98b83e07`, `6544525a`, `8fa2119e`). All three sources are in one
+  **master store** with a per-row source tag and a SCHEDULE **Source filter**;
+  your own list imports from CSV/text/JSON. **Aoki 3597 rows, HFCC 3363 rows with
+  names, sites and positions — both verified live.** EiBi unchanged. See
+  `SWL-HANDOVER.md`. What is *not* done: nothing on the roadmap — see the
+  remaining notes there.
 
 ## In progress / parked
 
@@ -46,9 +63,9 @@ window. I/Q out over UDP is #594.)*
 **Fork-relevant, medium**
 - ~~#617 HFDL custom frequency chips~~ — **done** in `1bddef9c`; offered upstream
   as **#663** (built on `upstream/main`, four files, no wire change).
-- ~~#69 import a broadcast schedule other than EiBi~~ — **scoped, not built.**
-  See `SWL-HANDOVER.md`. bebepip runs Aoki and answered our scoping questions on
-  2026-10-12; the three formats are decoded from his own pasted data.
+- ~~#69 import a broadcast schedule other than EiBi~~ — **done 2026-10-13**, see
+  *Now / next session* above. Kept here because the entry it replaced read
+  *"scoped, not built"* and that was two days out of date.
 - **#458 QRZ lookup + KML export** — the **KML export is done** (2026-10-12): a
   **KML** chip in the SPOTS window saves what is on screen for Google Earth.
   `spots_to_kml` lives in `sdroxide-types`, so the browser client writes the same
