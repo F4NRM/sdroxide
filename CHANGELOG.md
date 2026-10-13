@@ -23,6 +23,10 @@ and the [README](https://github.com/madmedicnl/sdroxide-brown#readme).
 
 ## [Unreleased]
 
+### Changed
+- **SSTV reception is better on weak pictures** — a rewritten demodulator, measured on a swept-SNR harness: mean error 87.2 → 75.6 at 0 dB and 42.4 → 33.7 at 10 dB. Slightly worse above 30 dB (4.3 → 5.5), where both are excellent.
+- **SSTV slant correction** — a skewed picture is straightened rather than smeared.
+
 ## [2.0.10_brown] - 2026-10-13
 
 ### Added — the schedule store, and a LISTEN window for it
