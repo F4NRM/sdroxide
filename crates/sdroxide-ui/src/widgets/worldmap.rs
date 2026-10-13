@@ -34,6 +34,18 @@ pub const MIN_HEIGHT: f32 = 72.0;
 /// active QSO trail's 90: these are drawn one per station and only need to read
 /// as an arc, not to be followed.
 const DECODE_PATH_POINTS: usize = 40;
+
+/// The twilight of one dot on a path, and how much of it the dot keeps.
+///
+/// **One function, because the two path sites drifted.** The selected station's
+/// path was drawn with twilight and the per-station paths were not — and the
+/// per-station paths are the ones LISTEN actually draws, since it passes no
+/// selected `dx`. A dark line that only appears on the window you are not looking
+/// at is not a feature.
+fn twilight_dot(shade: f32) -> (f32, f32) {
+    // (alpha kept from the path's own alpha, ring alpha for the dark part)
+    (1.0 - shade, 0.45 * shade)
+}
 /// Alpha of a freshly decoded station's path. Low: it is context behind the
 /// dots, and a busy band draws a couple of dozen of them at once.
 const DECODE_PATH_ALPHA: f32 = 30.0;
@@ -747,6 +759,7 @@ pub fn show(
     // what was heard in the last [`crate::digi_map::STATION_FADE_S`], so this
     // is a couple of dozen lines on a busy band, and the fade keeps them from
     // becoming a mat — an old path is nearly invisible before it expires.
+    let now = crate::time::now_unix();
     if let Some(hll) = home {
         for d in stations {
             if d.fade <= 0.0 {
@@ -758,11 +771,23 @@ pub fn show(
                 continue;
             }
             for (lat, lon) in great_circle_points(hll, (d.lat, d.lon), DECODE_PATH_POINTS) {
-                p.circle_filled(
-                    project(lat, lon),
-                    dot_r.max(1.0),
-                    alpha(map.trail, DECODE_PATH_ALPHA * d.fade),
+                let shade = sdroxide_solar::ephem::night_shade(
+                    sdroxide_solar::ephem::solar_elevation_deg(lat, lon, now as f64),
                 );
+                let c = project(lat, lon);
+                let (keep, ring) = twilight_dot(shade);
+                p.circle_filled(
+                    c,
+                    dot_r.max(1.0),
+                    alpha(map.trail, DECODE_PATH_ALPHA * d.fade * keep),
+                );
+                if shade > 0.0 {
+                    p.circle_stroke(
+                        c,
+                        dot_r.max(1.0) + 1.0,
+                        Stroke::new(1.0, alpha(map.trail, 34.0 * d.fade * ring)),
+                    );
+                }
             }
         }
     }
@@ -842,26 +867,25 @@ pub fn show(
     // Drawn with the same ramp the flat map's night shading uses, so a dot and the
     // land under it agree: a dot in twilight sits on twilight.
     if let (Some(hll), Some(dll)) = (home, dx) {
-        let now = crate::time::now_unix();
         for (lat, lon) in great_circle_points(hll, dll, 90) {
             let shade = sdroxide_solar::ephem::night_shade(
                 sdroxide_solar::ephem::solar_elevation_deg(lat, lon, now as f64),
             );
             let c = project(lat, lon);
-            if shade <= 0.0 {
-                p.circle_filled(c, dot_r.max(1.0), alpha(map.trail, 150.0));
-            } else {
-                // **The dark part of the path**, and it fades rather than flips:
-                // full night is a dim dot, twilight between, daylight the bright
-                // one. A binary light/dark split would put a hard edge across the
-                // line exactly where the terminator is soft.
-                p.circle_filled(c, dot_r.max(1.0), alpha(map.trail, 150.0 * (1.0 - shade)));
-                // A faint warm ring so a night dot is still *there* rather than
-                // merely absent — a path that vanishes reads as "no path".
+            // **The dark part of the path, and it fades rather than flips** — full
+            // night is a dim dot, twilight between, daylight the bright one. A
+            // binary split would lay a hard edge across the line exactly where the
+            // terminator is soft, which is the one place the eye reads a boundary
+            // that is not there.
+            let (keep, ring) = twilight_dot(shade);
+            p.circle_filled(c, dot_r.max(1.0), alpha(map.trail, 150.0 * keep));
+            // A faint ring, so a night dot is still *there* rather than merely
+            // absent: dim is legible, and a path that vanishes reads as "no path".
+            if shade > 0.0 {
                 p.circle_stroke(
                     c,
                     dot_r.max(1.0) + 1.1,
-                    Stroke::new(1.0, alpha(map.trail, 70.0 * shade)),
+                    Stroke::new(1.0, alpha(map.trail, 150.0 * ring)),
                 );
             }
         }
