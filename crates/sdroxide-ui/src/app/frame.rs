@@ -1374,6 +1374,7 @@ impl eframe::App for SdroxideApp {
         self.logbook_window(&ctx, &mut cmds);
         self.contest_window(&ctx, &mut cmds);
         self.swl_window(&ctx, &mut cmds);
+        self.listen_window(&ctx, &mut cmds);
         self.schedule_window(&ctx, &mut cmds);
         self.recordings_window(&ctx, &mut cmds);
         self.poll_recording_jobs(&mut cmds);

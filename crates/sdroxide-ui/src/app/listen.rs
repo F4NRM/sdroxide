@@ -9,7 +9,6 @@
 //! schedule pre-fill, and no window anywhere in the tree is map-driven — so this
 //! is a map-first way to fill the same log, not a new log.
 
-
 // ── the pure half of the LISTEN window ──────────────────────────────────────
 
 /// What the LISTEN map is showing, and what it chose to show.
@@ -97,16 +96,8 @@ pub(in crate::app) fn listen_set(
         .iter()
         .filter(|s| (s.freq_hz() - dial_hz).abs() <= half && s.lat.is_some())
         .collect();
-    near.sort_by(|a, b| {
-        (a.freq_hz() - dial_hz)
-            .abs()
-            .total_cmp(&(b.freq_hz() - dial_hz).abs())
-    });
-    out.near = near
-        .into_iter()
-        .take(12)
-        .map(|s| s.name.clone())
-        .collect();
+    near.sort_by(|a, b| (a.freq_hz() - dial_hz).abs().total_cmp(&(b.freq_hz() - dial_hz).abs()));
+    out.near = near.into_iter().take(12).map(|s| s.name.clone()).collect();
 
     if history {
         for e in logged {
@@ -319,5 +310,314 @@ mod tests {
         ];
         let set = listen_set(&s, 6_190_000.0, 20_000.0, Some(home), false, &[]);
         assert_eq!(set.stations.len(), 1, "the local one must not cover home");
+    }
+}
+
+// ── the window ──────────────────────────────────────────────────────────────
+
+/// A frequency the way the log writes one: kHz first, MHz beside it, because a
+/// listener's dial is in kHz and a schedule's row is too, while the reception
+/// report wants MHz.
+fn khz_text(khz: f64) -> String {
+    format!("{khz:.0} kHz ({:.3} MHz)", khz / 1e3)
+}
+
+use eframe::egui::{self, RichText};
+use sdroxide_types::Command;
+
+use crate::app::SdroxideApp;
+use crate::app::swl_log::SwlEditForm;
+use crate::time::now_unix;
+
+/// The window's app-id. A tool window, so it gets the `⇱` chip and a remembered
+/// geometry like every other one.
+pub(in crate::app) const LISTEN_APP_ID: &str = "swl-listen";
+
+impl SdroxideApp {
+    /// Open LISTEN. A **window**, not a docked panel — `SWL-HANDOVER.md` §12 for
+    /// why: the docked column caps near 280 pt and a map beside station info
+    /// wants about 700, so docked it squeezes whatever is below it.
+    pub(in crate::app) fn listen_window(&mut self, ctx: &egui::Context, cmds: &mut Vec<Command>) {
+        let open = self.tool_window(
+            ctx,
+            LISTEN_APP_ID,
+            "LISTEN",
+            [940.0, 620.0],
+            self.show_listen,
+            |me, ui| {
+                me.listen_body(ui, cmds);
+            },
+        );
+        self.show_listen = open;
+    }
+
+    /// Station info and comment on the left, the map on the right.
+    fn listen_body(&mut self, ui: &mut egui::Ui, cmds: &mut Vec<Command>) {
+        let dial = self.state.rx_freq_hz();
+        let span = self.view.span();
+        let home = sdroxide_types::grid_to_latlon(&self.my_grid());
+
+        // ── the header: what is on, and the history toggle ──
+        ui.horizontal(|ui| {
+            ui.label(RichText::new("LISTEN").size(12.0).strong().color(crate::theme::CYAN()));
+            ui.label(
+                RichText::new(format!("what is on around {}", khz_text(dial / 1e3)))
+                    .size(11.0)
+                    .color(crate::theme::gray(150)),
+            );
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                // **The history toggle.** Off by default: an experienced
+                // listening station does not want its own history cluttering
+                // the band, and on it is what makes the window worth a
+                // screenshot.
+                let hist = crate::chrome::chip(ui, self.listen_history, "HISTORY");
+                if hist
+                    .on_hover_text(
+                        "Show every station you have logged as well as what is on now. \
+                     Off, the map is only the band; on, it is also your own history",
+                    )
+                    .clicked()
+                {
+                    self.listen_history = !self.listen_history;
+                }
+            });
+        });
+        ui.add_space(4.0);
+
+        let set = listen_set(&self.broadcast, dial, span, home, self.listen_history, &self.swl_log);
+        // Say plainly what the map is *not* showing, or an empty map is
+        // indistinguishable from a quiet band.
+        if set.stations.is_empty() {
+            let why = if set.on_band == 0 {
+                "nothing scheduled inside this span".to_string()
+            } else if set.dropped_no_position == set.on_band {
+                format!("{} scheduled here, none with a position on the map", set.on_band)
+            } else {
+                "nothing to plot here".to_string()
+            };
+            ui.colored_label(crate::theme::gray(150), why);
+        }
+
+        let avail = ui.available_size();
+        // Roughly 380 of the window for the column and the rest for the map —
+        // the map is the point, so it takes whatever is left and the column
+        // takes what it needs.
+        let left_w = (avail.x * 0.38).clamp(300.0, 400.0);
+        ui.horizontal_top(|ui| {
+            let mut log_now = false;
+            ui.vertical(|ui| {
+                ui.set_width(left_w);
+                self.listen_side(ui, &set, home, &mut log_now);
+            });
+            ui.vertical(|ui| {
+                self.listen_map(ui, &set, home, avail.y);
+            });
+            if log_now {
+                self.listen_log_now(cmds);
+            }
+        });
+    }
+
+    /// The left column: what is selected, a comment box, and LOG.
+    fn listen_side(
+        &mut self,
+        ui: &mut egui::Ui,
+        set: &ListenSet,
+        home: Option<(f64, f64)>,
+        log_now: &mut bool,
+    ) {
+        // The nearest stations by frequency, clickable — selecting on a world
+        // map means finding a dot, and on a busy evening the list is faster.
+        ui.label(RichText::new("ON THIS SPAN").size(10.0).color(crate::theme::gray(150)));
+        egui::ScrollArea::vertical().max_height(150.0).show(ui, |ui| {
+            if set.near.is_empty() {
+                ui.colored_label(crate::theme::gray(150), "none scheduled here");
+            }
+            for name in &set.near {
+                let picked = self.listen_sel.as_ref().is_some_and(|s| &s.name == name);
+                if ui.selectable_label(picked, name).on_hover_text("Select this station").clicked()
+                {
+                    self.listen_select(name);
+                }
+            }
+        });
+        ui.add_space(6.0);
+        ui.separator();
+        ui.add_space(4.0);
+
+        let Some(s) = self.listen_sel.clone() else {
+            ui.colored_label(
+                crate::theme::gray(150),
+                "Pick a station on the map or from the list, then write what you heard.",
+            );
+            return;
+        };
+
+        // The station itself.
+        ui.label(RichText::new(&s.name).size(13.0).strong().color(crate::theme::CYAN()));
+        let mut line = khz_text(s.freq_khz);
+        if !s.country.is_empty() {
+            line.push_str(&format!("  ·  {}", s.country));
+        }
+        if !s.lang.is_empty() {
+            line.push_str(&format!("  ·  {}", s.lang));
+        }
+        ui.label(RichText::new(line).size(11.0).color(crate::theme::gray(150)));
+        if !s.site.is_empty() {
+            ui.label(RichText::new(&s.site).size(11.0).color(crate::theme::gray(150)));
+        }
+
+        // Geometry and the dark share — the number this window exists to make
+        // useful. Grey-line absorption is why a long path is open or not, and
+        // this is it as a figure rather than something read off the terminator.
+        if let (Some(h), Some(lat), Some(lon)) = (home, s.lat, s.lon) {
+            let km = sdroxide_types::distance_km(h, (lat, lon));
+            let brg = sdroxide_types::bearing_deg(h, (lat, lon));
+            let share = sdroxide_solar::ephem::dark_share(h, (lat, lon), now_unix(), 9);
+            ui.label(
+                RichText::new(format!(
+                    "{:.0} km  ·  {:03.0}°  ·  {:.0}% of this path in night",
+                    km,
+                    brg,
+                    share * 100.0
+                ))
+                .size(11.0)
+                .color(crate::theme::gray(150)),
+            );
+        } else if s.lat.is_none() {
+            ui.label(
+                RichText::new("no position in the schedule, so no path to measure")
+                    .size(11.0)
+                    .color(crate::theme::gray(150)),
+            );
+        }
+
+        ui.add_space(6.0);
+        ui.label(RichText::new("What you heard").size(10.0).color(crate::theme::gray(150)));
+        crate::chrome::field(
+            ui,
+            egui::TextEdit::multiline(&mut self.listen_comment)
+                .desired_rows(3)
+                .hint_text("Interval signal, programme notes, the language…"),
+        );
+
+        ui.add_space(4.0);
+        if ui
+            .add_sized(
+                [ui.available_width(), 26.0],
+                egui::Button::new(RichText::new("LOG").size(12.0).strong()),
+            )
+            .on_hover_text("Open the reception log with this station and your note ready to save")
+            .clicked()
+        {
+            *log_now = true;
+        }
+    }
+
+    /// The map. `worldmap::show` is untouched — the two station kinds already
+    /// have a slot in it, and it already hands back the clicked position.
+    fn listen_map(
+        &mut self,
+        ui: &mut egui::Ui,
+        set: &ListenSet,
+        home: Option<(f64, f64)>,
+        max_h: f32,
+    ) {
+        let heat = self.prop_texture(ui.ctx(), self.state.rx_freq_hz());
+        let night = self.night_texture(ui.ctx());
+        let reporters: Vec<sdroxide_types::Spot> = Vec::new();
+        if let Some((lat, lon)) = crate::widgets::worldmap::show(
+            ui,
+            &mut self.listen_map_view,
+            home,
+            None,
+            None,
+            None,
+            &set.stations,
+            &set.logged,
+            &reporters,
+            heat,
+            night,
+            false,
+            max_h,
+        ) {
+            // A click is coordinates, so this picks the station under it — or
+            // nothing, if the click was open ocean.
+            match station_near(&self.broadcast, (lat, lon), 6.0) {
+                Some(s) => {
+                    let name = s.name.clone();
+                    self.listen_select(&name);
+                }
+                None => {
+                    self.listen_sel = None;
+                    self.listen_comment.clear();
+                }
+            }
+        }
+    }
+
+    /// Select by name, re-finding the station so a reload of the schedule does
+    /// not leave a stale copy behind.
+    pub(in crate::app) fn listen_select(&mut self, name: &str) {
+        let found = self.broadcast.iter().find(|s| &s.name == name).cloned();
+        if found.as_ref().is_some_and(|s| &s.name != name) {
+            return;
+        }
+        if self.listen_sel.as_ref().is_none_or(|s| &s.name != name) {
+            // Switching station clears the note: carrying one station's comment
+            // onto another is how a log acquires a lie.
+            self.listen_comment.clear();
+        }
+        self.listen_sel = found;
+    }
+
+    /// Hand the selection to the reception log's own entry form, with the note
+    /// already in it.
+    ///
+    /// **It opens the form rather than saving**, and that is the point: SINPO, a
+    /// reception report, a pirate flag and a QSL letter all live there, and a
+    /// second way to save an entry is a second way to get one of those wrong.
+    fn listen_log_now(&mut self, cmds: &mut Vec<Command>) {
+        let Some(s) = self.listen_sel.clone() else { return };
+        let smeter = self.meters.map(|m| m.s_dbm);
+        let grid = self.my_grid();
+        let antenna = self.swl_antenna.clone();
+        let mut form = SwlEditForm::from_station(
+            s.freq_hz(),
+            self.state.rx[0].mode,
+            &s.name,
+            &s.lang,
+            &s.site,
+            &s.email,
+            &s.address,
+            s.lat,
+            s.lon,
+            smeter,
+            grid,
+            antenna,
+        );
+        form.set_notes(&self.listen_comment);
+        // The reception log's own form, which already knows how to save an
+        // entry, print a report and carry the QSL loop.
+        self.swl_edit = Some(form);
+        self.show_swl = true;
+        self.listen_comment.clear();
+        let _ = cmds;
+    }
+}
+
+#[cfg(test)]
+mod window_tests {
+    use super::khz_text;
+
+    /// The frequency is written the way the reception log writes one, because
+    /// LISTEN fills that form: a listener's dial and a schedule's row are in kHz
+    /// and the report wants MHz, so both appear.
+    #[test]
+    fn a_frequency_reads_the_way_the_log_writes_it() {
+        assert_eq!(khz_text(6185.0), "6185 kHz (6.185 MHz)");
+        assert_eq!(khz_text(3955.0), "3955 kHz (3.955 MHz)");
+        // And a whole number does not pick up a decimal it does not need.
+        assert_eq!(khz_text(6000.0), "6000 kHz (6.000 MHz)");
     }
 }

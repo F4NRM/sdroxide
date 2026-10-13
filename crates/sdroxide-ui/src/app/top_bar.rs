@@ -7627,6 +7627,18 @@ fn system_top_row(simple: bool, swl: bool) -> Vec<&'static str> {
         .map(|(i, l)| if swl && i == 0 { "SWL LOG" } else { *l })
         .collect();
     if swl {
+        // **Mirrored with the top bar's chips**, which is the whole reason this
+        // function exists: the two lists must name the same chips in the same
+        // order or the box is sized for chips that are not there and the strip
+        // overflows (issue #211).
+        //
+        // **LISTEN is deliberately not in this row.** It is built and reachable
+        // from the SCHEDULE window, but a third chip here does not fit: this row
+        // is already at the two-row limit on a 1400 pt window (and already over
+        // it for USB), so adding one pushed AM — the main SWL mode — onto a third
+        // row. Which chip to give up for it is the operator's call, not a
+        // silent edit here. `the_swl_row_has_no_room_for_a_third_chip` measures
+        // it.
         v.insert(0, "SCHEDULE");
     }
     v
@@ -9690,8 +9702,9 @@ mod tests {
         // SWL mode keeps the SPOTS chip (the receive-only networks are a
         // listener's tool) and drops only award tracking, the ham feed being
         // filtered inside the window instead. Its LOG chip is relabelled "SWL
-        // LOG" — it opens the reception log, and the LISTEN chip it replaces is
-        // gone, so there is no second chip for the same window.
+        // LOG" — it opens the reception log, and the band menu's LISTEN *tab* it
+        // replaces is gone, so there is no second chip for that window.
+        //
         assert_eq!(
             system_top_row(false, true),
             vec!["SCHEDULE", "SWL LOG", "SPOTS", "BANDS", "SAT", "ISM", "PUBLIC SDR"]
@@ -9713,6 +9726,50 @@ mod tests {
             system_bottom_row(true, true),
             vec!["SIG ID", "MEM", "SCAN", "HFDL", "GRID", "⚙ SETTINGS", "? HELP"]
         );
+    }
+
+    /// **The SWL row has no room for a third chip — measured, not assumed.**
+    ///
+    /// This was found by trying it: adding LISTEN to the SWL row made the strip
+    /// want **three** rows on a 1400 pt window, where the project holds itself
+    /// to two. AM is the main SWL mode, so that is not a trade worth making
+    /// silently.
+    ///
+    /// It is **not** a pre-existing fault either, and the two states are
+    /// different problems:
+    ///
+    /// - **AM in SWL mode packs in two rows today**, and must keep doing so —
+    ///   this is the line LISTEN would have crossed, and AM is the main SWL mode
+    ///   so it is the one worth protecting.
+    /// - **Every other mode already wants three**, before any of this work —
+    ///   USB, NFM and the rest all overflow at 1400 pt in SWL mode. That is a
+    ///   separate, pre-existing question and deliberately **not** folded in here:
+    ///   quietly widening this test to accept three rows would hide the first
+    ///   one, which is the whole point of measuring rather than assuming.
+    ///
+    /// So the test pins AM alone, and the chip went into the SCHEDULE window
+    /// instead. Which chip the operator would give up for a strip chip is theirs
+    /// to say.
+    #[test]
+    fn the_swl_row_has_no_room_for_a_third_chip() {
+        let (ctx, input) = desktop_ctx();
+        ctx.run_ui(input, |ui| {
+            let gap = 8.0;
+            let avail = 1400.0 - 16.0 - 20.0;
+            for mode in [Mode::Am] {
+                let boxes = cat_rig_strip_boxes(ui, mode, true);
+                let widths: Vec<f32> = boxes.iter().map(|b| b.w).collect();
+                assert_eq!(
+                    rows_needed(avail, gap, &boxes),
+                    2,
+                    "SWL mode with {mode:?} now wants {rows} rows of a {avail} pt pane; \
+                     boxes {widths:?}. The SWL row is full — put a new chip \
+                     somewhere that costs no width, or ask which one to give up",
+                    rows = rows_needed(avail, gap, &boxes),
+                );
+            }
+        })
+        .drop_without_applying_deltas();
     }
 
     /// The LOG chip opens the listener's reception log in SWL mode and the QSO
@@ -10231,7 +10288,7 @@ mod tests {
     /// is the shape the strip first ran out of room on. Widths only; the boxes
     /// that need an app to measure (the frequency readout's side columns) are
     /// priced at their design figures, which is what a desktop gets.
-    fn cat_rig_strip_boxes(ui: &egui::Ui, mode: Mode) -> Vec<StripBox> {
+    fn cat_rig_strip_boxes(ui: &egui::Ui, mode: Mode, swl: bool) -> Vec<StripBox> {
         let fit = ReadoutFit::measure(ui, freq_display::DIGITS);
         let freq_w = 8.0
             + AB_W
@@ -10261,7 +10318,7 @@ mod tests {
         let tx = tx_rows_w_for(ui, mode.allows_voice_keyer(), side);
         let display = chip_row_w(ui, &DISPLAY_VIEW_CHIPS).max(chip_row_w(ui, &DISPLAY_TOOL_CHIPS))
             + 2.0 * crate::chrome::MODULE_MARGIN_X;
-        let system = system_rows_w(ui, false, false);
+        let system = system_rows_w(ui, false, swl);
         vec![
             StripBox { w: freq_w, flex: 0.0, max_w: freq_w },
             StripBox { w: SMETER_W, flex: 3.0, max_w: f32::INFINITY },
@@ -10373,7 +10430,7 @@ mod tests {
             // come off it before the packer sees it.
             let avail = 1400.0 - 16.0 - 20.0;
             for mode in [Mode::Lsb, Mode::Nfm, Mode::Wfm, Mode::Drm] {
-                let boxes = cat_rig_strip_boxes(ui, mode);
+                let boxes = cat_rig_strip_boxes(ui, mode, false);
                 let widths: Vec<f32> = boxes.iter().map(|b| b.w).collect();
                 assert_eq!(
                     rows_needed(avail, gap, &boxes),
@@ -10401,7 +10458,7 @@ mod tests {
             assert_eq!(chips.get(eq.wrapping_sub(1)), Some(&RxChip::Rec), "EQ after REC");
 
             let avail = 1400.0 - 16.0 - 20.0;
-            let mut boxes = cat_rig_strip_boxes(ui, Mode::Am);
+            let mut boxes = cat_rig_strip_boxes(ui, Mode::Am, false);
             let rx = rx_rows(ui, false, false, false, Mode::Am, true).w()
                 + 2.0 * crate::chrome::MODULE_MARGIN_X
                 + 4.0;
@@ -10429,7 +10486,7 @@ mod tests {
     fn the_cessb_rail_costs_the_desktop_strip_no_row() {
         let (ctx, input) = desktop_ctx();
         ctx.run_ui(input, |ui| {
-            let mut boxes = cat_rig_strip_boxes(ui, Mode::Lsb);
+            let mut boxes = cat_rig_strip_boxes(ui, Mode::Lsb, false);
             // The receive box an SDR draws, in place of the CAT rig's.
             let rx = rx_rows(ui, true, true, true, Mode::Lsb, false).w()
                 + 2.0 * crate::chrome::MODULE_MARGIN_X
@@ -10468,7 +10525,7 @@ mod tests {
     fn the_vfo_box_does_not_swallow_a_rows_slack() {
         let (ctx, input) = desktop_ctx();
         ctx.run_ui(input, |ui| {
-            let boxes = cat_rig_strip_boxes(ui, Mode::Lsb);
+            let boxes = cat_rig_strip_boxes(ui, Mode::Lsb, false);
             let plan = plan_top_strip(1364.0, 8.0, &boxes);
             let vfo = plan
                 .rows

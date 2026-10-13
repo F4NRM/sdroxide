@@ -259,6 +259,34 @@ impl SdroxideApp {
                 self.schedule.solar_time = !self.schedule.solar_time;
             }
             ui.separator();
+            // **The way into LISTEN**, and deliberately here rather than as a
+            // chip of its own on the top bar: the SWL row is already at the
+            // two-row limit at 1400 pt, and a third chip pushed AM — the main
+            // SWL mode — onto a third row. SCHEDULE is already in that row and is
+            // the same data, so this costs no width and loses nothing.
+            if crate::chrome::chip(ui, self.show_listen, "MAP")
+                .on_hover_text(
+                    "Open LISTEN — this schedule as a map. Pick a station on it, write \
+                     what you heard, and log it. The selected station comes across",
+                )
+                .clicked()
+            {
+                self.show_listen = !self.show_listen;
+                if self.show_listen
+                    && let Some(s) = sdroxide_types::broadcast::at_dial(
+                        &self.broadcast,
+                        self.state.rx_freq_hz(),
+                        now_unix(),
+                    )
+                {
+                    // Open it with **what is on the dial** already selected, which
+                    // is the station the operator is listening to and the one they
+                    // most often want to write down.
+                    let name = s.name.clone();
+                    self.listen_select(&name);
+                }
+            }
+            ui.separator();
             ui.label(
                 RichText::new(crate::time::utc_and_local_now(now))
                     .monospace()

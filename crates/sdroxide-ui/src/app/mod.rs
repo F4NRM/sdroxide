@@ -37,6 +37,7 @@ pub(in crate::app) mod ignore;
 pub(in crate::app) mod ism;
 pub(in crate::app) mod known_calls;
 pub(in crate::app) mod konami;
+pub(in crate::app) mod listen;
 pub(in crate::app) mod logbook;
 pub(in crate::app) mod morse;
 pub(in crate::app) mod net;
@@ -59,7 +60,6 @@ pub(in crate::app) mod solar;
 pub(in crate::app) mod spectrum;
 pub(in crate::app) mod speech;
 pub(in crate::app) mod spots;
-pub(in crate::app) mod listen;
 mod swl_log;
 pub(in crate::app) mod top_bar;
 /// The update check — native only (a browser has no updater to point at).
@@ -725,6 +725,26 @@ pub struct SdroxideApp {
     /// The reception log window's own state: open, the entry being edited, and
     /// the row the REPORT button acts on.
     pub(in crate::app) show_swl: bool,
+    /// The LISTEN window (`listen.rs`): the schedule on a map with a comment box.
+    pub(in crate::app) show_listen: bool,
+    /// Show logged stations on the LISTEN map as well as what is on now.
+    ///
+    /// **Off by default**, on purpose: an experienced listening station does not
+    /// want its own history cluttering the band it is listening to. Turning it on
+    /// is the screenshot, and the toggle is right there.
+    pub(in crate::app) listen_history: bool,
+    /// The station picked on the LISTEN map or from its list. Held whole rather
+    /// than as an index, so a reload of the schedule cannot leave a stale
+    /// selection behind.
+    pub(in crate::app) listen_sel: Option<sdroxide_types::BroadcastStation>,
+    /// What the operator is typing into the LISTEN comment box.
+    pub(in crate::app) listen_comment: String,
+    /// The LISTEN map's own view.
+    ///
+    /// **Not** the shared `map_view`: `worldmap::show` eases toward a target
+    /// fitted to the stations it was *given*, so two maps sharing one view would
+    /// each pull the other toward its own fit and fight over the zoom.
+    pub(in crate::app) listen_map_view: crate::widgets::worldmap::MapView,
     pub(in crate::app) swl_edit: Option<crate::app::swl_log::SwlEditForm>,
     pub(in crate::app) swl_selected: Option<u64>,
     /// The antenna the listener is using, in their own words, for the
@@ -1876,6 +1896,11 @@ impl SdroxideApp {
             swl_report_note: None,
             swl_report_pick: std::sync::Arc::new(std::sync::Mutex::new(None)),
             show_swl: false,
+            show_listen: false,
+            listen_history: false,
+            listen_sel: None,
+            listen_comment: String::new(),
+            listen_map_view: Default::default(),
             swl_edit: None,
             swl_selected: None,
             swl_antenna: String::new(),

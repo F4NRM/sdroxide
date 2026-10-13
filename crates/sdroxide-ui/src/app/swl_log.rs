@@ -300,6 +300,17 @@ impl SwlEditForm {
         }
     }
 
+    /// Put a note in the form, replacing whatever was there.
+    ///
+    /// A setter rather than a `pub` field because the LISTEN window writes the
+    /// operator's own words into a form it does not own, and this is the one
+    /// place that is allowed to: the note is [`SwlEntry::notes`] and nothing
+    /// else, and it is set **before** the form is opened so the operator can
+    /// still change it.
+    pub(in crate::app) fn set_notes(&mut self, notes: &str) {
+        self.notes = notes.to_string();
+    }
+
     fn to_entry(&self) -> SwlEntry {
         let freq_hz = self.freq_khz.trim().parse::<f64>().ok().map(|k| k * 1e3).unwrap_or(0.0);
         let cl = |v: u8| v.clamp(1, 5);

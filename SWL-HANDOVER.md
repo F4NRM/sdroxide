@@ -452,12 +452,34 @@ needs the pair added:
   against `crates/sdroxide-proto/src/lib.rs` — so this is **no `PROTO_VERSION`
   bump**. An old log file loads unchanged.
 
-### The chip, and the width trap beside it
+### The chip — and why there isn't one
 
-LISTEN opens from the **SWL row** next to SCHEDULE and SWL LOG, in
-`listener_screen()`/`swl_mode()` only. `system_top_row` **mirrors** the top bar's
-labels and the two must agree or the strip overflows — issue **#211**. So adding
-a chip means editing both, and that is the guard.
+**LISTEN does not get a chip on the top bar, and that was measured rather than
+assumed.** It was built with one, and the width guard the project already has for
+exactly this (issue **#211**) refused it:
+
+- The SWL row is **already at the two-row limit** on a 1400 pt window for **AM** —
+  the main SWL mode. Every other mode (USB, NFM, …) **already** wants three rows in
+  SWL mode, before any of this work.
+- A third chip pushed **AM** onto a **third** row.
+
+So the chip was taken out again and **LISTEN opens from the SCHEDULE window**,
+which is already in that row and holds the same data. It costs no width and
+loses nothing: a **MAP** chip beside the clock opens LISTEN with **whatever is on
+the dial already selected** (`broadcast::at_dial`), because that is the station
+the operator is listening to and the one they most often want to write down.
+
+`the_swl_row_has_no_room_for_a_third_chip` pins the AM line. It deliberately
+asserts **AM alone** and not "two rows for every mode", because widening it to
+accept the pre-existing three-row states would hide the thing it measures.
+
+**Which chip the operator would give up for a strip chip is their call**, and it
+is worth asking: `SAT` and `ISM` in that row are ham extras a shortwave listener
+rarely opens, and freeing one would put LISTEN on the bar where it is obvious.
+
+**The naming is worth knowing about:** LISTEN is now also the band menu's
+*Explore the dial* **tab**, which is a different thing in a different place. The
+operator's word won, and both stay.
 
 ### Sequenced after this, not before
 
