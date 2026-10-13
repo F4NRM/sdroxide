@@ -7,32 +7,30 @@
 > Linux (AppImage · `.deb` · tarball) and macOS (`.dmg`) are on the same
 > [Releases page](https://github.com/madmedicnl/sdroxide-brown/releases/latest).
 
-> **This is a fork of [sdroxide](https://github.com/dividebysandwich/sdroxide), and it is a complete copy of it.**
-> Every amateur ("ham") radio feature is here — the whole transceiver, all the
-> digital modes, the logbook, awards, rig control. What the fork changes is its
-> **focus**: it is tuned for two audiences the original does not serve, the
-> **11 m citizens' band (CB)** and the **shortwave listener (SWL)**. CB is a
-> two-way band, not a listening exercise — it is used here to the full, voice
-> and the digital modes, and in most countries the CEPT channels need no
-> licence. Use the fork as a ham radio and you have upstream plus a few
-> conveniences; point it at CB and it is a first-class citizens'-band rig; point
-> it at a listening dongle and it is a listener's receiver. All credit for the
-> original belongs to upstream — when something is not CB/SWL-specific it is
-> upstream's work and is best read there.
+> **A fork of [sdroxide](https://github.com/dividebysandwich/sdroxide), and a
+> complete copy of it.** Every ham feature is here — the whole transceiver, all
+> the digital modes, the logbook, awards, rig control. The fork changes the
+> **focus**: it is tuned for the **11 m citizens' band (CB)** and the
+> **shortwave listener (SWL)**.
 
-sdroxide is a PowerSDR/Thetis-style software-defined-radio client in Rust, with
-pluggable radio backends, an [egui](https://github.com/emilk/egui) GUI and a
-cyberpunk theme. It runs as a **native desktop application** and, from the same
-binary, as a **server that streams the same UI to a web browser** over
-WebSocket. It includes a persistent logbook, many digital modes built in, and
-**TCI and Hamlib rigctld servers** so third-party programs like WSJT-X can use
-it as their radio.
+## The whole station in one program
+
+Most SDR software is a receiver, a radio panel, or a decoder. This is the **whole
+station** — receiver, transmitter, every digital mode, the logbook, and the ADS-B,
+AIS, APRS, HFDL and DAB decoders you would otherwise install five programs for.
+
+**And two things nobody else does.** The **11 m citizens' band is a real two-way
+band**, voice and digital modes with WSJT-CB interoperability, so you can answer a
+CB station in FT8 like any other. And it is **built for listening** — three
+broadcast schedules in one store, a **LISTEN** window that draws the path to a
+station with the share of it **in darkness**, and a reception log that tracks QSL.
+
+Same binary, two jobs: a desktop app, or a server you reach from any browser,
+phone, or a headless Raspberry Pi at a remote site.
 
 ![The main window: radio, receiver, display and system controls across the top, waterfall with its level slider](docs/images/main-ft8-cb.jpg)
 
-*One program, three audiences: a ham transceiver, a full-blooded 11 m CB rig
-(voice *and* the digital modes), and a listener's receiver. Shown here working
-FT8 on 11 m CB.*
+*Voice and the digital modes on 11 m, from one window.*
 
 ## Read the manual first
 

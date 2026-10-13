@@ -6081,6 +6081,27 @@ button on.
 
 ## House rules
 
+- **Say it short. Always — release notes, front page, and anything a user reads.**
+  The operator's standing order, and it has been broken three times by an agent
+  that read the rule further up this file and wrote prose anyway. So it is here,
+  where every session reads it, and it is not negotiable:
+  - **Release notes: one line per change, then stop.** `### Fixed` / `### Added`
+    / `### Changed` / `### Not proven`, a bold lead and a single clause after it.
+    No second sentence, no "why it happened" paragraph, no sub-bullets. The notes
+    sit **above the download assets** — a wall of prose buries the thing the
+    visitor came for. The *why* lives in the commit message, which is where a
+    reader who wants it will look.
+  - **The README front page is an elevator ride.** A short paragraph that says
+    what this is, why *this* one, and who it is for — then stop. Not a feature
+    tour, not a history, not a table of contents; the manual is the table of
+    contents.
+  - **The hierarchy the operator uses for the pitch itself, and for anything
+    else worth selling**: a **long story** for when there is time for a
+    presentation, a **paragraph** lifted from it that still carries the core for
+    an elevator ride, and a **one-line sentence** taken from that paragraph for
+    when there is only a line. Write the long story first and cut down, never the
+    other way — which is how prose gets written when the short form is asked for
+    directly.
 - **A contributor's PR that is sensible and merges cleanly is approved and
   merged without waiting.** In particular **Kevin's PRs (kevin2008-01, from
   Claude sessions) are auto-merged** — see "Pull requests to this fork" for what
