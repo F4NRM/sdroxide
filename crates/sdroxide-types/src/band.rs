@@ -797,7 +797,15 @@ mod tests {
         // text modes are offered there and must not be greyed out under
         // Operate. JTTY was missing from the list and greyed until it was
         // added; this pins the CB-first digital set.
-        for m in [Mode::Ft8, Mode::Msk144, Mode::Jt65, Mode::Fst4, Mode::Fsk441, Mode::UvPacket, Mode::Jtty] {
+        for m in [
+            Mode::Ft8,
+            Mode::Msk144,
+            Mode::Jt65,
+            Mode::Fst4,
+            Mode::Fsk441,
+            Mode::UvPacket,
+            Mode::Jtty,
+        ] {
             assert!(Band::M11.accepts_mode(m), "{m:?} must be offered on 11 m");
         }
         // ...and it is the only band on the bar that is not, so nothing else

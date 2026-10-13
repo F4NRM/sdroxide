@@ -190,7 +190,10 @@ pub fn parse_from(source: ScheduleSource, text: &str) -> Result<Vec<BroadcastSta
     match source {
         ScheduleSource::Eibi => Ok(parse_schedule(text)),
         ScheduleSource::Aoki => Ok(parse_aoki(text)),
-        other => Err(format!("{} schedules are not readable in this build yet", other.label())),
+        // HFCC needs **three** files — the schedule plus two reference tables —
+        // so it cannot go through a one-text seam. `parse_hfcc` takes them
+        // directly, and the download unpacks all three from one package.
+        other => Err(format!("{} needs more than one file to be read", other.label())),
     }
 }
 
@@ -849,6 +852,195 @@ pub fn merge(schedule: Vec<BroadcastStation>) -> Vec<BroadcastStation> {
             .then_with(|| a.name.cmp(&b.name))
     });
     all
+}
+
+/// One HFCC day as ours.
+///
+/// **HFCC counts the week from Sunday** (`1` Sunday … `7` Saturday) and this
+/// project's schedules count from Monday (`1` Monday … `7` Sunday). So HFCC's `1`
+/// is our `7` and the rest shift down by one.
+///
+/// This is the per-source conversion the master store deliberately does **not**
+/// do: doing it here, where the format is known, is the only place it cannot be
+/// applied twice. Getting it wrong moves every HFCC station by a day and nothing
+/// looks broken — and it is the *same* mapping as Aoki's, which is a coincidence
+/// worth not being fooled by: two Japanese-influenced formats agreeing is not a
+/// reason to assume the third one does.
+pub fn hfcc_day_to_ours(d: u32) -> u32 {
+    match d {
+        1 => 7,
+        2..=7 => d - 1,
+        // **Not a day.** The field is fixed-width and a schedule has been seen
+        // carrying a `0` in it, so the mapping is total rather than a subtraction
+        // that panics on the day slot is blank. A `0` is dropped by the caller.
+        _ => d,
+    }
+}
+
+/// HFCC's reference table: `CODE<space>name`, one per line, `;` comments.
+fn hfcc_reference_table(text: &str) -> std::collections::HashMap<String, String> {
+    let mut out = std::collections::HashMap::new();
+    for line in text.lines() {
+        let line = line.trim_end();
+        if line.starts_with(';') || line.trim().is_empty() {
+            continue;
+        }
+        let (code, name) = match line.split_once(char::is_whitespace) {
+            Some((c, n)) => (c.trim(), n.trim()),
+            None => continue,
+        };
+        if code.len() >= 2 && code.chars().all(|c| c.is_ascii_alphanumeric()) && !name.is_empty() {
+            out.entry(code.to_ascii_uppercase()).or_insert_with(|| name.to_string());
+        }
+    }
+    out
+}
+
+/// An HFCC site: name, country and position, keyed by the site code.
+struct HfccSite {
+    name: String,
+    country: String,
+    lat: Option<f64>,
+    lon: Option<f64>,
+}
+
+/// `"17S44"` / `"168E33"` as signed degrees — the site's own compact form.
+fn hfcc_coord(token: &str, what: &str) -> Option<f64> {
+    let t = token.trim();
+    let (digits, sign) = t.split_at(t.len().checked_sub(1)?);
+    let hemi = match sign {
+        "N" | "n" => 1.0,
+        "S" | "s" => -1.0,
+        "E" | "e" => 1.0,
+        "W" | "w" => -1.0,
+        _ => return None,
+    };
+    if hemi < 0.0 && what == "lat" && (digits.len() != 4) {
+        return None;
+    }
+    let (d, m) = match digits.len() {
+        3 => (digits[0..1].parse::<f64>().ok()?, digits[1..3].parse::<f64>().ok()?),
+        4 | 5 => (digits[0..2].parse::<f64>().ok()?, digits[2..].parse::<f64>().ok()?),
+        _ => return None,
+    };
+    Some(hemi * (d + m / 60.0))
+}
+
+/// HFCC's **schedule** plus its two reference tables.
+///
+/// The zip is one package — `a26allx2.zip` holds the schedule and the tables
+/// together — so "the companion file" is not a second download that can go stale
+/// against the first. It is why this source can exist at all: the schedule alone
+/// is a table of `WCR` and `BRC` codes with no names in it.
+///
+/// **Column positions are read from the header line**, never hardcoded. HFCC's
+/// layout has moved between seasons and a schedule that silently parses to zero
+/// rows is the same failure as a wrong URL — quieter, and much easier to ship.
+pub fn parse_hfcc(
+    schedule: &str,
+    broadcasters: &str,
+    sites: &str,
+) -> Result<Vec<BroadcastStation>, String> {
+    let names = hfcc_reference_table(broadcasters);
+    let mut site_map: std::collections::HashMap<String, HfccSite> =
+        std::collections::HashMap::new();
+    for line in sites.lines() {
+        let line = line.trim_end();
+        if line.starts_with(';') || line.trim().is_empty() {
+            continue;
+        }
+        let mut f = line.split_whitespace();
+        let (Some(code), Some(name)) = (f.next(), f.next()) else {
+            continue;
+        };
+        let country = f.next().unwrap_or("").to_string();
+        let (lat, lon) = (
+            f.next().and_then(|t| hfcc_coord(t, "lat")),
+            f.next().and_then(|t| hfcc_coord(t, "lon")),
+        );
+        site_map.insert(
+            code.to_ascii_uppercase(),
+            HfccSite { name: name.to_string(), country, lat, lon },
+        );
+    }
+
+    let raw = schedule
+        .lines()
+        .find(|l| l.starts_with(";FREQ"))
+        .ok_or("HFCC's schedule has no header line")?;
+    // **Drop the `;`.** The header is a comment line, so every offset read off it
+    // would otherwise be one too high — and the symptom is not an error: the
+    // frequency still parses (a row starts with a space), so the file "loads" and
+    // 84% of its stations come back as bare `BRC` codes.
+    let header = &raw[1..];
+    // Offsets from the header's own column names.
+    let at = |name: &str| -> Result<usize, String> {
+        header.find(name).ok_or_else(|| format!("HFCC's header has no {name} column"))
+    };
+    let (f_freq, f_start, f_stop) = (at("FREQ")?, at("STRT")?, at("STOP")?);
+    let (f_loc, f_days, f_lang, f_adm, f_brc) =
+        (at("LOC")?, at("DAYS")?, at("LANGUAGE")?, at("ADM")?, at("BRC")?);
+    // Each field runs to the next column, so a name may be longer than its label.
+    let ends = [f_freq, f_start, f_stop, 0, f_loc, f_days, f_lang, f_adm, f_brc, header.len()];
+    let field = |line: &str, i: usize| -> String {
+        let (a, b) = (ends[i], if i + 1 < ends.len() { ends[i + 1] } else { line.len() });
+        line.get(a..b).unwrap_or("").trim().to_string()
+    };
+
+    let mut out = Vec::new();
+    for line in schedule.lines() {
+        if line.trim().is_empty() || line.starts_with(';') {
+            continue;
+        }
+        let freq: f64 = match field(line, 0).parse() {
+            Ok(f) if f > 0.0 => f,
+            _ => continue,
+        };
+        let brc = field(line, 8).to_ascii_uppercase();
+        let loc = field(line, 4).to_ascii_uppercase();
+        let name = names.get(&brc).cloned().unwrap_or_else(|| brc.clone());
+        let site = site_map.get(&loc);
+        // The broadcaster's own name is what a listener looks for; the site is
+        // where it is transmitted from, and the two are often different.
+        let station = if name == brc {
+            site.map(|s| s.name.clone()).unwrap_or_else(|| brc.clone())
+        } else {
+            name
+        };
+        let days: String = field(line, 5)
+            .chars()
+            .filter_map(|c| c.to_digit(10).filter(|d| (1..=7).contains(d)).map(hfcc_day_to_ours))
+            .map(|d| char::from(b'0' + d as u8))
+            .collect();
+        let hhmm = |i: usize| -> Option<u16> {
+            let t = field(line, i);
+            (t.len() == 4).then(|| t.parse::<u16>().ok()).flatten().filter(|v| *v <= 2359)
+        };
+        let country = field(line, 7);
+        let country = if country.is_empty() {
+            site.map(|s| s.country.clone()).unwrap_or_default()
+        } else {
+            country
+        };
+        out.push(BroadcastStation {
+            name: station,
+            freq_khz: freq,
+            start_utc: hhmm(1),
+            end_utc: hhmm(2),
+            days,
+            site: site.map(|s| s.name.clone()).unwrap_or_default(),
+            country,
+            lang: field(line, 6),
+            lat: site.and_then(|s| s.lat),
+            lon: site.and_then(|s| s.lon),
+            source: ScheduleSource::Hfcc,
+            ..Default::default()
+        });
+    }
+    if out.is_empty() {
+        return Err("HFCC's schedule yielded no rows".into());
+    }
+    Ok(out)
 }
 
 /// **The master store**: every available source in one list, each row tagged with

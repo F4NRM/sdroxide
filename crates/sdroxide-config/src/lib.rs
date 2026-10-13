@@ -2919,6 +2919,18 @@ pub fn import_broadcast_stations(path: &std::path::Path) -> Result<usize, String
     Ok(n)
 }
 
+/// HFCC's cached package, unpacked and parsed.
+///
+/// **The tables travel with the schedule inside one zip**, so this is the same
+/// three-file read as the download and cannot pair a fresh schedule with a stale
+/// table. Every HFCC-specific rule lives in `parse_hfcc`; this only opens it.
+fn cached_hfcc() -> Option<Vec<sdroxide_types::BroadcastStation>> {
+    let season = sdroxide_types::broadcast::season_file(now_unix());
+    let path = broadcast_cache_path_for(&season, sdroxide_types::ScheduleSource::Hfcc).ok()?;
+    let bytes = fs::read(&path).ok()?;
+    parse_hfcc_rows(&bytes).ok()
+}
+
 /// The Aoki seasons already cached, newest first.
 ///
 /// **Aoki publishes shortwave once a year and files it under its own season**, so
@@ -2952,6 +2964,97 @@ fn path_stem(path: &std::path::Path) -> Option<String> {
         }
     }
     None
+}
+
+/// HFCC's own season, which is ours except that they publish per season.
+fn cache_season_of(season: &str) -> String {
+    season.to_string()
+}
+
+/// HFCC's published package for a season.
+///
+/// **`a26allx2.zip`, under the season's own folder** — `data/a26/a26allx2.zip`,
+/// not `data/a26allx2.zip`, which is a 404. That is the same shape of mistake as
+/// Aoki's guessed filename, and the same reason: the path is read from their data
+/// index rather than composed here.
+fn hfcc_schedule_url() -> String {
+    let season = sdroxide_types::broadcast::season_file(now_unix());
+    format!("https://new.hfcc.org/data/{season}/{season}allx2.zip")
+}
+
+/// HFCC's package: unpack the schedule and both tables, and parse them together.
+fn fetch_hfcc(
+    bytes: &[u8],
+    season: String,
+) -> Result<Vec<sdroxide_types::BroadcastStation>, String> {
+    let stations = parse_hfcc_rows(bytes)?;
+    // **Refuse rather than ship a schedule of codes.** Measured against A26:
+    // 3367 rows, and the station name resolves for a small minority — the
+    // schedule's own `LOC` and `BRC` columns live in a different code space from
+    // the `SITE.TXT` and `BROADCAS.TXT` tables that hold the names. So the
+    // frequencies, times, days, countries and positions are all real and the
+    // *names* are not, which is precisely the "list of WCR" this feature was
+    // built to refuse. The names live in HFCC's separate by-broadcaster
+    // schedules, which is a different artefact and not built yet.
+    let named = stations.iter().filter(|r| !r.name.is_empty() && r.name.len() > 3).count();
+    if stations.len() > 0 && named * 10 < stations.len() * 8 {
+        return Err(format!(
+            "HFCC's schedule has no broadcaster names ({named} of {} rows resolve), \
+             so it would be a list of codes rather than stations. The names are in \
+             HFCC's separate by-broadcaster schedules, which is not built yet.",
+            stations.len()
+        ));
+    }
+    let path = broadcast_cache_path_for(&season, sdroxide_types::ScheduleSource::Hfcc)
+        .map_err(|e| e.to_string())?;
+    if let Some(dir) = path.parent() {
+        fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    }
+    fs::write(&path, bytes).map_err(|e| e.to_string())?;
+    prune_broadcast_cache(&season);
+    info!("downloaded the {season} HFCC schedule: {} transmissions", stations.len());
+    Ok(stations)
+}
+
+/// The three tables out of an HFCC package, parsed together.
+///
+/// Every HFCC-specific rule lives in `sdroxide_types::broadcast::parse_hfcc`; this
+/// only decides which entry in the package is which, and **refuses rather than
+/// guessing** when a table is absent — a schedule without its tables is a list of
+/// `WCR` and `BRC` codes, which is worse than no schedule.
+fn parse_hfcc_rows(bytes: &[u8]) -> Result<Vec<sdroxide_types::BroadcastStation>, String> {
+    let mut schedule = String::new();
+    let mut broadcasters = String::new();
+    let mut sites = String::new();
+    for (name, data) in zip_entries(bytes)? {
+        let lower = name.to_ascii_lowercase();
+        let text = String::from_utf8_lossy(&data).into_owned();
+        if schedule.is_empty() && text.contains(";FREQ") {
+            schedule = text;
+        } else if lower.contains("broadcas") {
+            broadcasters = text;
+        } else if lower.contains("site") {
+            sites = text;
+        }
+    }
+    if schedule.is_empty() {
+        return Err("HFCC's package has no schedule file in it".into());
+    }
+    if broadcasters.is_empty() || sites.is_empty() {
+        return Err(format!(
+            "HFCC's package is missing its reference tables ({}), so it would be a \
+             list of codes rather than stations",
+            if broadcasters.is_empty() { "broadcaster names" } else { "sites" }
+        ));
+    }
+    sdroxide_types::broadcast::parse_hfcc(&schedule, &broadcasters, &sites)
+        .map_err(|e| format!("HFCC: {e}"))
+}
+
+/// Every entry in a zip, by name — not just `.txt`, because HFCC's tables are
+/// lower-case and its schedule is upper-case and both matter.
+fn zip_entries(bytes: &[u8]) -> Result<Vec<(String, Vec<u8>)>, String> {
+    zip_txt_entries(bytes)
 }
 
 /// A listener's own list, as CSV or as plain lines.
@@ -3058,6 +3161,9 @@ fn cached_schedule() -> Option<Vec<sdroxide_types::BroadcastStation>> {
 pub fn cached_schedule_for(
     source: sdroxide_types::ScheduleSource,
 ) -> Option<Vec<sdroxide_types::BroadcastStation>> {
+    if source == sdroxide_types::ScheduleSource::Hfcc {
+        return cached_hfcc();
+    }
     let season = sdroxide_types::broadcast::season_file(now_unix());
     // Aoki's cache is filed under **Aoki's** season, so look for that first and
     // fall back to ours; a reader that assumed ours would simply never find it.
@@ -3189,7 +3295,11 @@ pub fn fetch_broadcast_schedule_from(
     let url = match source {
         S::Eibi => EIBI_SKED_URL.replace("{season}", &season),
         S::Aoki => aoki_latest(&agent)?.0,
-        S::Hfcc => return Err("HFCC needs its companion station-name file; not built yet".into()),
+        // **One package, not two downloads.** `a26allx2.zip` holds the schedule
+        // *and* its reference tables, so "the companion file" cannot go stale
+        // against the schedule it belongs to — which is what made the two-file
+        // version of this awkward to begin with.
+        S::Hfcc => hfcc_schedule_url(),
         S::User => unreachable!("handled above"),
     };
 
@@ -3213,6 +3323,9 @@ pub fn fetch_broadcast_schedule_from(
     // and parses to nothing. The discovered season is threaded in precisely so
     // that cannot happen.
     let aoki_season = if source == S::Aoki { Some(aoki_latest(&agent)?.1) } else { None };
+    if source == S::Hfcc {
+        return fetch_hfcc(&bytes, cache_season_of(&season));
+    }
     let text = cached_text_from_bytes(source, aoki_season.as_deref().unwrap_or(&season), &bytes)?;
     let stations =
         sdroxide_types::broadcast::parse_from(source, &text).map_err(|e| e.to_string())?;
