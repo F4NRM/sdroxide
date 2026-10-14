@@ -244,6 +244,20 @@ pub(in crate::app) fn settings_ui_tab(
         });
         ui.end_row();
 
+        ui.label("Spectrum line").on_hover_text(
+            "The colour under the spectrum line: full at the bottom, fading out as it \
+             rises to the line. The line itself stays cyan. The FILL chip in the SPEC \
+             popup switches the same setting.",
+        );
+        ui.horizontal(|ui| {
+            crate::chrome::checkbox(ui, &mut cfg.spectrum_fill, "Fill");
+            ui.add_enabled_ui(cfg.spectrum_fill, |ui| {
+                ui.label("colour");
+                ui.color_edit_button_srgb(&mut cfg.spectrum_fill_color);
+            });
+        });
+        ui.end_row();
+
         ui.label("Spot label colours").on_hover_text(
             "The tint each spot source wears: the boxes along the bottom of the \
              waterfall, the badges in the SPOTS list and the dots on the world map.",

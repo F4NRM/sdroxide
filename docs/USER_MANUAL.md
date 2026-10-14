@@ -1015,6 +1015,9 @@ them all at once.
     waterfall.
   - **PEAK HOLD** — trace the highest level each column has reached over the
     live line, decaying back down.
+  - **FILL** — colour the band under the spectrum line, full at the bottom and
+    fading out as it rises to the line. The colour is set in Settings → UI →
+    **Spectrum line**. Off by default; not drawn on the 3D surface.
   - **3D** — draw the spectrum as a receding surface instead of a flat line,
     with the newest spectrum across the front. See
     [The 3D spectrum](#the-3d-spectrum) below.
@@ -12502,6 +12505,10 @@ spoken announcements below them under `[speech]`:
 - **Spectrum background** — a vertical gradient behind the spectrum line, filled
   from the **top** colour down to the **bottom** colour (default dark red →
   black). Untick **Gradient** for a plain background.
+- **Spectrum line** — tick **Fill** to colour the band under the spectrum line,
+  full at the bottom and fading out at the line, and pick its **colour** (cyan
+  by default). The line itself stays cyan. The **FILL** chip in the SPEC popup
+  switches the same setting.
 - **Spot label colours** — the tint each spot source wears, everywhere it is
   drawn at once: the boxes along the bottom of the waterfall, the badges in the
   SPOTS list and the dots on the world map. Click a swatch to pick a colour;

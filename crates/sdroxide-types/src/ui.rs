@@ -796,6 +796,15 @@ pub struct UiSettings {
     pub gradient_top: [u8; 3],
     /// Gradient colour at the bottom of the spectrum area (sRGB, 0–255).
     pub gradient_bottom: [u8; 3],
+    /// Fill the area under the spectrum trace with a colour that is full at
+    /// the bottom and fades out as it rises to the line. Off by default, so
+    /// the trace stays the bare line it has always been. The SPEC popup's
+    /// FILL chip switches the same flag.
+    #[serde(default)]
+    pub spectrum_fill: bool,
+    /// The colour under the trace (sRGB, 0–255). The line keeps its own cyan.
+    #[serde(default = "default_spectrum_fill_color")]
+    pub spectrum_fill_color: [u8; 3],
     /// The tint each spot kind wears — on the panadapter labels, in the SPOTS
     /// list and on the world map — indexed by [`SpotKind::index`]. Starts at
     /// [`SpotKind::default_color`]; the UI tab retints any of them.
@@ -1068,6 +1077,11 @@ fn default_true() -> bool {
     true
 }
 
+/// The fill under the spectrum trace starts as the line's own cyan.
+fn default_spectrum_fill_color() -> [u8; 3] {
+    [120, 220, 255]
+}
+
 fn default_spot_colors() -> [[u8; 3]; SpotKind::COUNT] {
     let mut out = [[0u8; 3]; SpotKind::COUNT];
     for kind in SpotKind::ALL {
@@ -1214,6 +1228,8 @@ impl Default for UiSettings {
             spectrum_gradient: true,
             gradient_top: [64, 0, 0],   // dark red
             gradient_bottom: [0, 0, 0], // black
+            spectrum_fill: false,
+            spectrum_fill_color: default_spectrum_fill_color(),
             spot_colors: default_spot_colors(),
             bandplan_colors: default_bandplan_colors(),
             layout: LayoutMode::Auto,
@@ -1530,6 +1546,11 @@ pub struct ClientScreen {
     /// Keep the screen on — [`UiSettings::keep_screen_on`]. Appended last
     /// with the field above.
     pub keep_screen_on: bool,
+    /// The colour under the spectrum trace — [`UiSettings::spectrum_fill`]
+    /// and [`UiSettings::spectrum_fill_color`]. Appended last: this struct
+    /// rides the wire positionally.
+    pub spectrum_fill: bool,
+    pub spectrum_fill_color: [u8; 3],
 }
 
 impl Default for ClientScreen {
@@ -1572,6 +1593,8 @@ impl ClientScreen {
             tune_step_round_first: s.tune_step_round_first,
             sound_welcome: s.sound_welcome,
             keep_screen_on: s.keep_screen_on,
+            spectrum_fill: s.spectrum_fill,
+            spectrum_fill_color: s.spectrum_fill_color,
         }
     }
 
@@ -1605,6 +1628,8 @@ impl ClientScreen {
         s.tune_step_round_first = self.tune_step_round_first;
         s.sound_welcome = self.sound_welcome;
         s.keep_screen_on = self.keep_screen_on;
+        s.spectrum_fill = self.spectrum_fill;
+        s.spectrum_fill_color = self.spectrum_fill_color;
     }
 }
 
@@ -1686,6 +1711,31 @@ mod client_screen_tests {
         back.apply_to(&mut other);
         assert!(!other.sound_welcome, "the message stays off on the next device");
         assert!(other.keep_screen_on, "and the screen stays on");
+    }
+
+    /// The fill under the trace is off and cyan until asked otherwise —
+    /// including for a profile stored before it was carried — and the
+    /// operator's colour reaches the next device.
+    #[test]
+    fn the_spectrum_fill_travels_with_the_profile() {
+        let d = ClientScreen::default();
+        assert!(!d.spectrum_fill, "the fill is off by default");
+        assert_eq!(d.spectrum_fill_color, [120, 220, 255], "the fill starts as the line's cyan");
+
+        let old: ClientScreen = serde_json::from_str(r#"{"simple_ui":true}"#).expect("old profile");
+        assert!(!old.spectrum_fill, "a profile from before the field has no fill");
+        assert_eq!(old.spectrum_fill_color, [120, 220, 255]);
+
+        let mut mine = UiSettings::default();
+        mine.spectrum_fill = true;
+        mine.spectrum_fill_color = [40, 220, 60];
+        let carried = ClientScreen::from_settings(&mine);
+        let back: ClientScreen =
+            postcard::from_bytes(&postcard::to_allocvec(&carried).unwrap()).unwrap();
+        let mut other = UiSettings::default();
+        back.apply_to(&mut other);
+        assert!(other.spectrum_fill, "the fill stayed behind");
+        assert_eq!(other.spectrum_fill_color, [40, 220, 60], "the colour stayed behind");
     }
 
     /// Applying a served screen leaves every machine-specific field alone.

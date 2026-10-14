@@ -1819,8 +1819,20 @@ use sdroxide_types::{
 /// `PROTO_VERSION` 207 → 208, `VERSION_BYTE` 0x1B → 0x1C. A downstream (fork)
 /// change, for the listener rather than the amateur: an external decoder, a
 /// recorder or a second machine on the radio's audio.
-pub const PROTO_VERSION: u16 = 208;
-const VERSION_BYTE: u8 = 0x1C;
+///
+/// v209: the colour under the spectrum trace. `ClientScreen` gains
+/// `spectrum_fill: bool` and `spectrum_fill_color: [u8; 3]` at its tail, so
+/// the screen a profile carries changes layout. `PROTO_VERSION` 208 → 209,
+/// `VERSION_BYTE` 0x1C → 0x1D. A downstream (fork) change.
+///
+/// **It was written as 210 and moved back.** That branch took 210 to dodge a
+/// collision with issue #72, which had reserved 209 — but #72 was then solved
+/// without touching the wire at all (the value it needed lives in `session.json`,
+/// which is local), so 209 was never taken and 210 would have been a hole. The
+/// version a branch reserves has to be re-checked when the branch changes shape,
+/// which is the register working rather than failing.
+pub const PROTO_VERSION: u16 = 209;
+const VERSION_BYTE: u8 = 0x1D;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ProtoError {

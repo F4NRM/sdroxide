@@ -583,6 +583,7 @@ impl SdroxideApp {
             palette: s.waterfall_palette,
             smooth: s.waterfall_smooth,
             gradient,
+            fill: s.spectrum_fill.then_some(s.spectrum_fill_color),
             wf_id: u64::from(self.radio_id),
         }
     }
