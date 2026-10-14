@@ -16489,7 +16489,11 @@ impl Engine {
         // that could not go there — a swap to hardware that does not cover this
         // band — has landed somewhere else, and then its own answer is the
         // honest thing to show rather than a dial the radio is not on.
-        if (state.center_hz - self.state.active_freq_hz()).abs() > 1.0 {
+        // 0 Hz is not an answer but a front end that has not heard its dial
+        // yet — an Icom over LAN whose first reply came after the connect
+        // wait. Taken at its word it put both VFOs on 0, clamped them to the
+        // bottom of the range and sent the radio there (#576).
+        if state.center_hz > 0.0 && (state.center_hz - self.state.active_freq_hz()).abs() > 1.0 {
             state.vfo_a_hz = state.center_hz;
             state.vfo_b_hz = state.center_hz;
         }
