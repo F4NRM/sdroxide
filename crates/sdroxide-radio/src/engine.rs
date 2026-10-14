@@ -17053,6 +17053,15 @@ impl Engine {
                 return;
             }
         }
+        // CW: PTT holds the transmitter for the keyer with no carrier of its
+        // own; the voice path would key a steady tune-level carrier (#625).
+        if self.state.rx[0].mode == Mode::Cw
+            && let Some(d) = self.digi.as_mut()
+            && d.set_ptt_hold(on)
+        {
+            self.emit_digi_status();
+            return;
+        }
         self.state.tx.ptt = on;
         self.sync_tx_state();
     }
@@ -18247,7 +18256,8 @@ impl Engine {
         tx.mod_buf.clear();
         let mut burst_done = false;
         if self.state.tx.tune || tx.modulator.is_none() {
-            // Steady carrier at the tune level (also CW until the keyer exists).
+            // Steady carrier at the tune level. A PTT in CW only gets here with
+            // no keyer to hold the over for (see `set_ptt`).
             let level = tune_level;
             tx.mod_buf.resize(TX_AUDIO_BLOCK, Complex32::new(level, 0.0));
             self.mic_fifo.clear();

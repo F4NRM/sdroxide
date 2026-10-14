@@ -2137,8 +2137,11 @@ shorter throw is easier to send a decent fist on.
 **A MIDI key.** The same action can be bound to a MIDI note — the key-down
 note of a keyer or paddle interface — in Settings → Controls
 ([6.4.3](#643-midi-controller)). The note keys while it is on, whatever button
-mode the binding has, and its first press switches **KEY** on by itself. Bind
-the key note, not **PTT**: PTT in CW transmits a steady carrier.
+mode the binding has, and its first press switches **KEY** on by itself. A
+keyer that also sends a PTT note can have it bound to **PTT**: in CW, PTT keys
+the transmitter with no carrier of its own and holds it — no idle hang — while
+the key note sends inside it, and releasing PTT ends the over at once. Without a
+PTT binding the key note keys the over by itself, as above.
 
 - The first press keys the transmitter; there is no need to press **TX**. Between
   elements the transmitter holds the frequency the way **TX** does, and releases

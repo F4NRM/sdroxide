@@ -270,6 +270,8 @@ pub struct CwController {
     keyer_t: f64,
     /// The key state for each sample of the block being rendered.
     keyer_keys: Vec<bool>,
+    /// The operator's PTT is holding the over. See [`Self::set_ptt_hold`].
+    ptt_hold: bool,
     /// Output samples the straight key has been continuously down for, so a
     /// lost key-up can be capped (see [`STRAIGHT_MAX_HOLD_S`]).
     straight_held_samples: usize,
@@ -410,6 +412,7 @@ impl CwController {
             keyer_dah: false,
             keyer_t: 0.0,
             keyer_keys: Vec::new(),
+            ptt_hold: false,
             straight_held_samples: 0,
             tx_watchdog: false,
             last_sent: 0,
@@ -782,14 +785,16 @@ impl DigiEngine for CwController {
             // an element is not a finished over, and the operator still holding
             // the frequency between elements must keep it through the idle
             // hang rather than getting a PTT cycle per character.
-            if !self.straight && self.cfg.send_on_enter && self.over_had_text {
+            if !self.straight && !self.ptt_hold && self.cfg.send_on_enter && self.over_had_text {
                 self.over_had_text = false;
                 self.tx_active = false;
                 self.status_dirty = true;
             }
             self.idle_samples += out.len();
             let idle_s = self.cfg.cw_tx_idle_s.max(0.0);
-            if idle_s == 0.0 || self.idle_samples as f32 > idle_s * OUT_RATE as f32 {
+            if !self.ptt_hold
+                && (idle_s == 0.0 || self.idle_samples as f32 > idle_s * OUT_RATE as f32)
+            {
                 self.tx_active = false;
                 self.status_dirty = true;
             }
@@ -888,6 +893,7 @@ impl DigiEngine for CwController {
         // rebuilds it. Every controller in this crate keys through the same
         // latch, so every one of them clears it here.
         self.keyed = false;
+        self.ptt_hold = false;
         self.tx.clear();
         self.tx48.clear();
         self.tx_buffer.clear();
@@ -1154,6 +1160,30 @@ impl DigiEngine for CwController {
             self.tx.set_held(false);
         }
         self.status_dirty = true;
+    }
+
+    /// The operator's PTT (#625): held, the over stays keyed and silent — no
+    /// idle hang, no end on a sent line — and the key or the keyer sends inside
+    /// it; released, the over ends at once. A rig that keys itself from text
+    /// declines, and plain PTT keys it as before.
+    fn set_ptt_hold(&mut self, on: bool) -> bool {
+        if self.cat.is_some() || (!on && !self.ptt_hold) {
+            return false;
+        }
+        self.ptt_hold = on;
+        if on {
+            if !self.tx_active {
+                self.set_tx_active(true);
+            }
+        } else {
+            if self.straight {
+                self.tx.set_held(false);
+                self.straight_held_samples = 0;
+            }
+            self.tx_active = false;
+        }
+        self.status_dirty = true;
+        true
     }
 
     /// Where the straight key sits this instant, while [`Self::straight`] is
@@ -1605,6 +1635,43 @@ mod tests {
         c.key_down(true);
         c.key_down(false);
         assert!(!c.status().tx_watchdog, "the flag outlived the next press");
+    }
+
+    /// Issue #625: PTT held keys the transmitter with no carrier and outlasts
+    /// the idle hang; the straight key sends inside it; releasing PTT ends the
+    /// over at once.
+    #[test]
+    fn ptt_holds_a_silent_over_that_the_key_sends_inside() {
+        let mut c = CwController::new(cfg(), 48_000.0, None);
+        c.set_straight(true);
+        assert!(c.set_ptt_hold(true));
+        c.poll(SystemTime::now(), 14_030_000.0);
+        assert!(c.tx_burst_active(), "PTT should key the over");
+
+        let mut blk = [0.0f32; 480];
+        let past_hang = (TX_IDLE_S * OUT_RATE as f32 / blk.len() as f32) as usize + 10;
+        for _ in 0..past_hang {
+            assert!(!c.fill_tx_block(&mut blk), "the over ended under a held PTT");
+            assert!(blk.iter().all(|s| s.abs() < 1e-3), "PTT alone put a carrier out");
+        }
+
+        c.key_down(true);
+        let mut peak = 0.0f32;
+        for _ in 0..20 {
+            c.fill_tx_block(&mut blk);
+            peak = blk.iter().fold(peak, |p, s| p.max(s.abs()));
+        }
+        assert!(peak > 0.5, "the key sent nothing inside the PTT");
+        c.key_down(false);
+        for _ in 0..past_hang {
+            assert!(!c.fill_tx_block(&mut blk), "a key-up ended the over under PTT");
+        }
+
+        assert!(c.set_ptt_hold(false));
+        let ended = (0..20).any(|_| c.fill_tx_block(&mut blk));
+        assert!(ended, "releasing PTT did not end the over");
+        // A release with no hold is not this mode's to take.
+        assert!(!c.set_ptt_hold(false));
     }
 
     /// A refused or aborted over lifts the key and leaves the mode engaged: the
