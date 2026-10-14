@@ -23,14 +23,36 @@ and the [README](https://github.com/madmedicnl/sdroxide-brown#readme).
 
 ## [Unreleased]
 
-### Added
-- **The satellite transponder bands on the panadapter's frequency scale** — with a satellite locked, its downlink segments are labelled on the scale and follow Doppler, so a linear transponder reads as "CW here, SSB there" instead of an unexplained slab. Only downlinks, because an uplink is on another band entirely.
-- **A PASSES tab in the satellite window** — every upcoming pass, soonest first, over the next day or two, with a peak-elevation filter so you can ask for the ones worth waking up for. Off by default it searches only the satellites you can work; it fills in over a few frames rather than freezing the window.
+## [2.0.11_brown] - 2026-10-14
 
+Satellite passes and the transponder bands, a schedule you can search by
+frequency, and the received audio out over UDP.
+
+### Added
+- **A PASSES tab in the satellite window** — every upcoming pass, soonest first, over the next day or two, with an elevation filter for the ones worth waking up for.
+- **Satellite transponder bands on the frequency scale** — with a lock running, the downlink segments are labelled and follow Doppler, so a linear transponder reads as "CW here, SSB here" rather than an unexplained slab.
+- **The satellite picker lists only the birds you can work** — an *all satellites* switch, off by default.
+- **Search the schedule by frequency** — `6185`, `6185 kHz` or `6.185` in Find, beside the name search.
+- **The received audio can go out over UDP** — `host:port` on Settings → Radio, mono 16-bit, one datagram per block, for an external decoder, a recorder or a second machine.
 
 ### Changed
-- **SSTV reception is better on weak pictures** — a rewritten demodulator, measured on a swept-SNR harness: mean error 87.2 → 75.6 at 0 dB and 42.4 → 33.7 at 10 dB. Slightly worse above 30 dB (4.3 → 5.5), where both are excellent.
+- **SSTV reception is better on weak pictures** — a rewritten demodulator: mean error 87.2 → 75.6 at 0 dB and 42.4 → 33.7 at 10 dB. Slightly worse above 30 dB (4.3 → 5.5), where both are excellent.
 - **SSTV slant correction** — a skewed picture is straightened rather than smeared.
+- **FT8 streams its decodes and drops the slow pass when a slot is waiting**, so a slow machine loses detail rather than slot timing.
+- **The S-meter calibration reaches ±90 dB**, from ±30, so a front end that does not report its gain can be corrected properly.
+- **CW: a held PTT keeps the transmitter keyed and silent** for the keyer, and a MIDI key note no longer drops it.
+- **RTTY: a view on the tone pair no longer walks the dial**, and a front end that has not heard its dial yet cannot have 0 Hz adopted.
+
+### Fixed
+- **A schedule source that quietly held nothing** — a zip read as text, a season filename guessed, and a column off by one all loaded cleanly and returned the wrong answer.
+
+### Needs feedback
+- **The transponder bands have not been seen on the air** — the arithmetic is tested, that they land on the signals needs a bird overhead. Tell us what you see.
+- **The grey line on a path has only been seen on a path entirely in night** — try one that is partly daylit.
+- **The UDP audio stream has been tested over a socket, not by ear** — if you pipe it into `aplay` or a decoder, tell us whether it sounds right.
+- **The deep FT8 pass now gives up when the next slot is waiting** — on a slow machine, do you lose decodes or only detail?
+- **No Olivia transmission has yet been copied by fldigi or MultiPSK.**
+- **The 1.9.17 phone crash has never been reproduced here.**
 
 ## [2.0.10_brown] - 2026-10-13
 
