@@ -39,6 +39,10 @@ pub(in crate::app) enum SatTab {
 #[derive(Default)]
 pub(in crate::app) struct SatWinState {
     pub search: String,
+    /// Show satellites with no frequencies on file as well as the workable
+    /// ones. Off by default: the catalogue has far more bodies than anyone can
+    /// hear, and a list of them buries the ones that can be worked.
+    pub all: bool,
     /// Satellite whose detail/link pane is open, by catalogue number.
     pub selected: Option<u64>,
     /// Which of the selected satellite's published links is chosen.
@@ -619,6 +623,28 @@ fn in_words(s: i64) -> String {
     }
 }
 
+/// Whether a satellite is worth listing without being asked for.
+///
+/// A body is workable when it has published frequencies — the built-in table or
+/// the operator's own — or when the operator **pasted its elements**, which is
+/// itself a statement that they care about this one. The catalogue runs to tens
+/// of thousands of objects and the overwhelming majority can never be heard, so
+/// this is the difference between a useful picker and a wall of names.
+///
+/// **One function, because both tabs need the answer.** The picker and the
+/// PASSES table previously asked it in two places, which is how one of them ends
+/// up with a rule the other does not have.
+fn satellite_is_workable(
+    cfg: &sdroxide_types::SatConfig,
+    norad_id: u64,
+    tle: Option<&(String, String)>,
+    pasted: &str,
+) -> bool {
+    cfg.freqs_for(norad_id).is_some()
+        || sdroxide_solar::satfreq::builtin_for(norad_id).is_some()
+        || tle.is_some_and(|(l1, _)| pasted.contains(l1.as_str()))
+}
+
 impl SdroxideApp {
     pub(in crate::app) fn sat_window(&mut self, ctx: &egui::Context, cmds: &mut Vec<Command>) {
         if !self.show_sat {
@@ -767,10 +793,8 @@ impl SdroxideApp {
             let e = &list.entries[t.next];
             t.next += 1;
             let Some(sat) = e.sat.as_ref() else { continue };
-            let workable = self.sat_cfg.freqs_for(e.norad_id).is_some()
-                || sdroxide_solar::satfreq::builtin_for(e.norad_id).is_some()
-                || e.tle.as_ref().is_some_and(|(l1, _)| pasted.contains(l1.as_str()));
-            if !t.all && !workable {
+            if !t.all && !satellite_is_workable(&self.sat_cfg, e.norad_id, e.tle.as_ref(), &pasted)
+            {
                 continue;
             }
             let span = f64::from(t.span_h) * 3600.0;
@@ -1065,6 +1089,11 @@ impl SdroxideApp {
             if !win.search.is_empty() && ui.small_button("×").clicked() {
                 win.search.clear();
             }
+            crate::chrome::checkbox(ui, &mut win.all, "all satellites").on_hover_text(
+                "Off: only satellites with frequencies on file — the ones you can work — and \
+                 any you pasted in yourself. On: every satellite the station tracks, which is \
+                 mostly ones nobody can hear.",
+            );
             if qth.is_none() {
                 ui.label(
                     RichText::new("set your grid for passes (Settings ▸ General)")
@@ -1106,11 +1135,24 @@ impl SdroxideApp {
 
         // Displayed rows: what matches, sorted into operating order — up now
         // first (highest first), then whoever rises next.
+        // The same rule the PASSES tab applies, from the same function, so the
+        // two tabs cannot disagree about which satellites exist.
+        let show_all = win.all;
+        let pasted = self.sat_cfg.tle_text();
         let mut rows: Vec<(usize, Option<f64>, i64)> = list
             .entries
             .iter()
             .enumerate()
-            .filter(|(_, e)| e.matches(&win.search))
+            .filter(|(_, e)| {
+                e.matches(&win.search)
+                    && (show_all
+                        || satellite_is_workable(
+                            &self.sat_cfg,
+                            e.norad_id,
+                            e.tle.as_ref(),
+                            &pasted,
+                        ))
+            })
             .map(|(i, e)| {
                 let el = match (&e.sat, qth) {
                     (Some(s), Some((lat, lon))) => {
