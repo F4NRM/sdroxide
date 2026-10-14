@@ -1,12 +1,32 @@
 # TODO — SDR Oxide Brown
 
 What this fork is working on. Kept here so it survives a session and is visible
-to everyone on the repo. Last updated **2026-10-13**.
+to everyone on the repo. Last updated **2026-10-14**.
 
 Upstream issues are the *maintainer's* queue; the items below marked `#NNN` are
 upstream feature requests **this fork** may pick up, not a promise to upstream.
 
-## Done this session (2026-10-13)
+## Done 2026-10-14
+
+- **Search by frequency in SCHEDULE** (`2afdfce8`) — bebepip's ask on #69. `6185`,
+  `6185 kHz` or `6.185` find their transmissions. **A search is forgiving where
+  the import must not be**: with no unit, `153` is longwave *or* 153 MHz, so both
+  readings are tried and the range rule drops the impossible one. A name is never
+  read as a frequency, pinned by a test.
+- **House rules: "Needs feedback", not "Not proven"** (`8fe77c96`). The last
+  heading is a **request**, not a disclaimer — write each line as the ask.
+- **House rules: replies are prose** (`33007361`). From the Kevin meeting: answer
+  to the point, easy on headings and bold, polite and personal. Markdown is for
+  the repository; a reply is a message.
+- **Replied on #69 and #14**; recorded **DiamondRadio** in AGENTS.md (freeware,
+  source private — RadioScript's answer again, and the case is thin for the same
+  board and the same no-I/Q ceiling).
+- **`BT-MIKE-HANDOVER.md`** — the Midland Bluetooth mike. The Bluetooth half is
+  solved (HFP headset, endpoints live); it is blocked on **sdroxide enumerating
+  ALSA while the devices live in PipeWire**. One thing to check before any of it:
+  whether *Your audio → Input* is used for voice transmit at all.
+
+## Done 2026-10-13
 
 - **Upstream take, 4 items, all verified.** Checked all 69 upstream commits; most
   are features we already built ourselves (the reason `git cherry` matches none of
@@ -58,8 +78,8 @@ upstream feature requests **this fork** may pick up, not a promise to upstream.
   **master store** with a per-row source tag and a SCHEDULE **Source filter**;
   your own list imports from CSV/text/JSON. **Aoki 3597 rows, HFCC 3363 rows with
   names, sites and positions — both verified live.** EiBi unchanged. See
-  `SWL-HANDOVER.md`. What is *not* done: nothing on the roadmap — see the
-  remaining notes there.
+  `SWL-HANDOVER.md`. Since then bebepip reported the S-meter bug (below) and asked
+  for frequency search, which is **done** (`2afdfce8`).
 
 ## In progress / parked
 
@@ -80,8 +100,6 @@ upstream feature requests **this fork** may pick up, not a promise to upstream.
   beside the meter jump too, or only the needle? Number → the engine really is
   spiking on mouse motion (a different fault, and a worse one). Needle only → the
   animation. **Do not fix from the symptom** — wait for the answer.
-- **Antenna modelling tool** — parked on branch `fork/antenna-tool` (a validated
-
 - **The grey line on a path — built, and verified by one screenshot only**
   (`88d2bd0c`, `7ed1e7a5`). Each dot on a great-circle path now carries its own
   twilight, drawn with the same ramp the flat map's night shading uses, so a dot
