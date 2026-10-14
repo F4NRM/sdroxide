@@ -63,6 +63,25 @@ upstream feature requests **this fork** may pick up, not a promise to upstream.
 
 ## In progress / parked
 
+- **The S-meter jumps with the mouse while SCHEDULE or LISTEN is docked** —
+  reported by bebepip on #69 (2026-10-14), and **likely a regression from the
+  windows added on 2026-10-13**. *"moving the mouse anywhere within the program
+  window causes the S-meter needle to jump to full scale, tracking the mouse's
+  movement... if the window is undocked from the main window, the issue vanishes."*
+  **What is established:** the needle reads `self.meters`, which is written in
+  **exactly one place** (`frame.rs:2807`, from `RadioEvent::Meters`), so the
+  needle is honest and the question is whether the *value* or the *animation* is at
+  fault. The needle is a per-frame spring at `widgets/smeter.rs:946-966` — semi-
+  implicit Euler, ω=26, ζ=0.75, `dt` clamped to `[0.001, 0.05]`, so ω·dt = 1.3 at
+  the clamp and it **should** be stable; it keeps itself alive with
+  `animate(ui)` → `repaint::after_ms(30)`, which is why a docked window's repaint
+  pattern is the suspect and an undocked one is not.
+  **The one question that splits it, asked on the thread:** does the *number*
+  beside the meter jump too, or only the needle? Number → the engine really is
+  spiking on mouse motion (a different fault, and a worse one). Needle only → the
+  animation. **Do not fix from the symptom** — wait for the answer.
+- **Antenna modelling tool** — parked on branch `fork/antenna-tool` (a validated
+
 - **The grey line on a path — built, and verified by one screenshot only**
   (`88d2bd0c`, `7ed1e7a5`). Each dot on a great-circle path now carries its own
   twilight, drawn with the same ramp the flat map's night shading uses, so a dot
