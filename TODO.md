@@ -53,6 +53,14 @@ upstream feature requests **this fork** may pick up, not a promise to upstream.
 
 ## Now / next session
 
+- **#594 UDP audio out — BUILT, fork-only** (`b0271a88`). `RadioConfig::udp_audio`,
+  `host:port`, streamed from the **recording tap** so the volume, MUTE and
+  transmitting do not affect it; mono 16-bit, one datagram per block.
+  `PROTO_VERSION` 207 → 208. The upstream issue is answered pointing here.
+  **Worth a real check:** stream it to `aplay` on the bench and confirm it is the
+  audio and not a crackle — the format is tested over a real socket, that it
+  *sounds* right is not.
+
 - **#77 SYNOP / SHIP weather decoder** — asked by Kevin (F4NRM) on 2026-10-14: coded
   weather reports broadcast on HF in RTTY, Baudot at 50 baud, every three hours.
   A real decoder with a listener audience, and it fits this fork. **The next
