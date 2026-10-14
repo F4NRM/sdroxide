@@ -11,16 +11,6 @@ everything before 1.9.5) is described in the
 [User Manual](https://github.com/madmedicnl/sdroxide-brown/blob/main/docs/USER_MANUAL.md)
 and the [README](https://github.com/madmedicnl/sdroxide-brown#readme).
 
-## [2.0.9.1_brown] - 2026-10-11
-
-### Added
-- **An offset that has left the window still says so** — the panadapter's cyan
-  tuning cursor and RTTY's amber mark/space lines were drawn only while they
-  were on screen, so a narrow zoom showed a cleanly centred signal and no trace
-  of an offset at all — indistinguishable from a mode that has none. The edge
-  the offset lies beyond now carries `◀ tones 1710 Hz`, with the distance to
-  the nearer edge.
-
 ## [Unreleased]
 
 ## [2.0.12_brown] - 2026-10-15
@@ -75,78 +65,55 @@ frequency, and the received audio out over UDP.
 
 ## [2.0.10_brown] - 2026-10-13
 
-### Added — the schedule store, and a LISTEN window for it
-
-- **Three schedule sources in one store** — EiBi, **Aoki** and **HFCC**, all
-  fetched automatically, each tagged with where it came from and each reporting
-  its own failure so one being unavailable never costs the others.
-- **A Source filter in the SCHEDULE window**, defaulting to *all of them* — the
-  repetition is accepted here, and the panadapter is where it collapses.
-- **The LISTEN window** — what is on this span, where it is coming from, and the
-  share of the path in night. Clicking a station tunes it.
-- **Your own station list can be imported** — CSV, plain text or JSON, with the
-  unit decided by the number.
-- **A Download button per source**, and every source listed whether or not it has
-  been fetched, so "did Aoki download?" has an answer.
-- **The waterfall names only the station you are tuned to**, and shows one name
-  where two sources list the same broadcaster.
-- **The grey line on a path** — every dot lit or dim by its own twilight, so you
-  can see which half of a path is dark.
-
-### Fixed
-- **A schedule source that quietly holds nothing** — a zip read as text, a
-  season's filename guessed rather than asked for, and a column off by one all
-  loaded cleanly and returned the wrong answer. All three are pinned by tests
-  that fail against the old code.
-
-### Not proven
-- **The grey line has been seen on one path only**, one entirely in night. A
-  partly daylit path is the case it exists for and the one to check.
-
-
-### Fixed
-- **The spectrum on a phone** — a phone held upright drew the waterfall alone,
-  with the whole WFALL tab to spare. It now shows the spectrum above the
-  waterfall in every mode, set from the SPEC popup like everywhere else.
-- **DAB remembers what it found** — channels, stations, stars and the chosen
-  station are kept on the server and survive a restart.
-- **DAB "playing" and the level** — the engine never said which station was
-  playing; the panel now shows it.
-- **DAB VU meter no longer pinned at the top** — it reads the station as heard:
-  it follows the volume, and 0 VU is set for loud DAB+ stations (−12 dBFS).
-- **SSTV decodes weak pictures** — a faint picture a phone could copy stayed on
-  "no SSTV header yet". The header and sync pulses are now found by tone energy
-  instead of one noisy frequency reading: header read down to about −3 dB SNR
-  (was +10 dB), lock without a header the same, no false starts on noise.
+The broadcast schedule store and the LISTEN window built on it, the undocked
+window set, and the DAB receiver.
 
 ### Added
-- **DAB receiver panel** — station card, numbered station list with ★ presets
-  first, PREV / ★ / NEXT / PTY / SCAN bar, stereo VU meter (horizontal on a
-  phone), and the station's own slideshow picture on the right.
-- **DAB station text and programme type** — the DLS line and the PTY, from the
-  signal.
-- **DAB scan** — progress bar; keeps only channels that carry stations and
-  remembers those stations as it goes. × clears one channel or one station.
-- **The DAB VU meter is the volume** — drag or click along it (sideways on a
-  phone), the wheel, or the arrow keys once clicked. It still works on a screen
-  locked with the padlock, so the sound can come down without unlocking. It
-  moves quicker; the peak keeps its hold.
-- **"Channel received 8D 201.072"** in the DAB channel picker.
-- **S-Meter calib** — Settings → Radio, under "Antenna is": −5 to +5 S-units
-  per radio, 0 by default. Moves only the reading (needle, S and dBm, a
-  report's level, the spoken meter); squelch and recording are untouched.
+- **Three broadcast schedules in one store** — EiBi, Aoki and HFCC, each tagged with where it came from, fetched automatically, each reporting its own failure so one being unavailable never costs the others.
+- **A Source filter in the SCHEDULE window**, and an **import for your own station list**.
+- **The LISTEN window** — what is on this span, where it is from, how much of the path is in night. Clicking a station tunes it.
+- **The waterfall names only the station you are tuned to**, and names a shared carrier once.
+- **The grey line on a path** — every dot lit or dim by its own twilight.
+- **DAB / DAB+** — station list, DLS text, programme type, scan, ★ presets and a VU meter that is the volume.
+- **Undocked mode** — any tool window in its own OS window, with **workspaces** and **Ctrl+W**.
+- **The SDRuno-shaped window set** — a band keypad, MAIN SP's toolbar, AUX SP, a WINDOWS menu and a CONTROL console.
+- **FLATTEN** — levels the waterfall's noise floor across the band.
+- **Play a recording back into the decoders** — REC → RECORDINGS.
+- **Ctrl+C copies the tooltip on screen**, and **CLEAR** deletes a recording.
+- **S-Meter calib** per radio, **receive EQ (LOUDNESS)**, and an **antenna rotator**.
+- **The Calm theme**, and the digital modes as a real dropdown.
+
+### Fixed
+- **RTTY, NAVTEX and DSC were anchored 2210 Hz off the station** on an SDR.
+- **SSTV decodes weak pictures**, and on 60 m, and with CTR on.
+- **Pluto: the S-meter followed the radio's own gain.**
+- **RDS: a medium WFM station showed NO SYNC and decoded nothing.**
+- **Playback sound chopped**, and **stereo recordings played back in mono**.
+- **Windows builds** — the vendored faad2 patch matches its anchor.
+- **eQSL accounts with more than one QTH profile work.**
+- **A schedule source that quietly held nothing** — a zip read as text, a season filename guessed, and a column off by one all loaded cleanly and returned the wrong answer.
 
 ### Changed
-- **Auto mode on a PlutoSDR can run longer** — Settings → Radio → Auto mode is a
-  list on a Pluto: 20 / 30 / 45 / 60 / 120 / 240 / 360 min, or **DISABLE** for
-  no inactivity stop. Other radios keep the 45-minute cap.
+- **Settings are stored on the server, not in the browser.**
+- **CTR and step-snap are on by default.**
+- **DAB / DAB+: 2.5 Msps is the reference.**
+- **SSTV can be decoded on any frequency** (KEEP DIAL).
 
-### Not proven
-- The DAB slideshow, DLS, PTY and level are unit-tested, not yet seen on the
-  air. Station logos (SPI) come in a later release; until then the card shows
-  the station's initials.
-- The weak-SSTV fix is measured on synthetic noise, not yet on an off-air
-  recording.
+### Needs feedback
+- **The grey line has only been seen on a path entirely in night** — try one that is partly daylit.
+- **DAB** was confirmed decoding cleanly on a Pluto at 2.5 Msps; other front ends are untried.
+- **No Olivia transmission has yet been copied by fldigi or MultiPSK.**
+- **The 1.9.17 phone crash has never been reproduced here.**
+
+## [2.0.9.1_brown] - 2026-10-11
+
+### Added
+- **An offset that has left the window still says so** — the panadapter's cyan
+  tuning cursor and RTTY's amber mark/space lines were drawn only while they
+  were on screen, so a narrow zoom showed a cleanly centred signal and no trace
+  of an offset at all — indistinguishable from a mode that has none. The edge
+  the offset lies beyond now carries `◀ tones 1710 Hz`, with the distance to
+  the nearer edge.
 
 ## [2.0.8_brown] - 2026-10-11
 
