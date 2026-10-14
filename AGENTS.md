@@ -4633,7 +4633,7 @@ wind.
   thing being built, that would be the day to stop.
 
 **Nothing here changes the standing rules further up**: never re-cut a tag, a
-release notes entry is `Fixed` / `Added` / `Changed` / **`Not proven`**, and a
+release notes entry is `Fixed` / `Added` / `Changed` / **`Needs feedback`**, and a
 release day is still `cargo check --workspace --all-targets` **silent** plus
 `cargo test --release --workspace` before the tag is cut.
 
@@ -4735,11 +4735,15 @@ before you get to assets."* On GitHub the notes sit **above** the download
 assets, so a wall of prose buries the thing a visitor came for: a heading and a
 list of one-line bullets, then stop. The 1.9.20 and 1.9.21 entries were written
 as thematic prose instead — that style came in with those two and is not this
-changelog's, so it read as a revert. And the last heading is **`Not proven`,
-never `Not fixed`**: everything in a build has passed its tests or it would not
-be in the build, so *"not fixed"* asserts a breakage that is usually not there. A
-feature that is present, tested and simply untried on the air is **not proven**;
-a bug that was reported and never reproduced here is **not proven** too. The
+changelog's, so it read as a revert. And the last heading is **`Needs feedback`** — renamed from `Not proven` on
+2026-10-13 at the operator's word, and the reason is the whole point: *"the not
+proven does bother me, what we actually want is feedback.. so why not ask for it"*.
+`Not proven` is a **disclaimer**; `Needs feedback` is a **request**, and this fork
+runs on field reports from people with hardware we do not have. Write each line as
+the thing to try and the thing to send back — *"only ever seen on a path entirely
+in night; try one that is partly daylit"* — not as a caveat. Never
+`Not fixed`: everything in a build has passed its tests or it would not be in the
+build, so *"not fixed"* asserts a breakage that is usually not there. A
 operator's framing, and it is the right one: *"we are not shipping something
 knowingly broken."*
 
@@ -6086,7 +6090,7 @@ button on.
   that read the rule further up this file and wrote prose anyway. So it is here,
   where every session reads it, and it is not negotiable:
   - **Release notes: one line per change, then stop.** `### Fixed` / `### Added`
-    / `### Changed` / `### Not proven`, a bold lead and a single clause after it.
+    / `### Changed` / `### Needs feedback`, a bold lead and a single clause after it.
     No second sentence, no "why it happened" paragraph, no sub-bullets. The notes
     sit **above the download assets** — a wall of prose buries the thing the
     visitor came for. The *why* lives in the commit message, which is where a
