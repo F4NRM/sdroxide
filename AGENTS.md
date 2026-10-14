@@ -6106,6 +6106,16 @@ button on.
     when there is only a line. Write the long story first and cut down, never the
     other way — which is how prose gets written when the short form is asked for
     directly.
+- **Write comments and replies the way a person would — the operator asked for
+  this twice, and the second time was in a meeting with Kevin (2026-10-14), where
+  both of them said they liked having an agent do the work.** So it is here rather
+  than in a thread: **answer to the point, do not over-explain, and go easy on
+  headings and bold.** A reply to a user is a message from a person, not a
+  document — no `##`, no bulleted essays, no `**bold**` on every other phrase.
+  Polite, personal, and short. This is the same failure as the release notes: the
+  rule was written down somewhere and still got broken, so it lives where a
+  session starts. Markdown is for the *repository* — commit messages, the manual,
+  this file. A reply in an issue, a discussion or a chat is prose.
 - **A contributor's PR that is sensible and merges cleanly is approved and
   merged without waiting.** In particular **Kevin's PRs (kevin2008-01, from
   Claude sessions) are auto-merged** — see "Pull requests to this fork" for what
