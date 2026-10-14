@@ -20,6 +20,16 @@ pub fn take_load_alerts() -> Vec<String> {
     std::mem::take(&mut *LOAD_ALERTS.lock().unwrap_or_else(std::sync::PoisonError::into_inner))
 }
 
+/// Tell the operator something at startup that is **not** a configuration reset,
+/// through the same queue, because the place it surfaces is the same notice.
+///
+/// Used for the start frequency the hardware could not reach and the fallback
+/// that replaced it (#72): the operator must be told their radio opened
+/// somewhere else, or the dial reads a frequency they never chose.
+pub fn note_startup(msg: String) {
+    push_load_alert(msg);
+}
+
 fn push_load_alert(msg: String) {
     LOAD_ALERTS.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push(msg);
 }
