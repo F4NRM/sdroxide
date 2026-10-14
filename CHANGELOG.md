@@ -24,6 +24,7 @@ and the [README](https://github.com/madmedicnl/sdroxide-brown#readme).
 ## [Unreleased]
 
 ### Added
+- **The satellite transponder bands on the panadapter's frequency scale** — with a satellite locked, its downlink segments are labelled on the scale and follow Doppler, so a linear transponder reads as "CW here, SSB there" instead of an unexplained slab. Only downlinks, because an uplink is on another band entirely.
 - **A PASSES tab in the satellite window** — every upcoming pass, soonest first, over the next day or two, with a peak-elevation filter so you can ask for the ones worth waking up for. Off by default it searches only the satellites you can work; it fills in over a few frames rather than freezing the window.
 
 

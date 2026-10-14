@@ -534,7 +534,7 @@ A special shout-out to the **[Dutch CB Group](https://www.dutchcbgroup.nl/)** an
 are, and the reason the 11 m side of this fork exists at all. Thanks for the
 channels, the logs and the company.
 
-**Thank you to [Kevin](https://github.com/kevin2008-01) (F6KIM / Roy)** for the
+**Thank you to [Kevin](https://github.com/kevin2008-01) (F4NRM)** for the
 testing that made this fork measurably better, and for being blunt about it.
 Three stations of his own — a PlutoSDR, a HackRF and an RTL-SDR on one Debian
 box behind Caddy, reached from a phone as an installed PWA and from a desktop
@@ -551,6 +551,14 @@ Testing a radio program on three radios at once is not a thing anyone does by
 accident, and doing it as a favour rather than as a job is worth more than the
 fixes it produced. If you have a station, a list, and the patience: the reports
 are what this fork is built on.
+
+Several of the satellite tools were **inspired by
+[SkyRoof](https://github.com/VE3NEA/SkyRoof)** by Alex Shovkoplyas, VE3NEA — the
+pass scheduler and the transponder bands on the panadapter's frequency scale came
+from reading what it does. **SkyRoof is AGPL-3.0 and this fork is GPL-3.0, so none
+of its code is used**: the ideas are theirs and the implementation here is ours,
+written against our own satellite and Doppler code. Thank you for showing what the
+shape should be.
 
 Several of the listener's propagation tools were adapted from
 **[OpenHamClock](https://github.com/accius/openhamclock)** (MIT): the
