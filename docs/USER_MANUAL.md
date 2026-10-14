@@ -2369,8 +2369,14 @@ lock on, and every voice and digital mode works through it with Doppler
 corrected continuously. The button glows green while a lock is running, because
 the correction keeps being applied whether or not the window is open.
 
-The window has two tabs. **SATELLITES** is the picker and the live lock
-described below. **QO-100** is the beacon calibration
+The window has three tabs. **SATELLITES** is the picker and the live lock
+described below. **PASSES** lists every pass over the next **24 h** or **48 h**,
+soonest first, from every satellite with frequencies on file (tick **all
+satellites** for the whole list, which takes longer to search): when it rises
+in UTC and local time, how long until then, how long it lasts, how high it
+peaks, and which way it rises and sets. **PEAK ≥** hides the low ones — 10° by
+default. Click a row to pick that satellite on the SATELLITES tab, with its
+pass diagram and links. **QO-100** is the beacon calibration
 ([2.22](#222-qo-100-beacon-plugin)) — a geostationary bird needs no
 Doppler, but it does need its LNB offset measured, and that is the whole of
 working it. Either tab carries a dot while its own work is running, and the
