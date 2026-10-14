@@ -978,3 +978,138 @@ ISS (ZARYA)
         assert_eq!(back, cfg);
     }
 }
+
+/// One labelled span to draw on the panadapter's frequency scale.
+///
+/// Her*z*, unlike [`Passband`]'s megahertz: this is what gets drawn against a
+/// panadapter axis, and the axis is hertz. The conversion happens once, here,
+/// rather than at the drawing site where a stray factor of a million would be a
+/// label in the wrong place rather than a type error.
+#[derive(Clone, Debug, PartialEq)]
+pub struct SatBand {
+    /// The link's own label — "V/U linear transponder", "CW beacon".
+    pub label: String,
+    pub lo_hz: f64,
+    pub hi_hz: f64,
+    /// A single frequency rather than a passband, so the drawing can decide
+    /// between a line and a box without re-deriving it from the edges.
+    pub is_point: bool,
+}
+
+/// The **downlink** bands of a satellite, shifted by the correction in force,
+/// ready to draw against the panadapter.
+///
+/// **The shift is the whole point, and the direction is easy to get backwards.**
+/// The panadapter's axis is the receiver's dial, and a locked satellite has the
+/// dial moved *off* the published frequency by the correction — so a band drawn
+/// at its published place sits the correction away from the signal it is meant to
+/// name, which is exactly the fault the feature exists to prevent. Drawn at
+/// `published + doppler_rx_hz`, the band lands where the signal is.
+///
+/// Uplinks are deliberately not drawn: they are not on this axis. A transponder's
+/// uplink is on another band entirely, and showing it here would put a label on
+/// a frequency the receiver is not listening to.
+pub fn sat_bands(freqs: &SatFreqs, doppler_rx_hz: f64) -> Vec<SatBand> {
+    let mut out = Vec::new();
+    for link in freqs.usable_links() {
+        let Some(down) = link.downlink else { continue };
+        let shift = doppler_rx_hz / 1e6; // hz -> the MHz the table is written in
+        let lo = (down.lo_mhz + shift) * 1e6;
+        let hi = (down.hi_mhz + shift) * 1e6;
+        let (lo, hi) = if lo <= hi { (lo, hi) } else { (hi, lo) };
+        // A table entry with no frequency in it, or a nonsensical one, is not a
+        // band. `usable_links` asks whether a *direction* exists, which is a
+        // different question from whether there is a frequency to draw.
+        if hi <= 0.0 {
+            continue;
+        }
+        out.push(SatBand {
+            label: if link.label.is_empty() { link.mode.clone() } else { link.label.clone() },
+            lo_hz: lo,
+            hi_hz: hi,
+            is_point: down.is_point(),
+        });
+    }
+    out
+}
+
+#[cfg(test)]
+mod sat_bands_tests {
+    use super::{Passband, SatFreqs, SatLink, sat_bands};
+
+    fn bird(links: Vec<SatLink>) -> SatFreqs {
+        SatFreqs::new(43_013, "Test Bird", links)
+    }
+
+    /// **The band lands on the signal, not on the published frequency.** A locked
+    /// satellite has the dial moved off the published place by the correction, so
+    /// drawing at the published number puts the label the correction away from
+    /// what it names — the fault this feature exists to prevent.
+    #[test]
+    fn a_band_moves_with_the_correction() {
+        let f = bird(vec![SatLink::down("FM voice", "FM", Passband::range(145.800, 145.810))]);
+        let still = sat_bands(&f, 0.0);
+        assert_eq!(still.len(), 1);
+        assert!((still[0].lo_hz - 145_800_000.0).abs() < 1.0);
+        assert!((still[0].hi_hz - 145_810_000.0).abs() < 1.0);
+
+        // Two kilohertz of correction moves the band by two kilohertz, both
+        // edges together — a passband is translated, it does not stretch.
+        let moved = sat_bands(&f, 2_000.0);
+        assert!((moved[0].lo_hz - 145_802_000.0).abs() < 1.0, "{:?}", moved[0]);
+        assert!((moved[0].hi_hz - 145_812_000.0).abs() < 1.0, "{:?}", moved[0]);
+        assert!(
+            (moved[0].hi_hz - moved[0].lo_hz) - (still[0].hi_hz - still[0].lo_hz) < 1.0,
+            "the width is the transponder's, not the correction's"
+        );
+
+        // And the other way, because a sign error here is the whole bug.
+        let receding = sat_bands(&f, -2_000.0);
+        assert!((receding[0].lo_hz - 145_798_000.0).abs() < 1.0, "{:?}", receding[0]);
+    }
+
+    /// A beacon is a point, a transponder is a span, and the drawing needs to
+    /// know which without inferring it from two numbers that happen to be equal.
+    #[test]
+    fn a_beacon_is_a_point_and_a_transponder_is_a_span() {
+        let f = bird(vec![
+            SatLink::down("CW beacon", "CW", Passband::at(145.800)),
+            SatLink::down("Linear transponder", "SSB/CW", Passband::range(145.900, 145.950)),
+        ]);
+        let bands = sat_bands(&f, 0.0);
+        assert_eq!(bands.len(), 2);
+        assert!(bands[0].is_point, "a beacon is one frequency");
+        assert!(!bands[1].is_point, "a transponder is a passband");
+        assert_eq!(bands[0].label, "CW beacon");
+    }
+
+    /// **Uplinks are not on this axis.** A transponder's uplink is on another band
+    /// entirely; drawing it here would label a frequency the receiver is not
+    /// listening to, which is worse than not drawing it at all.
+    #[test]
+    fn uplinks_are_not_drawn() {
+        let f = bird(vec![SatLink {
+            label: "V/U".into(),
+            mode: "SSB/CW".into(),
+            uplink: Some(Passband::range(145.200, 145.250)),
+            downlink: None,
+            note: String::new(),
+            inverting: false,
+        }]);
+        assert!(sat_bands(&f, 0.0).is_empty(), "an uplink-only link has nothing to draw here");
+    }
+
+    /// A link with neither direction is not a link, and one with a reversed
+    /// passband in the table must still come out ordered so the drawing never
+    /// gets a negative width.
+    #[test]
+    fn an_empty_link_is_skipped_and_the_edges_are_ordered() {
+        let f = bird(vec![
+            SatLink::down("empty", "", Passband::at(0.0)),
+            SatLink::down("backwards", "FM", Passband::range(145.900, 145.800)),
+        ]);
+        let bands = sat_bands(&f, 0.0);
+        assert_eq!(bands.len(), 1, "a 0 MHz link is not usable");
+        assert!(bands[0].lo_hz < bands[0].hi_hz, "the edges are ordered for drawing");
+    }
+}

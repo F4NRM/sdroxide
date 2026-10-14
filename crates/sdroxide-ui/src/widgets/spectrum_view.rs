@@ -1374,6 +1374,11 @@ pub fn show_ext(
     // waterfall is only part of the height. Keeps the bandplan strip from
     // eating what little of it is left — see `bandplan::overlay`.
     panel_below: bool,
+    // A locked satellite's **downlink** transponder bands, already shifted by
+    // the correction in force — `sdroxide_types::satcfg::sat_bands` does the
+    // shifting, because the direction of it is the whole feature and it is the
+    // kind of thing to get backwards exactly once. Empty when nothing is locked.
+    sat_bands: &[sdroxide_types::SatBand],
     cmds: &mut Vec<Command>,
 ) {
     let cursor_hz = cursor.map(|c| c.hz);
@@ -2331,7 +2336,7 @@ pub fn show_ext(
             painter.add(Shape::line(pts, Stroke::new(1.0, Color32::from_rgb(120, 220, 255))));
         }
     }
-    draw_scale(&painter, view, &scale_rect);
+    draw_scale(&painter, view, &scale_rect, sat_bands);
 
     // Resize grip: a short centred handle in the scale strip, brightening when
     // hovered/dragged, so the divider is discoverable.
@@ -3330,7 +3335,12 @@ fn draw_grid(painter: &egui::Painter, view: &ViewState, rect: &Rect) {
     }
 }
 
-fn draw_scale(painter: &egui::Painter, view: &ViewState, rect: &Rect) {
+fn draw_scale(
+    painter: &egui::Painter,
+    view: &ViewState,
+    rect: &Rect,
+    sat_bands: &[sdroxide_types::SatBand],
+) {
     painter.rect_filled(*rect, 0.0, Color32::from_gray(20));
     let step = freq_grid_step_for_width(view.view_lo_hz, view.view_hi_hz, rect.width());
     // Unlabelled ticks between the labelled ones, the way the full-band strip
@@ -3359,6 +3369,63 @@ fn draw_scale(painter: &egui::Painter, view: &ViewState, rect: &Rect) {
             FontId::monospace(10.0 * crate::theme::panadapter_font_scale()),
             crate::theme::scope_gray(190),
         );
+    }
+    draw_sat_bands(painter, view, rect, sat_bands);
+}
+
+/// A locked satellite's transponder bands along the top of the scale.
+///
+/// **The scale is where a listener reads "what is that"**, and without this a
+/// linear transponder is an unexplained slab: the passband is visible but
+/// nothing says where the CW segment ends and the SSB begins, which is the one
+/// thing an operator needs before calling. The bands are drawn over the scale
+/// rather than on the waterfall because the waterfall is where the signal is and
+/// the scale is where the meaning is; putting a label over the picture hides the
+/// thing it labels.
+///
+/// A band whose span has run off the visible window is **dropped, not clamped**.
+/// A two-pixel stub at the edge would claim the transponder is that narrow.
+fn draw_sat_bands(
+    painter: &egui::Painter,
+    view: &ViewState,
+    rect: &Rect,
+    bands: &[sdroxide_types::SatBand],
+) {
+    let ink = crate::theme::CYAN();
+    let y = rect.top();
+    for b in bands {
+        if b.hi_hz < view.view_lo_hz || b.lo_hz > view.view_hi_hz {
+            continue;
+        }
+        let x0 = view.freq_to_x(b.lo_hz, rect);
+        let x1 = view.freq_to_x(b.hi_hz, rect);
+        if b.is_point {
+            // A beacon is one frequency: a mark, not a width.
+            painter.vline(x0, egui::Rangef::new(y, y + 7.0), Stroke::new(2.0, ink));
+        } else {
+            painter.hline(
+                egui::Rangef::new(x0.max(rect.left()), x1.min(rect.right())),
+                y + 2.0,
+                Stroke::new(2.0, ink),
+            );
+            // End caps, so a passband reads as bounded rather than fading out.
+            for x in [x0, x1] {
+                if rect.x_range().contains(x) {
+                    painter.vline(x, egui::Rangef::new(y, y + 5.0), Stroke::new(1.5, ink));
+                }
+            }
+        }
+        // The label only when there is room for it, so adjacent segments do not
+        // overprint into a smear.
+        if x1 - x0 > 34.0 {
+            painter.text(
+                pos2(((x0 + x1) / 2.0).clamp(rect.left() + 17.0, rect.right() - 17.0), y - 1.0),
+                Align2::CENTER_BOTTOM,
+                &b.label,
+                FontId::proportional(9.0 * crate::theme::panadapter_font_scale()),
+                ink,
+            );
+        }
     }
 }
 

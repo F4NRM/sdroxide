@@ -1801,6 +1801,20 @@ impl SdroxideApp {
                     .layout(egui::Layout::top_down(egui::Align::Min)),
             );
             spec_ui.shrink_clip_rect(spec_area);
+            // A locked satellite's transponder bands, for the frequency scale.
+            // The operator's own frequency table wins over the built-in one —
+            // the same rule the SAT window and the 3D pass view apply, so the
+            // labels cannot disagree with the pane that lists them.
+            let sat_bands: Vec<sdroxide_types::SatBand> =
+                self.sat_track
+                    .as_ref()
+                    .and_then(|t| {
+                        let freqs = self.sat_cfg.freqs_for(t.norad_id).cloned().or_else(|| {
+                            sdroxide_solar::satfreq::builtin_for(t.norad_id).cloned()
+                        })?;
+                        Some(sdroxide_types::sat_bands(&freqs, t.doppler_rx_hz))
+                    })
+                    .unwrap_or_default();
             spectrum_view::show_ext(
                 &mut spec_ui,
                 &mut self.view,
@@ -1826,6 +1840,7 @@ impl SdroxideApp {
                 pan,
                 wf_tuning,
                 panel_below,
+                &sat_bands,
                 cmds,
             );
             // The ATS Mini tunes by stepping its own band cycle, so the dial can

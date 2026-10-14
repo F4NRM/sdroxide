@@ -299,8 +299,9 @@ pub use rifp::{
 pub use rigctld::RigctldConfig;
 pub use rotator::{RotatorAuthority, RotatorConfig, RotatorTransport};
 pub use satcfg::{
-    CELESTRAK_GROUPS, CelestrakGroup, CustomTle, OrbitRings, Passband, SatConfig, SatFreqs,
-    SatLink, TleSubStatus, TleSubscription, fmt_mhz as fmt_sat_mhz, parse_tle_block,
+    CELESTRAK_GROUPS, CelestrakGroup, CustomTle, OrbitRings, Passband, SatBand, SatConfig,
+    SatFreqs, SatLink, TleSubStatus, TleSubscription, fmt_mhz as fmt_sat_mhz, parse_tle_block,
+    sat_bands,
 };
 pub use satlock::{
     C_KM_S, SatLockConfig, SatPass, SatTrackStatus, SatUplink, doppler_rx_hz, doppler_tx_hz,
