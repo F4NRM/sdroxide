@@ -23,8 +23,24 @@ and the [README](https://github.com/madmedicnl/sdroxide-brown#readme).
 
 ## [Unreleased]
 
+## [2.0.12_brown] - 2026-10-15
+
+A start frequency the radio cannot reach now falls back to one it can, and the
+spectrum trace can be filled.
+
+### Fixed
+- **A start frequency the tuner cannot reach no longer stops the radio opening** — it retries at the last frequency this radio actually tuned, and says which two frequencies were involved. An I.F. offset saved as a start frequency made an RTL-SDR unstartable until the number was corrected by hand, every time (issue #72).
+
 ### Added
-- **A coloured fill under the spectrum line** — full at the bottom, fading to the line; **FILL** in the SPEC popup, colour in Settings → UI → Spectrum line. Off by default.
+- **A coloured fill under the spectrum trace**, fading to the line, with the colour in the screen a profile carries (Kevin, #78).
+
+### Needs feedback
+- **The fallback has not been seen on the hardware that reported it** — the decision is tested, that the RTL-SDR then starts needs a stick that was doing this. Tell us what you get.
+- **The transponder bands have not been seen on the air** — the arithmetic is tested, that they land on the signals needs a bird overhead.
+- **The grey line on a path has only been seen on a path entirely in night** — try one that is partly daylit.
+- **The UDP audio stream has been tested over a socket, not by ear** — if you pipe it into `aplay` or a decoder, tell us whether it sounds right.
+- **No Olivia transmission has yet been copied by fldigi or MultiPSK.**
+- **The 1.9.17 phone crash has never been reproduced here.**
 
 ## [2.0.11_brown] - 2026-10-14
 
