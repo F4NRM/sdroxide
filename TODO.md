@@ -53,6 +53,14 @@ upstream feature requests **this fork** may pick up, not a promise to upstream.
 
 ## Now / next session
 
+- **#77 SYNOP / SHIP weather decoder** — asked by Kevin (F4NRM) on 2026-10-14: coded
+  weather reports broadcast on HF in RTTY, Baudot at 50 baud, every three hours.
+  A real decoder with a listener audience, and it fits this fork. **The next
+  project** — the operator wants the satellite side in a release first.
+- **#75 the satellite picker lists the whole catalogue** — drdatapi, 2026-10-14.
+  **BUILT** (`04032baf`): an **all satellites** checkbox, off by default, sharing
+  one `satellite_is_workable` test with the PASSES tab so the two cannot drift.
+
 - **Check our open upstream PRs for maintainer replies** — answer only where he
   asked something. Current: **#648** (eQSL QTH nickname), **#660** (UTC + local
   clock), **#661** (output-audio routing), **#663** (HFDL custom frequency chips).
