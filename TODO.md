@@ -6,6 +6,31 @@ to everyone on the repo. Last updated **2026-10-13**.
 Upstream issues are the *maintainer's* queue; the items below marked `#NNN` are
 upstream feature requests **this fork** may pick up, not a promise to upstream.
 
+## Done this session (2026-10-13)
+
+- **Upstream take, 4 items, all verified.** Checked all 69 upstream commits; most
+  are features we already built ourselves (the reason `git cherry` matches none of
+  them). Taken:
+  - **SSTV decoder, whole series** (`3a4442f4`) — a **drop-in**, not a merge: the
+    workspace compiled unchanged and upstream had already caught up with the
+    fork's Wraase/PD/SC-2/FSK-ID work. Measured on their own SNR harness: error
+    87.2→75.6 at 0 dB, 42.4→33.7 at 10 dB, **slightly worse above 30 dB**
+    (4.3→5.5) — the trade is stated in the commit.
+  - **FT8 #667** (`4ba137bb`) — stream decodes as found, skip the slow pass when a
+    slot is waiting. A merge: our `DecodeJob` enum and `set_cb_wide` kept, their
+    streaming and accumulated drain taken.
+  - **CW #625** (`2cabad8b`) — PTT holds the transmitter for the keyer. Additive
+    conflicts, both sides kept.
+  - **RTTY #576** (`46a42f0b`) — applied **clean**, so it is complementary to our
+    own anchor fix (`c26b7b82`), not overlapping. The open question from the last
+    survey is answered.
+  - Gate: **5762 passed, 0 failed**.
+- **Still open upstream, lower value, not taken:** `4fdcce19` AIS LO offset,
+  `065249bf` HFDL USB-not-FM (we carry both lanes), `763a961f` globe ring height +
+  map non-finite recovery, `edfb0343` tab-strip wrap (we chose scroll).
+- **CHANGELOG 2.0.10 entry is still long** — 3 scripted compression attempts, each
+  reverted by its own guard. A hand edit, and it needs a fresh session.
+
 ## Now / next session
 
 - **Check our open upstream PRs for maintainer replies** — answer only where he
