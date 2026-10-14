@@ -254,7 +254,7 @@ impl SdroxideApp {
                 ui,
                 egui::TextEdit::singleline(&mut self.schedule.query)
                     .desired_width(150.0)
-                    .hint_text("BBC, Ascension…"),
+                    .hint_text("BBC, 6185, 15.4 MHz…"),
             );
             ui.label("Language");
             crate::chrome::field(

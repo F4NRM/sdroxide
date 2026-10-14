@@ -527,10 +527,23 @@ impl BroadcastStation {
     /// in place instead.
     pub fn matches_query(&self, q: &str) -> bool {
         let q = q.trim();
-        q.is_empty()
-            || [&self.name, &self.site, &self.country, &self.lang, &self.target]
-                .iter()
-                .any(|f| contains_ascii_ci(f, q))
+        if q.is_empty() {
+            return true;
+        }
+        // **A frequency is a query too** (asked for by the listener who keeps the
+        // schedule): typing `6185` or `6.185` finds the transmissions there, the
+        // same way a name does. Matched by magnitude — at or above 1000 is kHz,
+        // below it is MHz — which is the rule the import already uses, so one
+        // number means one thing wherever it is typed.
+        if query_frequencies_khz(q)
+            .iter()
+            .any(|khz| (self.freq_khz - khz).abs() <= FREQ_QUERY_TOLERANCE_KHZ)
+        {
+            return true;
+        }
+        [&self.name, &self.site, &self.country, &self.lang, &self.target]
+            .iter()
+            .any(|f| contains_ascii_ci(f, q))
     }
 
     /// Whether this transmission is scheduled at `unix` (seconds since epoch).
@@ -698,6 +711,57 @@ pub const METRE_BANDS: &[(&str, f64, f64)] = &[
 
 /// Case-insensitive substring test that allocates nothing.
 ///
+/// How close a typed frequency has to be to a row's own, in kHz.
+///
+/// A kilohertz either side: broadcast carriers are published to the kilohertz,
+/// and somebody typing MHz may round (`6.18` for 6185). Wide enough to be
+/// forgiving, narrow enough that it cannot swallow the neighbouring channel,
+/// which on the 49 m band is 5 kHz away.
+pub const FREQ_QUERY_TOLERANCE_KHZ: f64 = 1.0;
+
+/// Every kHz reading a typed frequency could mean — usually one, sometimes two.
+///
+/// **A search box is forgiving, unlike the import.** With no unit written,
+/// `153` is genuinely ambiguous: it is a real longwave frequency *in kHz* and it
+/// also reads as 153 MHz. The import has to pick one because it is writing data;
+/// a search only has to not miss, so it tries both and lets the range rule drop
+/// whichever is impossible. Anything carrying a unit is exact.
+fn query_frequencies_khz(q: &str) -> Vec<f64> {
+    let t = q.trim();
+    let without = |suffixes: [&str; 3]| {
+        suffixes.iter().find_map(|s| t.strip_suffix(s)).map(|d| (d.trim(), true))
+    };
+    let (body, mhz) = match without(["kHz", "khz", "KHz"]) {
+        Some((d, _)) => (d, false),
+        None => match without(["MHz", "mhz", "Mhz"]) {
+            Some((d, _)) => (d, true),
+            None => (t, false),
+        },
+    };
+    let Ok(v) = body.parse::<f64>() else {
+        return Vec::new();
+    };
+    if !v.is_finite() || v <= 0.0 {
+        return Vec::new();
+    }
+    let plausible = |k: f64| (3.0..=130_000.0).contains(&k);
+    let mut out = Vec::new();
+    if mhz {
+        if plausible(v * 1000.0) {
+            out.push(v * 1000.0);
+        }
+    } else {
+        // As kHz, and as MHz: only one of the two is ever in range.
+        if plausible(v) {
+            out.push(v);
+        }
+        if plausible(v * 1000.0) {
+            out.push(v * 1000.0);
+        }
+    }
+    out
+}
+
 /// [`str::to_ascii_lowercase`] would, and the schedule filters run over
 /// thousands of rows a frame; this walks the bytes instead.
 pub fn contains_ascii_ci(haystack: &str, needle: &str) -> bool {
@@ -2313,6 +2377,67 @@ fn resolve_country_code(code: &str) -> String {
         return String::new();
     }
     codes().countries.get(c).cloned().unwrap_or_else(|| c.to_string())
+}
+
+#[cfg(test)]
+mod freq_query_tests {
+    use super::{BroadcastStation, parse_aoki, query_frequencies_khz};
+
+    /// **A frequency and a name are both queries.** The listener who keeps the
+    /// schedule asked for the first: *"add the ability to search by frequency"*.
+    #[test]
+    fn a_typed_frequency_finds_its_transmission() {
+        let rows = parse_aoki(include_str!("aoki-fixture.txt"));
+        let row = rows.first().expect("the fixture has stations");
+        let khz = row.freq_khz;
+        // Exact, as kHz and as a decimal MHz.
+        assert!(row.matches_query(&format!("{khz}")));
+        assert!(row.matches_query(&format!("{:.3}", khz / 1000.0)));
+        // And a name still works — the frequency path must not have replaced it.
+        assert!(row.matches_query(&row.name[..4]));
+        assert!(!row.matches_query("nothinglikeit"));
+    }
+
+    /// The unit is decided by the number, the same rule the import uses, so one
+    /// number means one thing wherever it is typed.
+    #[test]
+    fn a_unit_makes_it_exact_and_a_bare_number_tries_both() {
+        assert_eq!(query_frequencies_khz("15400 kHz"), vec![15_400.0]);
+        assert_eq!(query_frequencies_khz("6.185 MHz"), vec![6_185.0]);
+        // Bare numbers are read both ways, and the range rule drops the
+        // impossible one: 15400 is kHz, 153 is longwave in kHz.
+        assert_eq!(query_frequencies_khz("15400"), vec![15_400.0]);
+        assert_eq!(query_frequencies_khz("153"), vec![153.0]);
+        // 6.185 is genuinely two readings — 6.185 MHz and 6.185 kHz — and both
+        // are in range, so both are offered. That is the point of a search
+        // being forgiving: it must not miss, and it cannot write bad data.
+        assert_eq!(query_frequencies_khz("6.185"), vec![6.185, 6_185.0]);
+        assert!(query_frequencies_khz("6.185").contains(&6_185.0));
+    }
+
+    /// **A name must never be read as a frequency.** This is the trap: `BBC`
+    /// could otherwise be coerced into something numeric, and a search box that
+    /// silently looks up a number when you typed a station is worse than one
+    /// that finds nothing.
+    #[test]
+    fn a_name_is_not_a_frequency() {
+        assert!(query_frequencies_khz("BBC").is_empty());
+        assert!(query_frequencies_khz("Radio Prague").is_empty());
+        assert!(query_frequencies_khz("15400abc").is_empty());
+        assert!(query_frequencies_khz("").is_empty());
+        assert!(query_frequencies_khz("0").is_empty());
+        assert!(query_frequencies_khz("-5000").is_empty());
+    }
+
+    /// One kilohertz either side, so a rounded MHz still lands — and the
+    /// neighbouring channel, 5 kHz away on 49 m, does not.
+    #[test]
+    fn the_tolerance_is_a_kilohertz_either_side() {
+        let row = BroadcastStation { name: "T".into(), freq_khz: 6_185.0, ..Default::default() };
+        assert!(row.matches_query("6185"));
+        assert!(row.matches_query("6185.9"));
+        assert!(!row.matches_query("6188"), "3 kHz up is another channel here");
+    }
 }
 
 #[cfg(test)]
