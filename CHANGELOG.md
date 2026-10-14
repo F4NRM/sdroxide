@@ -23,6 +23,9 @@ and the [README](https://github.com/madmedicnl/sdroxide-brown#readme).
 
 ## [Unreleased]
 
+### Added
+- **A coloured fill under the spectrum line** — full at the bottom, fading to the line; **FILL** in the SPEC popup, colour in Settings → UI → Spectrum line. Off by default.
+
 ## [2.0.11_brown] - 2026-10-14
 
 Satellite passes and the transponder bands, a schedule you can search by

@@ -1819,8 +1819,13 @@ use sdroxide_types::{
 /// `PROTO_VERSION` 207 → 208, `VERSION_BYTE` 0x1B → 0x1C. A downstream (fork)
 /// change, for the listener rather than the amateur: an external decoder, a
 /// recorder or a second machine on the radio's audio.
-pub const PROTO_VERSION: u16 = 208;
-const VERSION_BYTE: u8 = 0x1C;
+///
+/// v209: the colour under the spectrum trace. `ClientScreen` gains
+/// `spectrum_fill: bool` and `spectrum_fill_color: [u8; 3]` at its tail, so
+/// the screen a profile carries changes layout. `PROTO_VERSION` 208 → 209,
+/// `VERSION_BYTE` 0x1C → 0x1D. A downstream (fork) change.
+pub const PROTO_VERSION: u16 = 209;
+const VERSION_BYTE: u8 = 0x1D;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ProtoError {

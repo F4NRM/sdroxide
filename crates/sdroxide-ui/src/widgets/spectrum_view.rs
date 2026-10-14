@@ -486,6 +486,9 @@ pub struct WfTuning {
     /// Optional vertical gradient `(top, bottom)` filling the spectrum area,
     /// `None` when disabled in the UI settings.
     pub gradient: Option<(Color32, Color32)>,
+    /// The colour under the live trace — full at the bottom, fading out at
+    /// the line — or `None` when the fill is off.
+    pub fill: Option<[u8; 3]>,
     /// Which radio's GPU waterfall history this panadapter scrolls. Radios are
     /// keyed apart so two tabs never write into each other's texture.
     pub wf_id: u64,
@@ -2316,6 +2319,19 @@ pub fn show_ext(
         } else {
             surface.clear();
             draw_grid(&painter, view, &spec_rect);
+            // The live trace's points, taken first so the fill can go under
+            // both lines: the peak hold stays a line over it.
+            let key = trace_key(f, smooth.generation, view, &spec_rect, wf.row_scale);
+            let pts = trace.live.points_for(key, || {
+                compute_trace(view, f, Some(&smooth.bins), &spec_rect, wf.row_scale)
+            });
+            if let Some(rgb) = wf.fill {
+                painter.add(Shape::mesh(crate::spectrum_fill::fill_mesh(
+                    &pts,
+                    spec_rect.bottom(),
+                    rgb,
+                )));
+            }
             if view.peak_hold {
                 peaks.update(f);
                 let key = trace_key(f, peaks.generation, view, &spec_rect, wf.row_scale);
@@ -2329,10 +2345,6 @@ pub fn show_ext(
             } else {
                 peaks.clear();
             }
-            let key = trace_key(f, smooth.generation, view, &spec_rect, wf.row_scale);
-            let pts = trace.live.points_for(key, || {
-                compute_trace(view, f, Some(&smooth.bins), &spec_rect, wf.row_scale)
-            });
             painter.add(Shape::line(pts, Stroke::new(1.0, Color32::from_rgb(120, 220, 255))));
         }
     }

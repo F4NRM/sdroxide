@@ -4,8 +4,7 @@
 //! The fill goes through the *real* `spectrum_fill::fill_mesh`, rasterised
 //! here triangle by triangle with its own vertex colours, over the panadapter's
 //! default background gradient and under the cyan line. Panels, top to bottom:
-//! no fill (today), solid, gradient — in the default cyan, then solid and
-//! gradient again in green.
+//! no fill, the fill in its default cyan, the fill in green.
 //!
 //! ```sh
 //! cargo run -p sdroxide-ui --release --example spectrum_fill_probe
@@ -18,7 +17,7 @@
 use eframe::egui::epaint::Mesh;
 use eframe::egui::{Color32, Pos2};
 use image::{Rgb, RgbImage};
-use sdroxide_ui::spectrum_fill::{FillStyle, fill_mesh};
+use sdroxide_ui::spectrum_fill::fill_mesh;
 
 const W: u32 = 1000;
 const H: u32 = 200;
@@ -141,19 +140,13 @@ fn draw_line(img: &mut RgbImage, y0: u32, pts: &[Pos2]) {
 
 fn main() {
     let pts = trace();
-    let panels: [Option<([u8; 3], FillStyle)>; 5] = [
-        None,
-        Some((CYAN, FillStyle::Solid)),
-        Some((CYAN, FillStyle::Gradient)),
-        Some((GREEN, FillStyle::Solid)),
-        Some((GREEN, FillStyle::Gradient)),
-    ];
+    let panels: [Option<[u8; 3]>; 3] = [None, Some(CYAN), Some(GREEN)];
     let mut img = RgbImage::from_pixel(W, panels.len() as u32 * (H + GAP), Rgb([40, 40, 40]));
     for (i, panel) in panels.iter().enumerate() {
         let y0 = i as u32 * (H + GAP);
         background(&mut img, y0);
-        if let Some((rgb, style)) = panel {
-            draw_mesh(&mut img, y0, &fill_mesh(&pts, H as f32, *rgb, *style));
+        if let Some(rgb) = panel {
+            draw_mesh(&mut img, y0, &fill_mesh(&pts, H as f32, *rgb));
         }
         draw_line(&mut img, y0, &pts);
     }
