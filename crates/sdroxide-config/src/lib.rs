@@ -1498,6 +1498,21 @@ pub struct Session {
     /// existed, in which case `#[serde(default)]` on the struct gives the
     /// plain simplex, no-tone setting every start used to have.
     pub repeater: sdroxide_types::RepeaterState,
+
+    /// The last centre frequency this radio actually **tuned**, in Hz; `0.0` for
+    /// none, which is what every `session.json` written before this loads as.
+    ///
+    /// **A start frequency the hardware cannot reach means the radio never
+    /// opens** (#72): the reported case is an I.F. offset saved as a frequency,
+    /// so an RTL-SDR was asked for 6 GHz, refused, and the operator had to
+    /// correct the number by hand *every* time before anything worked.
+    ///
+    /// It lives here rather than in `radio.json` because this is where the dial
+    /// itself is remembered — the start frequency *is* `freq_hz` above, so the
+    /// value it falls back to belongs beside it. Not on the wire, so no
+    /// `PROTO_VERSION` change.
+    #[serde(default)]
+    pub last_good_vfo_hz: f64,
     /// Whether a recording mixes RX/TX down to one channel instead of putting
     /// RX left and TX right. A preference the operator sets once and expects to
     /// still hold next time, not something the engine moves on its own — but it
@@ -1578,6 +1593,9 @@ impl Default for Session {
         let radio = sdroxide_types::RadioState::default();
         Session {
             freq_hz,
+            // Nothing tuned yet on a first run; the fallback only ever fires
+            // once this front end has opened somewhere.
+            last_good_vfo_hz: 0.0,
             // No second dial of its own until one has been used: B mirrors A.
             vfo_b_hz: None,
             active_vfo: sdroxide_types::Vfo::A,
@@ -3890,6 +3908,7 @@ mod tests {
     fn session_roundtrips_via_json() {
         let s = Session {
             freq_hz: 7_074_000.0,
+            last_good_vfo_hz: 7_074_000.0,
             vfo_b_hz: Some(7_090_000.0),
             active_vfo: sdroxide_types::Vfo::B,
             mode: sdroxide_types::Mode::Ft8,

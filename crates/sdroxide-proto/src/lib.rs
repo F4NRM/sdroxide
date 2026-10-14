@@ -1819,12 +1819,8 @@ use sdroxide_types::{
 /// `PROTO_VERSION` 207 → 208, `VERSION_BYTE` 0x1B → 0x1C. A downstream (fork)
 /// change, for the listener rather than the amateur: an external decoder, a
 /// recorder or a second machine on the radio's audio.
-/// v209: the last centre a radio actually tuned. `RadioConfig` gains
-/// `last_good_vfo_hz: f64` at its tail, so a start frequency the hardware
-/// cannot reach can fall back to one it can (#72). `PROTO_VERSION` 208 → 209,
-/// `VERSION_BYTE` 0x1C → 0x1D. A downstream (fork) change.
-pub const PROTO_VERSION: u16 = 209;
-const VERSION_BYTE: u8 = 0x1D;
+pub const PROTO_VERSION: u16 = 208;
+const VERSION_BYTE: u8 = 0x1C;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ProtoError {

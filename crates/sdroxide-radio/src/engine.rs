@@ -15844,6 +15844,11 @@ impl Engine {
             // would otherwise put 1 on disk and lose it for good.
             decimation: self.want_decimation,
             repeater: self.state.repeater,
+            // Where this front end last actually tuned, which is where a start
+            // frequency it cannot reach will fall back to (#72). Written from
+            // the live value so it is always somewhere the hardware has really
+            // been rather than somewhere it was asked to go.
+            last_good_vfo_hz: self.good_vfo_hz,
             // What the operator asked for rather than what the device currently
             // reports, for the antennas' reason again: a front end with no gain
             // to set — a CAT rig, a file — must not erase the stages a real
