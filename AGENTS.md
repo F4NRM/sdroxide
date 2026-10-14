@@ -5580,6 +5580,48 @@ lawyer's question, not an agent's.** And the operator's own ruling
 (2026-10-11) is the operative one, and it is unconditional: **we stay quiet on
 this one, we are not messing with patents in any way.**
 
+### Why the ecosystem having it does not change the answer (checked 2026-10-14)
+
+The operator's fair challenge: *"there is a ton of software out there that offers
+it."* True — and looking at **how** they offer it is what settles it, because almost
+every one of them avoids the exact position this fork is in.
+
+- **DSDcc / SDRangel (f4exb)** is the honest engineering answer, and it is in their
+  own README: *"While DSDcc is intended to be patent-free, `mbelib` that it uses
+  describes functions that may be covered by one or more U.S. patents owned by DVSI
+  Inc... **Compiling or using `mbelib` may infringe on patents rights in your
+  jurisdiction and/or require licensing.** It is unknown if DVSI will sell licenses
+  for software that uses `mbelib`."* **And it ships without it** — `mbelib` is a
+  compile-time opt-in (`-DUSE_MBELIB=ON`), so the *distributed binary* carries no
+  codec and can feed a **ThumbDV dongle** instead. The project ships the frames; the
+  user opts into the patent.
+- **The dongle route** is DVSI's own licensed silicon (ThumbDV / AMBE-3000, via
+  `serialDV`). Clean by construction, because you are buying the licence.
+- **mbelib and DSD's authors are anonymous** and identify by cryptographic public
+  key — Bruce Perens' *"AMBE Exposed!"* says why in as many words: *"because those
+  folks do not wish to tangle with DVSI and its attorneys."* Perens also dates the
+  patent — **8,359,197B2, filed 2003-04-01, granted 2013-01-22, extended, expiring
+  ~22 May 2028** — and concludes: *"The only problem is patents."*
+- **DSDPlus is closed and paid.** That is the other way out.
+
+**So the pattern is: ship no codec, use licensed hardware, or stay anonymous.** This
+fork is a public project with public releases and a named maintainer, which is
+precisely the position all three are avoiding. The popularity of DMR software is
+evidence about tolerance, not about permission.
+
+**What would technically be clean, if it were ever wanted:** the **air interface is
+patent-free** and is the bulk of the work — C4FM demodulation, the DMR data link,
+call signalling — ordinary DSP of the same shape as the VDL2 and HFDL lanes. A
+receive-only "frames and talkgroups, no voice" mode, with the codec left to a dongle
+or a build-time opt-in, is the DSDcc posture and is defensible. It is also a poor
+feature for this fork's users by itself, since the point of DMR to a listener is the
+voice. **And the priority rule has not moved**: DMR is VHF/UHF commercial two-way
+with no 11 m or SWL audience, and this fork takes the CB/listening choice when the
+two compete.
+
+**Still the operator's call, and still not reopened by an agent.** The above is the
+ground the next person who asks deserves rather than a re-assertion.
+
 ### How much work it would have been, for the record
 
 Worth keeping because "it is a big project" was true of the wrong layer. The
