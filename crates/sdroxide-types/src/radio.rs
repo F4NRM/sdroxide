@@ -7688,9 +7688,17 @@ pub struct RadioConfig {
 }
 
 /// The lowest S-meter calibration offered, in S-units.
-pub const SMETER_CAL_MIN: i8 = -5;
-/// The highest S-meter calibration offered, in S-units.
-pub const SMETER_CAL_MAX: i8 = 5;
+///
+/// **±15 S-units, and the width is the point.** It began at ±5, which is fine for
+/// a meter that reads a little high and useless for one whose front end does not
+/// report its gain at all: the operator of an RTL-SDR whose noise floor sits
+/// S9+10 had to wind a ±30 dB range to its stop and was still 30 dB short, and
+/// said so — *"seems like brown needs goes more wide range"*. ±90 dB covers a
+/// front end reporting nothing and one reporting wrongly, which is what the
+/// range is for.
+pub const SMETER_CAL_MIN: i8 = -15;
+/// The highest S-meter calibration offered, in S-units. See [`SMETER_CAL_MIN`].
+pub const SMETER_CAL_MAX: i8 = 15;
 /// One S-unit, in dB — the IARU step the meter is drawn in.
 pub const DB_PER_S_UNIT: f32 = 6.0;
 
@@ -9189,8 +9197,12 @@ mod tests {
         let cal = |steps| RadioConfig { smeter_cal: steps, ..Default::default() }.smeter_cal_db();
         assert_eq!(cal(-2), -12.0);
         assert_eq!(cal(5), 30.0);
-        assert_eq!(cal(-5), -30.0);
-        assert_eq!(cal(40), 30.0, "a hand-edited file cannot go past +5");
-        assert_eq!(cal(-40), -30.0, "nor past -5");
+        // The narrow range was the reported fault: an RTL-SDR whose front end
+        // reports no gain needs -60 dB, which -5 S-units could not reach.
+        assert_eq!(cal(-10), -60.0, "the correction that was out of reach");
+        assert_eq!(cal(-15), -90.0);
+        assert_eq!(cal(15), 90.0);
+        assert_eq!(cal(40), 90.0, "a hand-edited file cannot go past +15");
+        assert_eq!(cal(-40), -90.0, "nor past -15");
     }
 }

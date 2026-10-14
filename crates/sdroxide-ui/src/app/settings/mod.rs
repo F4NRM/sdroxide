@@ -4831,14 +4831,16 @@ fn settings_cw_usb(ui: &mut egui::Ui, _io: &mut SettingsIo) {
 
 /// The label one S-meter calibration step is offered under.
 fn smeter_cal_label(steps: i8) -> String {
-    match steps {
-        0 => "0 (as measured)".to_string(),
-        s if s > 0 => format!("+{s} S"),
-        s => format!("{s} S"),
+    if steps == 0 {
+        return "0 (as measured)".to_string();
     }
+    // Both units, because operators arrive with different ones: the picker
+    // offers S-units and a reporter comparing against another program quotes dB.
+    let db = i32::from(steps) * sdroxide_types::DB_PER_S_UNIT as i32;
+    format!("{steps:+} S  ({db:+} dB)")
 }
 
-/// The S-Meter calib picker on Settings → Radio: `-5..=+5` S-units, written
+/// The S-Meter calib picker on Settings → Radio: `-15..=+15` S-units, written
 /// straight into the radio's configuration, which is saved and takes effect
 /// at once.
 fn smeter_cal_combo(ui: &mut egui::Ui, cal: &mut i8) {
@@ -4852,10 +4854,13 @@ fn smeter_cal_combo(ui: &mut egui::Ui, cal: &mut i8) {
         })
         .response
         .on_hover_text(
-            "Corrects this radio's S-meter when it reads too high or too low, in \
-             S-units of 6 dB.\n\nA negative value lowers the reading — for a meter \
-             that shows too much, a noise floor at S5 where it should be S2. A \
-             positive value raises it. 0 is the meter as measured.\n\nOnly the \
+            "Corrects this radio's S-meter when it reads too high or too low. \
+             S-units of 6 dB, from -15 to +15 — a span of \u{b1}90 dB, which is \
+             enough for a front end that does not report its gain at all as well \
+             as one that reads a little high.\n\nA negative value lowers the \
+             reading — for a meter that shows too much, a noise floor at S5 where \
+             it should be S2. A positive value raises it. 0 is the meter as \
+             measured.\n\nOnly the \
              reading moves: the needle, the S and dBm figures, the level a \
              reception report starts from, and the spoken S-meter. The signal, \
              the squelch, recording and the decoders are not touched.\n\nSaved \
