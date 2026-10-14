@@ -25,7 +25,8 @@ CAT control; rotator control.
 
 We already do a lot of it — checked before treating any of this as new work:
 
-- **Pass prediction — covered** (`#623`). `sdroxide-solar/src/satellites.rs`'s
+- **Pass prediction — covered** (`#623`), and the **pass scheduler is BUILT**
+  (`4dee2184`, the PASSES tab). `sdroxide-solar/src/satellites.rs`'s
   `Satellite::next_passes`, and the SAT window keeps a pass memo and draws the
   pass curves (`sat.rs`: `PassCurve`, `SatPass`, the `pass` memo).
 - **Doppler + transponder uplink — covered, largely** (`#651`).
@@ -39,10 +40,14 @@ We already do a lot of it — checked before treating any of this as new work:
 
 ## SkyRoof-only ideas worth considering (fit this fork)
 
-- **Doppler-corrected panadapter** — satellite names and transponder-segment
-  boundaries drawn on the frequency scale, so the whole passband is labelled and
-  the segments follow Doppler. Our panadapter corrects the DDC but does not
-  label the picture. A visual feature, no wire change.
+- ~~**Doppler-corrected panadapter**~~ — **BUILT 2026-10-14** (`fac88c05`).
+  `sdroxide_types::satcfg::sat_bands` shifts each **downlink** by the correction
+  in force and `spectrum_view::draw_sat_bands` draws them on the scale, labelled
+  where there is room. Four tests pin the arithmetic, including the sign in both
+  directions — drawing at the *published* frequency puts the label exactly as far
+  from the signal as the correction, which is the fault the feature exists to
+  prevent. Only downlinks: an uplink is on another band entirely. The operator's
+  own frequency table wins over the built-in one, as the SAT window does.
 - **Satellite telemetry decoders** (FSK/AFSK/GFSK/GMSK/BPSK) with SatNOGS
   submission — fits our "decoding" identity; a new wideband/audio lane like the
   existing ones.

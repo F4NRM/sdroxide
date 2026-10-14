@@ -2382,6 +2382,16 @@ Doppler, but it does need its LNB offset measured, and that is the whole of
 working it. Either tab carries a dot while its own work is running, and the
 **SAT** button glows for both.
 
+**And a locked satellite labels your panadapter.** With a lock running, the
+satellite's **downlink** transponder segments are drawn along the frequency scale
+with their own labels — "CW beacon" as a mark, "linear transponder" as a bounded
+span — so a passband reads as *where the CW segment ends and the SSB begins*
+instead of an unexplained slab. They move with the Doppler correction, so they
+stay on the signals they name. Only downlinks: a transponder's uplink is on
+another band, and a label here for it would point at a frequency you are not
+listening to. If you have your own frequency table for a bird it wins over the
+built-in one, as it does everywhere else.
+
 **The picker** lists every satellite the station tracks — the amateur group
 subscription, anything you pasted into the TLE tab
 ([6.10](#610-tle-satellites-and-their-frequencies)), and the curated set — with
