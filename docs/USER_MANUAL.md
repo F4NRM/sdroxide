@@ -3770,8 +3770,12 @@ Click **SETUP** in the QSO area to open the **FT8 / FT4 / FT2 Setup** window:
 - **Decode depth** (FT8) — how hard the decoder digs for weak signals hidden
   under stronger ones. The quick single pass is always shown first, so a reply
   is never held up; **Normal** and **Deep** then add a signal-subtraction pass
-  whose extra decodes arrive up to a second or so later. **Fast** skips it,
-  **Deep** (the default) finds the most.
+  whose extra decodes appear one by one as it finds them, up to a second or so
+  later on a fast machine. **Fast** skips it, **Deep** (the default) finds the
+  most. On a machine too slow to finish a Deep pass before the next slot is
+  ready, the slower passes of a slot are skipped while a newer one waits, so the
+  list never falls further behind than one pass — choose **Normal** if that
+  happens often.
 - **TX watchdog / Give up after** — how long unattended transmitting may
   continue with no progress, and how many unanswered calls to one station are
   worth making. Both 0 to disable.

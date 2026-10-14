@@ -314,6 +314,126 @@ impl Ft8Modem {
         all
     }
 
+    /// Decode a slot and hand each result over as it is found (#667).
+    ///
+    /// For FT8 the quick single pass is emitted as one batch the moment it is
+    /// done; the subtraction pass then emits each further decode as mfsk-core
+    /// accepts it, so on a slow machine the list fills in through the deep pass
+    /// rather than all at once at its end. `stop` is asked before each slower
+    /// stage: answering true (a newer slot is already waiting) skips it, so a
+    /// machine that cannot keep up with Deep falls behind by at most one pass,
+    /// not by a growing queue of slots. Every other mode emits its whole decode
+    /// once, as [`Self::decode_slot_staged`] would.
+    pub fn decode_slot_streaming(
+        &mut self,
+        audio_12k: &[i16],
+        slot_utc: i64,
+        ap: &ApHints,
+        listening_hz: f32,
+        stop: &dyn Fn() -> bool,
+        emit: &(dyn Fn(Vec<Decode>) + Sync),
+    ) {
+        if self.mode != Mode::Ft8 {
+            let (quick, extras) = self.decode_slot_staged(audio_12k, slot_utc, ap, listening_hz);
+            emit(quick);
+            if !extras.is_empty() {
+                emit(extras);
+            }
+            return;
+        }
+        let hint = ap.ft8();
+        let request = || {
+            let req = DecodeRequest::<mfsk_core::Ft8>::new(
+                audio_12k,
+                AUDIO_MIN_HZ,
+                AUDIO_MAX_HZ,
+                SYNC_MIN,
+                MAX_CAND,
+            )
+            .osd(true);
+            match hint.as_ref() {
+                Some(h) => req.ap_hint(h),
+                None => req,
+            }
+        };
+        let sent: std::sync::Mutex<Vec<Decode>> = std::sync::Mutex::new(Vec::new());
+        {
+            let ht = &self.hashes;
+            let eu = &self.eu_hashes;
+            // The quick pass, whole: a single pass reports from many threads
+            // before it deduplicates, so it is taken as its result.
+            let mut quick: Vec<Decode> = Vec::new();
+            for r in request().decode().results {
+                let Ok(bits) = <[u8; 77]>::try_from(r.message77()) else { continue };
+                if let Some(d) =
+                    build_decode(&bits, r.snr_db, r.dt_sec, r.freq_hz, slot_utc, ht, eu)
+                    && !quick.iter().any(|o| same_signal(o, &d))
+                {
+                    quick.push(d);
+                }
+            }
+            sent.lock().unwrap().extend(quick.iter().cloned());
+            emit(quick);
+
+            // The subtraction pass, one decode at a time as it is accepted.
+            if self.ft8_depth != sdroxide_types::Ft8Depth::Fast && !stop() {
+                let on_result = |r: &mfsk_core::ft8::decode::DecodeResult| {
+                    let Ok(bits) = <[u8; 77]>::try_from(r.message77()) else { return };
+                    let Some(d) =
+                        build_decode(&bits, r.snr_db, r.dt_sec, r.freq_hz, slot_utc, ht, eu)
+                    else {
+                        return;
+                    };
+                    let mut s = sent.lock().unwrap();
+                    if !s.iter().any(|o| same_signal(o, &d)) {
+                        s.push(d.clone());
+                        drop(s);
+                        emit(vec![d]);
+                    }
+                };
+                let req = request();
+                let req = match self.ft8_depth {
+                    sdroxide_types::Ft8Depth::Normal => req.sic_rounds(2),
+                    _ => req.sic_early(),
+                };
+                let _ = req.on_result(&on_result).decode();
+            }
+
+            // The EU VHF contest rescue, as one more batch — see
+            // `decode_slot_staged`.
+            if ap.eu_vhf && !stop() {
+                let mut rescued = Vec::new();
+                for r in crate::ft8_eu::decode_slot(
+                    audio_12k,
+                    AUDIO_MIN_HZ,
+                    AUDIO_MAX_HZ,
+                    SYNC_MIN,
+                    MAX_CAND,
+                ) {
+                    if let Some(d) =
+                        build_decode(&r.msg77, r.snr_db, r.dt_sec, r.freq_hz, slot_utc, ht, eu)
+                    {
+                        let mut s = sent.lock().unwrap();
+                        if !s.iter().any(|o| same_signal(o, &d)) {
+                            s.push(d.clone());
+                            rescued.push(d);
+                        }
+                    }
+                }
+                if !rescued.is_empty() {
+                    emit(rescued);
+                }
+            }
+        }
+        // Remember who we heard, for the next slot's hashed messages.
+        for d in sent.into_inner().unwrap() {
+            for call in [d.to.as_deref(), d.from.as_deref()].into_iter().flatten() {
+                self.hashes.insert(call);
+                self.eu_hashes.insert(call);
+            }
+        }
+    }
+
     /// Decode a slot in two stages for FT8, for a caller that must act on the
     /// quick result before the slow one lands.
     ///
@@ -909,10 +1029,8 @@ fn pack_message(text: &str, wide: bool) -> Option<([u8; 77], String)> {
         let rogered = toks.get(2) == Some(&"R");
         let exch = toks.last().copied().unwrap_or("");
         // "RST" tokens look like `5NN`/`59`; the exchange is what follows.
-        if let Some(rs) = exch
-            .get(..2)
-            .and_then(|r| r.parse::<u8>().ok())
-            .filter(|r| (52..=59).contains(r))
+        if let Some(rs) =
+            exch.get(..2).and_then(|r| r.parse::<u8>().ok()).filter(|r| (52..=59).contains(r))
             && let Some(code) = exch.get(2..)
             && let Some(m) = roundup::pack(c1, c2, rogered, rs, code)
         {
@@ -1066,12 +1184,7 @@ const NTOKENS: u32 = 2_063_592;
 ///   those fit the non-standard layout whole, and spelling the callsign out is
 ///   worth more than the hash saves — it is what lets a third station resolve
 ///   the hashes in everything around it.
-fn pack77_hashed(
-    c1: &str,
-    c2: &str,
-    payload: &str,
-    wide: bool,
-) -> Option<([u8; 77], String)> {
+fn pack77_hashed(c1: &str, c2: &str, payload: &str, wide: bool) -> Option<([u8; 77], String)> {
     // A callsign the operator wrote in brackets is one they are asking to have
     // hashed; one that will not fit the 28-bit field has to be, brackets or no.
     let (b1, b2) = (eu_vhf::bare(c1), eu_vhf::bare(c2));
@@ -1749,13 +1862,15 @@ mod eu_vhf_tests {
             ("19DC373/P 26AT715 RR73", "<19DC373/P> <26AT715> RR73"),
             ("19DC373/P 26AT715 73", "<19DC373/P> <26AT715> 73"),
         ] {
-            let (bits, sent) = pack_message(line, false)
-                .unwrap_or_else(|| panic!("{line} must pack — a station answering it needs a reply"));
+            let (bits, sent) = pack_message(line, false).unwrap_or_else(|| {
+                panic!("{line} must pack — a station answering it needs a reply")
+            });
             assert_eq!(sent, expect);
             assert_ne!(bits, [0u8; 77], "{line} produced an empty transmission");
         }
         // The low-power form, which is the longest identifier the wire carries.
-        let (bits, sent) = pack_message("19DC373/QRP 26AT715 RR73", false).expect("packs at the length limit");
+        let (bits, sent) =
+            pack_message("19DC373/QRP 26AT715 RR73", false).expect("packs at the length limit");
         assert_eq!(sent, "<19DC373/QRP> <26AT715> RR73");
         assert_ne!(bits, [0u8; 77]);
         // …and one character past it is not a call this wire can carry.
@@ -1764,7 +1879,8 @@ mod eu_vhf_tests {
         // pair: the call goes out alone and the exchange is dropped. This is
         // the pre-existing degradation, not something the modifier introduced
         // — the 11-character bound itself is pinned in the grammar's own tests.
-        let (_, sent) = pack_message("19DC373/QRPP 26AT715 RR73", false).expect("the call still gets out");
+        let (_, sent) =
+            pack_message("19DC373/QRPP 26AT715 RR73", false).expect("the call still gets out");
         assert_eq!(sent, "19DC373/QRPP", "the exchange is dropped, not silently mangled");
     }
 
@@ -1773,8 +1889,8 @@ mod eu_vhf_tests {
     /// which is a valid transmission and completely useless.
     #[test]
     fn the_packer_picks_the_contest_layout() {
-        let (bits, sent) =
-            pack_message("<PA9XYZ> <G4ABC/P> R 570007 JO22DB", false).expect("packs as a contest message");
+        let (bits, sent) = pack_message("<PA9XYZ> <G4ABC/P> R 570007 JO22DB", false)
+            .expect("packs as a contest message");
         assert_eq!(msg_kind(&bits), MsgKind::EuVhf);
         assert_eq!(sent, "<PA9XYZ> <G4ABC/P> R 570007 JO22DB");
         let (bits, _) = pack_message("<PA9XYZ> <G4ABC/P> 590003 IO91NP", false).expect("packs");
@@ -2685,7 +2801,8 @@ mod tests {
     #[test]
     fn an_acknowledgement_to_a_compound_call_still_spells_it_out() {
         for rpt in ["RRR", "RR73", "73"] {
-            let (bits, sent) = pack_message(&format!("R7KJG/QRP F4CYH {rpt}"), false).expect("packs");
+            let (bits, sent) =
+                pack_message(&format!("R7KJG/QRP F4CYH {rpt}"), false).expect("packs");
             assert_eq!(sent, format!("R7KJG/QRP <F4CYH> {rpt}"));
             assert_eq!(msg_kind(&bits), MsgKind::NonStandard);
         }
@@ -3371,4 +3488,60 @@ mod tests {
         check::<mfsk_core::q65::Q65a300>(Q65Mode::A300);
     }
 
+    /// Issue #667: streamed, the quick pass arrives as the first batch and the
+    /// subtraction pass's finds after it, each once; a newer slot waiting
+    /// (`stop`) skips the slow pass rather than queueing behind it.
+    #[test]
+    fn ft8_streams_the_quick_batch_before_subtraction() {
+        let modem = Ft8Modem::new(Mode::Ft8);
+        let (strong, _) = modem.encode_burst_12k("CQ AB1CD FN42", 2310.0, 0.5).unwrap();
+        let weak_amp = 0.5f32 * 10f32.powf(-14.0 / 20.0);
+        let (weak, _) = modem.encode_burst_12k("CQ W9XYZ EN52", 2320.0, weak_amp).unwrap();
+        let mut out = vec![0.0f32; 180_000];
+        for (i, &x) in strong.iter().enumerate() {
+            out[6_000 + i] += x;
+        }
+        for (i, &x) in weak.iter().enumerate() {
+            out[6_000 + i] += x;
+        }
+        let buf: Vec<i16> = out.iter().map(|&x| (x * 12_000.0) as i16).collect();
+
+        let batches = std::sync::Mutex::new(Vec::<Vec<String>>::new());
+        let emit = |d: Vec<Decode>| {
+            batches.lock().unwrap().push(d.into_iter().map(|d| d.message).collect());
+        };
+        Ft8Modem::new(Mode::Ft8).decode_slot_streaming(
+            &buf,
+            0,
+            &ApHints::default(),
+            2310.0,
+            &|| false,
+            &emit,
+        );
+        let b = batches.into_inner().unwrap();
+        assert!(b.len() >= 2, "the slow pass's find should be a batch of its own: {b:?}");
+        assert!(b[0].iter().any(|m| m == "CQ AB1CD FN42"), "quick first: {b:?}");
+        assert!(!b[0].iter().any(|m| m == "CQ W9XYZ EN52"), "weak is the slow pass's: {b:?}");
+        assert!(b[1..].iter().flatten().any(|m| m == "CQ W9XYZ EN52"), "{b:?}");
+        let all: Vec<&String> = b.iter().flatten().collect();
+        let mut uniq = all.clone();
+        uniq.sort();
+        uniq.dedup();
+        assert_eq!(all.len(), uniq.len(), "a decode was sent twice: {b:?}");
+
+        // A newer slot waiting: the quick batch alone.
+        let batches = std::sync::Mutex::new(Vec::<Vec<String>>::new());
+        let emit = |d: Vec<Decode>| {
+            batches.lock().unwrap().push(d.into_iter().map(|d| d.message).collect());
+        };
+        Ft8Modem::new(Mode::Ft8).decode_slot_streaming(
+            &buf,
+            0,
+            &ApHints::default(),
+            2310.0,
+            &|| true,
+            &emit,
+        );
+        assert_eq!(batches.into_inner().unwrap().len(), 1);
+    }
 }
