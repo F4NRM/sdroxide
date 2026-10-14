@@ -5775,6 +5775,17 @@ impl SdroxideApp {
                 {
                     self.view.peak_hold = !self.view.peak_hold;
                 }
+                if crate::chrome::chip(ui, cfg.spectrum_fill, "FILL")
+                    .on_hover_text(
+                        "Colour the band under the spectrum line, full at the bottom and \
+                         fading out as it rises to the line, so a signal stands out by its \
+                         mass as well as by its outline. The colour is chosen in Settings → \
+                         UI → Spectrum line. Not drawn on the 3D surface.",
+                    )
+                    .clicked()
+                {
+                    cfg.spectrum_fill = !cfg.spectrum_fill;
+                }
                 if crate::chrome::chip(ui, self.view.spectrum_3d, "3D")
                     .on_hover_text(
                         "Draw the spectrum as a receding surface instead of a flat line: \
