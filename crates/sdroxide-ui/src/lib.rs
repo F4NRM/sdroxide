@@ -46,6 +46,7 @@ mod rf_paint;
 /// the web; the sole consumer of depth/MSAA/vertex buffers either way.
 mod solar3d;
 mod sound_welcome;
+pub mod spectrum_fill;
 mod sstv;
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod test_raster;
