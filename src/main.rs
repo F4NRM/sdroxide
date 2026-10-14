@@ -1193,6 +1193,33 @@ fn open_source(cli: &Cli, settings: &Settings) -> anyhow::Result<(Box<dyn IqSour
     match open_converted_source(&radio, cli, settings) {
         Ok(pair) => Ok(pair),
         Err(e) => {
+            // **The last frequency that actually worked** (#72). A stored start
+            // frequency the hardware cannot reach — an I.F. offset saved as a
+            // frequency is the reported case — means the radio never opens, so
+            // the operator had to correct the number by hand *every* time
+            // before anything worked. Retry once where it last worked.
+            //
+            // **And say so.** Falling back quietly would leave the dial
+            // reading a frequency nobody chose, which is the failure this fork
+            // keeps refusing to ship; the notice names both numbers, so the
+            // operator can put the right one back.
+            let last = radio.last_good_vfo_hz;
+            if last.is_finite() && last > 0.0 && (last - cli.center_hz()).abs() > 1.0 {
+                let mut c = cli.clone();
+                c.freq = Some(last);
+                if let Ok(pair) = open_converted_source(&radio, &c, settings) {
+                    let msg = format!(
+                        "This radio would not open on {:.6} MHz, which its tuner cannot reach, \
+                         so it opened on {:.6} MHz — the last frequency it did tune. Put a \
+                         frequency it can tune in the start-frequency field to stop this.",
+                        cli.center_hz() / 1e6,
+                        last / 1e6,
+                    );
+                    tracing::warn!("{msg}");
+                    sdroxide_config::note_startup(msg);
+                    return Ok(pair);
+                }
+            }
             tracing::warn!("radio interface unavailable: {e:#}");
             let msg =
                 format!("{e}. Retrying — or open Settings → Radio to choose another interface.");

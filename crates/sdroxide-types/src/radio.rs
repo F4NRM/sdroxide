@@ -7685,6 +7685,22 @@ pub struct RadioConfig {
     /// the wire requires.
     #[serde(default)]
     pub udp_audio: String,
+    /// The last centre frequency this radio actually **tuned**, in Hz; `0.0` for
+    /// none, which is what every file written before this existed loads as.
+    ///
+    /// **A start frequency the hardware cannot reach means the radio never
+    /// opens** (issue #72): the reported case is an I.F. offset saved as a
+    /// frequency, so an RTL-SDR was asked for 6 GHz, refused, and the operator
+    /// had to correct the number by hand *every* time before anything worked.
+    /// So a refused start is retried here, where it last worked, **and said
+    /// out loud** — falling back in silence would leave the dial reading a
+    /// frequency the operator never chose.
+    ///
+    /// Written whenever a tune the hardware accepted moves it, so it is always
+    /// somewhere this front end has really been rather than somewhere it was
+    /// asked to go.
+    #[serde(default)]
+    pub last_good_vfo_hz: f64,
 }
 
 /// The lowest S-meter calibration offered, in S-units.
