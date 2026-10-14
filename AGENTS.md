@@ -4420,6 +4420,35 @@ all. And he says plainly of the scripting firmware that debugging is slow, that
 bugs are to be treated as features until reproduced, and that use is at one's own
 risk.
 
+**DiamondRadio — asked about 2026-10-14, and it is the same answer as RadioScript.**
+Kevin (F4NRM, discussion #14) pointed at `khanfar/DiamondRadio` for his ATS 25
+ULTRA: a whole custom ATS-25 firmware with FT8/FT4, CW, RTTY, SSTV, the EiBi
+schedule, a map and propagation, all **on the radio**. Three things settled it:
+
+- **Not open source.** Their own licence: *"free to download, install, and share
+  as an unmodified binary. The source code is private and not published."*
+  Freeware with closed source — RadioScript's category, only stated plainly. So
+  nothing of it is ours to take, adapt or ship.
+- **It is a competing firmware for the same boards, not a build target.** Our
+  `Backend::AtsMini` speaks the **stock** (MIT) firmware's TCP interface; a radio
+  flashed with DiamondRadio will not answer it. And the ceiling is unchanged
+  either way — FT8/CW/RTTY/SSTV decode on the device because the Si4735 is a
+  demodulator with no I/Q, so every wideband feature here stays out of reach on
+  that board.
+- **The one thing of ours it does point at:** every tool they ship is an
+  in-browser client (installer, SDR monitor, phone view), so their **USB serial
+  and WiFi protocols are publicly observable** rather than buried in a binary.
+  That is a better position than RadioScript's binary, though not as clean as a
+  published document — and it is still not a licence to copy their code. If a
+  radio's dial and meter were ever wanted on the big screen inside sdroxide, that
+  is the seam: our side only, nothing of theirs touched.
+
+**Decided: not doing it.** Not for the licence alone — the case is thin. Same
+board, same ceiling, and it duplicates what this program already does at the
+other end of the cable. The first honest question, if anyone ever wants the two to
+talk, is whether DiamondRadio still answers on the stock firmware's port; if it
+does, the existing ATS Mini backend may already reach it for free.
+
 **The boundary, stated once so it is not re-litigated.** There is exactly one way
 this becomes ours, and it does not involve his firmware: **the developer himself
 publishes a documented control interface** — his firmware can open a TCP server
