@@ -83,6 +83,24 @@ upstream feature requests **this fork** may pick up, not a promise to upstream.
 
 ## In progress / parked
 
+- **The satellite pass scheduler is in** (`4dee2184`) — a PASSES tab in the SAT
+  window, taken from upstream #623. It applied clean: the pass computation
+  (`sdroxide_solar::satellites::Pass`, `next_passes`) was already ours and tested,
+  so this was the view over a proven calculation. **The operator wants the
+  satellite side in a release soon.**
+- **#657 OpenStreetMap background — PARKED, deliberately, after scoping.** The
+  finding: **the map is already 8192×4096** with borders, rivers, cities and a
+  vector `lines.bin`, drawn through a mip pyramid. It is not a coarse outline. OSM
+  would add street-level detail at high zoom, and this fork's maps are world views
+  (LISTEN, ADS-B, AIS, HFDL, propagation). Against that: our maps are
+  **equirectangular** and OSM tiles are **Web Mercator**, so every tile needs
+  warping; the UI crate has **no network path at all** today, so it needs a fetch
+  worker, disk cache, rate limit, User-Agent and attribution; and it has to work
+  in the browser build. **A fetch stack is not the right trade for a map that is
+  already this good.**
+  **Kevin (F4NRM) is now in charge of layout and visuals**, so this is his to pick
+  up if it is ever wanted — the scope above is what he needs.
+
 - **The S-meter jumps with the mouse while SCHEDULE or LISTEN is docked** —
   reported by bebepip on #69 (2026-10-14), and **likely a regression from the
   windows added on 2026-10-13**. *"moving the mouse anywhere within the program

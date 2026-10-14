@@ -23,6 +23,10 @@ and the [README](https://github.com/madmedicnl/sdroxide-brown#readme).
 
 ## [Unreleased]
 
+### Added
+- **A PASSES tab in the satellite window** — every upcoming pass, soonest first, over the next day or two, with a peak-elevation filter so you can ask for the ones worth waking up for. Off by default it searches only the satellites you can work; it fills in over a few frames rather than freezing the window.
+
+
 ### Changed
 - **SSTV reception is better on weak pictures** — a rewritten demodulator, measured on a swept-SNR harness: mean error 87.2 → 75.6 at 0 dB and 42.4 → 33.7 at 10 dB. Slightly worse above 30 dB (4.3 → 5.5), where both are excellent.
 - **SSTV slant correction** — a skewed picture is straightened rather than smeared.
