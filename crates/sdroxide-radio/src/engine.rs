@@ -1389,6 +1389,73 @@ enum ScanTarget {
 /// Interleaves two mono streams into the stereo ring. The second is whichever
 /// source has claimed the right ear — the sub receiver, or the right channel of
 /// a WFM stereo broadcast; with neither, the first goes to both ears.
+/// The receive audio, streamed out over UDP for another program to use.
+///
+/// Fed from the **recording tap**, which is the whole design: the recorder is
+/// taken before the AF volume, MUTE and the transmit ducking, because turning
+/// your headphones down must not spoil the archive. An external decoder wants
+/// exactly the same thing — the radio, not the operator's listening level — so
+/// it is fed from the same place rather than from the speaker path.
+///
+/// No handshake, no back-pressure, no reconnection: a plain one-way sink. A
+/// consumer that is not listening costs one failed syscall per block, which is
+/// cheaper than the bookkeeping to notice.
+struct UdpAudio {
+    sock: std::net::UdpSocket,
+    to: std::net::SocketAddr,
+    /// Kept between blocks so a send does not allocate on the audio thread.
+    buf: Vec<u8>,
+}
+
+impl UdpAudio {
+    /// `addr` is `host:port`; anything unparseable, or a socket that will not
+    /// open, is simply no stream — the same as the setting being empty.
+    fn new(addr: &str) -> Option<UdpAudio> {
+        let addr = addr.trim();
+        if addr.is_empty() {
+            return None;
+        }
+        let to: std::net::SocketAddr = match addr.parse() {
+            Ok(a) => a,
+            Err(_) => {
+                // A hostname would need a DNS lookup, which is a blocking
+                // syscall and not something to do on the audio thread. Say so
+                // once rather than streaming nothing in silence.
+                warn!("udp_audio: {addr:?} is not host:port with a numeric address; no stream");
+                return None;
+            }
+        };
+        let bind = if to.is_ipv4() { "0.0.0.0:0" } else { "[::]:0" };
+        match std::net::UdpSocket::bind(bind) {
+            Ok(sock) => {
+                let _ = sock.set_nonblocking(true);
+                Some(UdpAudio { sock, to, buf: Vec::new() })
+            }
+            Err(e) => {
+                warn!("udp_audio: cannot open a socket: {e}");
+                None
+            }
+        }
+    }
+
+    /// One datagram per call: mono `i16` little-endian, at the tap's rate.
+    ///
+    /// Mono because the consumers this exists for — decoders, recorders, a
+    /// single-ear listen — are mono, and interleaving a second channel would
+    /// halve how much of the block fits in a datagram for something most of
+    /// them would drop.
+    fn send(&mut self, samples: &[f32]) {
+        self.buf.clear();
+        self.buf.reserve(samples.len() * 2);
+        for s in samples {
+            let v = (s.clamp(-1.0, 1.0) * i16::MAX as f32) as i16;
+            self.buf.extend_from_slice(&v.to_le_bytes());
+        }
+        // A failed send is not news: nobody listening is the normal state.
+        let _ = self.sock.send_to(&self.buf, self.to);
+    }
+}
+
 struct StereoMixer {
     out: rtrb::Producer<f32>,
     main_q: Vec<f32>,
@@ -1399,6 +1466,9 @@ struct StereoMixer {
     /// to put in the right channel the recording is dual mono instead — see
     /// `rec_split`.
     rec_tap: Option<rtrb::Producer<f32>>,
+    /// Streams the same audio the recorder gets to a UDP address — see
+    /// [`RadioConfig::udp_audio`]. Set from the configuration and changed live.
+    udp_audio: Option<UdpAudio>,
     /// Fed from `push`'s `rec_left`/`rec_right`, which the caller builds
     /// independent of the speaker path's AF volume/mute — see `RxChain::run`.
     /// Queued separately from `main_q`/`sub_q` so the two can drain at
@@ -1464,6 +1534,7 @@ impl StereoMixer {
             sub_q: Vec::new(),
             dropped: 0,
             rec_tap: None,
+            udp_audio: None,
             rec_main_q: Vec::new(),
             rec_sub_q: Vec::new(),
             tx_rec_rs: None,
@@ -1566,6 +1637,11 @@ impl StereoMixer {
                         }
                     }
                 }
+            }
+            // The UDP stream, from the same audio the recorder just took and
+            // for the same reason: it is the radio, not the headphone level.
+            if let Some(udp) = self.udp_audio.as_mut() {
+                udp.send(&self.rec_main_q[..rec_n]);
             }
             self.rec_main_q.drain(..rec_n);
             if rec_dual {
@@ -4079,7 +4155,7 @@ fn engine_thread(
 
     // In audio mode there is no RxChain (the source is already audio); the
     // speaker path is a plain resampler → mixer instead.
-    let (main, mixer, audio_out_rate, audio_resampler) = match engine_cfg.audio {
+    let (main, mut mixer, audio_out_rate, audio_resampler) = match engine_cfg.audio {
         Some(audio) if audio_mode => {
             let rs = MonoResampler::new(radio_fs, audio.out_rate);
             (None, Some(StereoMixer::new(audio.producer)), audio.out_rate, rs)
@@ -4121,6 +4197,12 @@ fn engine_thread(
     // [`Engine::emit_radio_config`]), and this one table is consulted on every
     // transmitted block.
     let radio_cfg = engine_cfg.store.load_radio_config();
+
+    // The UDP audio sink, from the radio's own configuration. Set here rather
+    // than where the mixer is built because the configuration is read here.
+    if let Some(m) = mixer.as_mut() {
+        m.udp_audio = UdpAudio::new(&radio_cfg.udp_audio);
+    }
 
     info!(source = %source.describe(), "engine started");
     let _ = event_tx.send(RadioEvent::Capabilities(caps.clone()));
@@ -10559,6 +10641,12 @@ impl Engine {
                 // listening to the radio while they drag the control.
                 self.rx_af_gain_db = cfg.rx_audio_gain_db;
                 self.refresh_af_trim();
+                // The UDP audio sink is rebuilt rather than poked: the address
+                // is where it goes, so a change is a new socket, and the old
+                // one simply stops being used.
+                if let Some(m) = self.mixer.as_mut() {
+                    m.udp_audio = UdpAudio::new(&cfg.udp_audio);
+                }
                 // Announced from the store rather than echoed from `cfg`, so
                 // what every client shows is what was actually written — a
                 // failed save leaves them on the configuration the radio is
@@ -21438,5 +21526,63 @@ mod cb_opening_tests {
         let paths = cb_paths(&[dec(99, Some("0A1ZZZ")), dec(99, Some("JA1ABC"))], "EU");
         assert_eq!(paths.len(), 1);
         assert_eq!(paths[0].call, "JA1ABC");
+    }
+}
+
+#[cfg(test)]
+mod udp_audio_tests {
+    use super::UdpAudio;
+
+    /// **What the stream actually is**: mono, 16-bit, little-endian, one
+    /// datagram per block. A receiver has nothing else to go on — there is no
+    /// header — so the format is the contract, and this is where it is pinned.
+    #[test]
+    fn the_stream_is_mono_i16_little_endian() {
+        let listener = std::net::UdpSocket::bind("127.0.0.1:0").expect("a listener");
+        listener
+            .set_read_timeout(Some(std::time::Duration::from_secs(2)))
+            .expect("a timeout, so a broken sink fails rather than hangs");
+        let addr = listener.local_addr().expect("a port");
+
+        let mut sink = UdpAudio::new(&addr.to_string()).expect("a sink");
+        sink.send(&[0.0, 0.5, -0.5, 1.0]);
+
+        let mut buf = [0u8; 64];
+        let n = listener.recv(&mut buf).expect("a datagram");
+        assert_eq!(n, 8, "four samples, two bytes each — mono, not interleaved");
+        let at = |i: usize| i16::from_le_bytes([buf[i * 2], buf[i * 2 + 1]]);
+        assert_eq!(at(0), 0);
+        assert!((at(1) as i32 - i16::MAX as i32 / 2).abs() <= 1, "half scale");
+        assert!((at(2) as i32 + i16::MAX as i32 / 2).abs() <= 1, "and its sign");
+        assert_eq!(at(3), i16::MAX, "full scale, not wrapped");
+    }
+
+    /// Two blocks are two datagrams. A block per datagram is what lets a
+    /// receiver lose one without desyncing the rest, which is the only reason
+    /// this is not one long stream.
+    #[test]
+    fn each_block_is_its_own_datagram() {
+        let listener = std::net::UdpSocket::bind("127.0.0.1:0").expect("a listener");
+        listener.set_read_timeout(Some(std::time::Duration::from_secs(2))).expect("timeout");
+        let addr = listener.local_addr().expect("a port");
+        let mut sink = UdpAudio::new(&addr.to_string()).expect("a sink");
+        sink.send(&[0.0, 0.0]);
+        sink.send(&[1.0]);
+        let mut buf = [0u8; 64];
+        assert_eq!(listener.recv(&mut buf).expect("first"), 4);
+        assert_eq!(listener.recv(&mut buf).expect("second"), 2);
+    }
+
+    /// An empty setting, or one that is not a numeric `host:port`, is **no
+    /// stream** rather than a socket that sends nowhere or a hostname lookup on
+    /// the audio thread. `None` is the same thing the operator sees as off.
+    #[test]
+    fn off_and_unusable_are_both_no_stream() {
+        assert!(UdpAudio::new("").is_none(), "empty is off");
+        assert!(UdpAudio::new("   ").is_none(), "and so is whitespace");
+        assert!(UdpAudio::new("example.com:7355").is_none(), "a name needs DNS");
+        assert!(UdpAudio::new("not an address").is_none());
+        assert!(UdpAudio::new("127.0.0.1").is_none(), "a port is required");
+        assert!(UdpAudio::new("127.0.0.1:7355").is_some(), "the useful form works");
     }
 }

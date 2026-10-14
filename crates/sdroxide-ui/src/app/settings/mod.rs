@@ -2714,6 +2714,26 @@ impl SdroxideApp {
                     ui.label(RichText::new("S-Meter calib").strong());
                     smeter_cal_combo(ui, &mut cfg.smeter_cal);
                     ui.end_row();
+
+                    // The received audio, streamed out for another program.
+                    // Per radio and on the server with the rest of the file,
+                    // because it points at *this* radio's audio.
+                    ui.label(RichText::new("UDP audio").strong());
+                    crate::chrome::field(
+                        ui,
+                        egui::TextEdit::singleline(&mut cfg.udp_audio)
+                            .desired_width(150.0)
+                            .hint_text("127.0.0.1:7355"),
+                    )
+                    .on_hover_text(
+                        "Stream the received audio to `host:port` so another program can use \
+                         it — a decoder, a recorder, a second machine.\n\nMono, 16-bit, at the \
+                         receive rate, one datagram per audio block, and it is the **recording \
+                         tap's** audio: the AF volume, MUTE and transmitting do not affect it, \
+                         because an external decoder wants the radio and not your headphone \
+                         level.\n\nA numeric address, not a hostname. Empty is off.",
+                    );
+                    ui.end_row();
                 });
                 if let sdroxide_types::RxSite::Elsewhere(g) = &*site {
                     let g = g.trim();

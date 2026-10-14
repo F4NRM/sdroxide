@@ -7668,6 +7668,23 @@ pub struct RadioConfig {
     /// is a property of the hardware and its antenna, not of who is signed in.
     /// Appended last, as the wire requires.
     pub smeter_cal: i8,
+    /// Stream the received audio to a UDP address so another program can use it
+    /// — `host:port`, and empty (the default) is off.
+    ///
+    /// **This is the recording tap's audio, not the headphone path.** An external
+    /// decoder wants the radio; turning the AF volume down, pressing MUTE or
+    /// keying the transmitter must not silence it, for exactly the reason the
+    /// recorder is fed from there too. What goes out is mono `i16`, little-endian,
+    /// at the receive chain's own rate — one datagram per audio block, so a
+    /// receiver that misses one loses a block rather than desyncing.
+    ///
+    /// It is a plain UDP sink with no handshake and no back-pressure: a consumer
+    /// that is not there costs nothing, and there is nothing to reconnect.
+    ///
+    /// Per radio, on the server with the rest of `radio.json`. Appended last, as
+    /// the wire requires.
+    #[serde(default)]
+    pub udp_audio: String,
 }
 
 /// The lowest S-meter calibration offered, in S-units.

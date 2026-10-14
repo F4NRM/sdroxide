@@ -1813,8 +1813,14 @@ use sdroxide_types::{
 /// `RadioConfig` rides `ServerMsg::RadioConfig` and `Command::SetRadioConfig`
 /// whole. `PROTO_VERSION` 206 → 207, `VERSION_BYTE` 0x1A → 0x1B. A downstream
 /// (fork) change.
-pub const PROTO_VERSION: u16 = 207;
-const VERSION_BYTE: u8 = 0x1B;
+/// v208: the UDP audio stream. `RadioConfig` gains `udp_audio: String` at its
+/// tail — `host:port`, empty for off — and `RadioConfig` rides
+/// `ServerMsg::RadioConfig` and `Command::SetRadioConfig` whole.
+/// `PROTO_VERSION` 207 → 208, `VERSION_BYTE` 0x1B → 0x1C. A downstream (fork)
+/// change, for the listener rather than the amateur: an external decoder, a
+/// recorder or a second machine on the radio's audio.
+pub const PROTO_VERSION: u16 = 208;
+const VERSION_BYTE: u8 = 0x1C;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ProtoError {
