@@ -145,11 +145,12 @@ upstream feature requests **this fork** may pick up, not a promise to upstream.
 
 ## Backlog — SkyRoof satellite ideas (VE3NEA; see `docs/skyroof-notes.md`)
 
-- Doppler-corrected panadapter — satellite names + transponder-segment
-  boundaries on the frequency scale.
+- ~~Doppler-corrected panadapter~~ — **BUILT** (`fac88c05`): downlink segments
+  labelled on the frequency scale, shifted by the correction in force. Only
+  downlinks; the operator's own frequency table wins over the built-in one.
 - Satellite telemetry decoders (FSK/AFSK/GFSK/GMSK/BPSK) with SatNOGS submission.
 - FT4 console for linear-transponder satellites.
-- Pass scheduler.
+- ~~Pass scheduler~~ — **BUILT** (`4dee2184`, the PASSES tab).
 - SSDV image rebuild across passes.
 - Codec2 voice playback from satellite telemetry frames.
 
