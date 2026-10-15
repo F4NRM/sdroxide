@@ -17980,7 +17980,6 @@ impl Engine {
         self.dab_play_l.clear();
         self.dab_play_r.clear();
         deinterleave(pcm, channels, &mut self.dab_play_l, &mut self.dab_play_r);
-        self.dab_level = Some(stereo_rms_dbfs(&self.dab_play_l, &self.dab_play_r));
         let (mut left, mut right) = (Vec::new(), Vec::new());
         match self.dab_monitor_rs.as_mut() {
             Some(rs) => {
@@ -18067,6 +18066,11 @@ impl Engine {
         self.main_play_r.clear();
         self.main_play.extend(self.dab_fifo_l.drain(..take));
         self.main_play_r.extend(self.dab_fifo_r.drain(..take));
+        // The meter's level: this block, as it goes to the speakers and before
+        // the volume. Measured here rather than as the decoder hands audio over,
+        // which is in bursts of a whole superframe (120 ms) ahead of the sound —
+        // a level that steps a few times a second, out of time with the beat.
+        self.dab_level = Some(stereo_rms_dbfs(&self.main_play, &self.main_play_r));
         if vol != 1.0 {
             for s in self.main_play.iter_mut() {
                 *s *= vol;

@@ -3466,12 +3466,11 @@ mod tests {
         // (DAB_VOL, default 0.6): a recent peak held above the column.
         let vol: f32 = std::env::var("DAB_VOL").ok().and_then(|v| v.parse().ok()).unwrap_or(0.6);
         app.state.rx[0].volume = vol;
-        let heard = |l| crate::widgets::vu_meter::heard_dbfs(l, vol);
         for _ in 0..40 {
-            app.dab_vu.step(Some(heard([-9.0, -11.0])), 1.0 / 30.0);
+            app.dab_vu.step(Some([-9.0, -11.0]), 1.0 / 30.0);
         }
         for _ in 0..6 {
-            app.dab_vu.step(Some(heard([-13.0, -15.0])), 1.0 / 30.0);
+            app.dab_vu.step(Some([-13.0, -15.0]), 1.0 / 30.0);
         }
 
         let mut tex = crate::test_raster::Textures::default();
@@ -3502,6 +3501,33 @@ mod tests {
         img.save(&out).expect("write the preview");
         println!("wrote {out}");
     }
+    /// The DAB meter shows the programme, like a hi-fi's: turned down to 5 %
+    /// it moves exactly as at full volume (a report: at low volume it hardly
+    /// moved at all).
+    #[test]
+    fn the_dab_meter_moves_the_same_at_any_volume() {
+        let _guard = crate::multi::frame_test_lock();
+        let level_at = |volume: f32| {
+            let controller: Box<dyn RadioController> = Box::new(RecordingController::default());
+            let ctx = egui::Context::default();
+            let mut app = SdroxideApp::new_tab(&ctx, None, None, controller, 0, true);
+            app.state.rx[0].volume = volume;
+            let st = sdroxide_types::DabStatus {
+                playing: Some("F204".into()),
+                audio_rms_db: Some([-12.0, -14.0]),
+                ..Default::default()
+            };
+            for i in 0..20 {
+                let input = egui::RawInput { time: Some(i as f64 / 30.0), ..Default::default() };
+                ctx.run_ui(input, |ui| app.dab_vu_step(ui, &st)).drop_without_applying_deltas();
+            }
+            app.dab_vu.level
+        };
+        let (quiet, loud) = (level_at(0.05), level_at(1.0));
+        assert_eq!(quiet, loud, "the meter at 5 % reads {quiet:?}, at full volume {loud:?}");
+        assert!(quiet[0] > -2.0, "a loud station lights the column: {quiet:?}");
+    }
+
     /// The operator's report (2026-10-12): a phone's WFALL tab drew the
     /// waterfall alone, with the whole screen below the readout to spare. It
     /// draws the spectrum above it now, as every other window does — read here
