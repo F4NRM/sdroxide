@@ -28,6 +28,7 @@ pub(in crate::app) mod tle;
 pub(in crate::app) mod ui_tab;
 
 pub(in crate::app) mod alerts;
+pub(in crate::app) mod audio;
 
 use eframe::egui::{self, Color32, ComboBox, RichText};
 use sdroxide_types::{Command, LoginTarget, LookupProvider, NetworkConfig, UploadTarget};
@@ -35,7 +36,7 @@ use sdroxide_types::{Command, LoginTarget, LookupProvider, NetworkConfig, Upload
 use self::alerts::alerts_settings;
 use self::controls::settings_controls_tab;
 use self::general::{
-    cb_plan_combo, device_combo, region_combo, remote_access_settings, signed_in_station,
+    cb_plan_combo, region_combo, remote_access_settings, signed_in_station,
 };
 use self::net::{
     broadcast_stations_settings, net_heading, net_row, net_secret, operator_identity_note,
@@ -71,6 +72,10 @@ use crate::theme::ThemedScroll as _;
 pub(in crate::app) enum SettingsTab {
     General,
     Radio,
+    /// Sound, in one place: your speakers and microphone, this radio's sound
+    /// card, and where recordings are written. Its own tab because it used to be
+    /// four things in four tabs under four names — see [`audio`].
+    Audio,
     /// The CW key: which key the operator uses (keyboard or a USB paddle), what
     /// kind it is, and whether it keys the transmitter or only the trainer.
     Cw,
@@ -94,6 +99,74 @@ pub(in crate::app) enum SettingsTab {
     /// Named working setups (issue #197): the operator's saved snapshots of how
     /// the station is set up, each put back on whole by one click.
     Profiles,
+}
+
+/// The settings menu, in the order it is read.
+///
+/// Grouped because fifteen entries in one column is a list and a list has no
+/// shape: grouped it answers "where does this live" before you have read a
+/// single label. The groups are the questions an operator actually asks — what
+/// is this station, what do I do with the radio, what leaves it, and what is
+/// merely set up.
+///
+/// Every tab is in exactly one group, and the strip that replaces this on a
+/// narrow window walks the same list, so the two layouts cannot disagree about
+/// what exists.
+const SETTINGS_GROUPS: &[(&str, &[(SettingsTab, &str)])] = &[
+    (
+        "Station",
+        &[
+            (SettingsTab::General, "General"),
+            (SettingsTab::Radio, "Radio"),
+            (SettingsTab::Audio, "Audio"),
+            (SettingsTab::Cw, "CW"),
+            (SettingsTab::Ui, "UI"),
+        ],
+    ),
+    (
+        "Radio work",
+        &[
+            (SettingsTab::Spots, "Spots"),
+            (SettingsTab::FreeDv, "FreeDV"),
+            (SettingsTab::TrSwitch, "T/R switch"),
+            (SettingsTab::Profiles, "Profiles"),
+        ],
+    ),
+    (
+        "Sending",
+        &[
+            (SettingsTab::Uploads, "Uploads"),
+            (SettingsTab::Winlink, "Winlink"),
+            (SettingsTab::Servers, "Servers"),
+        ],
+    ),
+    (
+        "Setup",
+        &[
+            (SettingsTab::Alerts, "Alerts"),
+            (SettingsTab::Controls, "Controls"),
+            (SettingsTab::Tle, "TLE"),
+        ],
+    ),
+];
+
+/// How wide the left menu is, and how narrow the window may get before a
+/// 180 pt column would cost the page more than the navigation is worth.
+///
+/// The window's own floor is 380 pt, and 380 − 180 leaves a page of 200 — wide
+/// enough to read a two-column grid at, and no more. The strip below that width
+/// is the layout this menu replaced, kept because it degrades honestly: it wraps
+/// onto a second row rather than clipping labels.
+const MENU_WIDTH: f32 = 180.0;
+const MENU_MIN_WIDTH: f32 = 620.0;
+
+/// Whether a window this wide gets the menu or the strip.
+///
+/// A free function so the threshold is testable: the number that decides it is
+/// the difference between a menu and a strip, and "it looked right" is not a
+/// way to pin one.
+fn use_left_menu(avail_w: f32) -> bool {
+    avail_w >= MENU_MIN_WIDTH
 }
 
 /// A "Test connection" button's state: still asking, or an answer.
@@ -1979,39 +2052,111 @@ impl SdroxideApp {
         cmds: &mut Vec<Command>,
         io: &mut SettingsIo,
     ) {
-        use sdroxide_types::Backend;
-
-        let tabs = vec![
-            (SettingsTab::General, "General"),
-            (SettingsTab::Radio, "Radio"),
-            (SettingsTab::Cw, "CW"),
-            (SettingsTab::Ui, "UI"),
-            (SettingsTab::Alerts, "Alerts"),
-            (SettingsTab::Controls, "Controls"),
-            (SettingsTab::Spots, "Spots"),
-            (SettingsTab::FreeDv, "FreeDV"),
-            (SettingsTab::Uploads, "Uploads"),
-            (SettingsTab::Winlink, "Winlink"),
-            (SettingsTab::Servers, "Servers"),
-            (SettingsTab::TrSwitch, "T/R switch"),
-            (SettingsTab::Tle, "TLE"),
-            (SettingsTab::Profiles, "Profiles"),
-        ];
-
-        // Wrapped: the tab strip no longer fits the window's width on one line.
-        // Real tabs rather than chips — a chip strip standing in for a tab strip
-        // reads as a row of buttons that happen to stay pressed, with nothing to
-        // say the page below belongs to the one that is lit.
-        crate::chrome::tab_bar(ui, |ui, bar| {
-            for (t, label) in tabs {
-                if bar.tab(ui, *io.tab == t, label).clicked() {
-                    *io.tab = t;
+        // **A menu down the left, the page beside it** — the shape a settings
+        // window has had everywhere since the first telephone exchange, and the
+        // only one that still works at fifteen pages.
+        //
+        // The strip this replaced was already wrapping onto a second row, and
+        // adding Audio made it worse: fifteen labels across a 900 pt window is
+        // about 60 pt each, which is where labels start being cut off. A column
+        // has no such ceiling, and a column can carry the grouping — four quiet
+        // headings saying which is which — that a single row cannot.
+        //
+        // Below the width where a column would cost the page more than the
+        // navigation is worth, it goes back to the strip rather than squeezing:
+        // a 380 pt window split 180/200 shows a page nobody can read.
+        if use_left_menu(ui.available_width()) {
+            let menu_w = MENU_WIDTH;
+            // `vertical` rather than `allocate_ui`: an allocated child inherits
+            // the surrounding left-to-right layout, so the menu drew as one
+            // long row of headings — the strip this replaced, with the group
+            // names now sitting in the middle of it.
+            let avail_h = ui.available_height();
+            ui.horizontal_top(|ui| {
+                ui.vertical(|ui| {
+                    ui.set_width(menu_w);
+                    ui.set_max_height(avail_h);
+                    // Its own scroll: fifteen entries and four headings are
+                    // taller than a short window, and a menu whose last entries
+                    // are below the fold is a menu without them.
+                    egui::ScrollArea::vertical()
+                        .id_salt("settings-menu")
+                        .show(ui, |ui| self.settings_menu(ui, io));
+                });
+                ui.add_space(6.0);
+                ui.separator();
+                ui.add_space(6.0);
+                ui.vertical(|ui| {
+                    // No width set: the page takes whatever the menu left, which
+                    // is the only figure that accounts for the separator and the
+                    // gaps. A page laid out to a width computed before them runs
+                    // past the window's edge, and the clipping shows up as
+                    // paragraphs cut mid-word.
+                    ui.set_max_height(avail_h);
+                    self.settings_page(ui, cmds, io);
+                });
+            });
+        } else {
+            // The strip, unchanged: real tabs rather than chips — a chip strip
+            // standing in for a tab strip reads as a row of buttons that happen
+            // to stay pressed, with nothing to say the page below belongs to
+            // the one that is lit.
+            crate::chrome::tab_bar(ui, |ui, bar| {
+                for (_group, entries) in SETTINGS_GROUPS {
+                    for (t, label) in *entries {
+                        if bar.tab(ui, *io.tab == *t, *label).clicked() {
+                            *io.tab = *t;
+                        }
+                    }
                 }
+            });
+            ui.add_space(8.0);
+            self.settings_page(ui, cmds, io);
+        }
+    }
+
+    /// The left menu: four quiet groups, the current page lit.
+    ///
+    /// Headings are labels and not collapsible rows on purpose. A setting that
+    /// is inside a collapsed group is a setting that is not there, and the whole
+    /// point of this window is that a beginner can see what exists.
+    fn settings_menu(&self, ui: &mut egui::Ui, io: &mut SettingsIo) {
+        let selection = ui.visuals().selection.bg_fill;
+        let heading = ui.visuals().weak_text_color();
+        for (group, entries) in SETTINGS_GROUPS {
+            ui.label(
+                egui::RichText::new(*group)
+                    .size(10.5)
+                    .color(heading)
+                    .strong(),
+            );
+            for (tab, label) in *entries {
+                let lit = *io.tab == *tab;
+                // The row paints the highlight rather than the label, so the
+                // whole width of the column is the target — a 60 pt label is a
+                // small thing to aim at.
+                egui::Frame::new()
+                    .fill(if lit { selection } else { egui::Color32::TRANSPARENT })
+                    .corner_radius(3)
+                    .inner_margin(egui::Margin::symmetric(8, 3))
+                    .show(ui, |ui| {
+                        // `selected` is false on purpose: the frame has already
+                        // drawn the highlight, and egui's own would double it.
+                        if ui
+                            .selectable_label(false, egui::RichText::new(*label).strong())
+                            .clicked()
+                        {
+                            *io.tab = *tab;
+                        }
+                    });
             }
-        });
-        // No separator: the strip's own baseline is the line between the tabs
-        // and the page they open.
-        ui.add_space(8.0);
+            ui.add_space(4.0);
+        }
+    }
+
+    /// The page the menu has opened.
+    fn settings_page(&self, ui: &mut egui::Ui, cmds: &mut Vec<Command>, io: &mut SettingsIo) {
+        use sdroxide_types::Backend;
 
         match io.tab {
             SettingsTab::General => {
@@ -2258,8 +2403,7 @@ impl SdroxideApp {
                 ui.add_space(10.0);
                 ui.separator();
                 ui.add_space(6.0);
-                self.settings_recordings_dir(ui, io.recordings_choose, io.recordings_reset);
-
+    
                 ui.add_space(10.0);
                 ui.separator();
                 ui.add_space(6.0);
@@ -2280,8 +2424,7 @@ impl SdroxideApp {
                 // running two rigs at once runs two interfaces at once, and one
                 // pair of pickers on a shared page could only describe one of
                 // them (issue #474).
-                self.settings_user_audio(ui, io.audio_pick, io.routing_pick);
-
+    
                 // Which station this client is signed in to, and the way out of
                 // it. Above the server-side blocks below, because those are drawn
                 // only for a station in this process while this is drawn for a
@@ -2323,6 +2466,17 @@ impl SdroxideApp {
                         self.remote_status.as_ref(),
                     );
                 }
+            }
+            SettingsTab::Audio => {
+                self.settings_audio_tab(
+                    ui,
+                    io.audio_pick,
+                    io.routing_pick,
+                    io.radio_edit,
+                    io.recordings_choose,
+                    io.recordings_reset,
+                );
+                return;
             }
             SettingsTab::Radio => {
                 // The station's radios, managed from here: this page is where
@@ -2715,25 +2869,6 @@ impl SdroxideApp {
                     smeter_cal_combo(ui, &mut cfg.smeter_cal);
                     ui.end_row();
 
-                    // The received audio, streamed out for another program.
-                    // Per radio and on the server with the rest of the file,
-                    // because it points at *this* radio's audio.
-                    ui.label(RichText::new("UDP audio").strong());
-                    crate::chrome::field(
-                        ui,
-                        egui::TextEdit::singleline(&mut cfg.udp_audio)
-                            .desired_width(150.0)
-                            .hint_text("127.0.0.1:7355"),
-                    )
-                    .on_hover_text(
-                        "Stream the received audio to `host:port` so another program can use \
-                         it — a decoder, a recorder, a second machine.\n\nMono, 16-bit, at the \
-                         receive rate, one datagram per audio block, and it is the **recording \
-                         tap's** audio: the AF volume, MUTE and transmitting do not affect it, \
-                         because an external decoder wants the radio and not your headphone \
-                         level.\n\nA numeric address, not a hostname. Empty is off.",
-                    );
-                    ui.end_row();
                 });
                 if let sdroxide_types::RxSite::Elsewhere(g) = &*site {
                     let g = g.trim();
@@ -2909,30 +3044,21 @@ impl SdroxideApp {
                         self.caps.as_ref(),
                         &self.state.antenna_rx,
                         self.state.rx_antenna,
-                        self.radio_audio_devices
-                            .as_ref()
-                            .map(|(i, o)| (i.as_slice(), o.as_slice())),
                         io.can_probe,
-                        io.audio_rescan,
                         cmds,
                     ),
-                    Backend::UsbAudio => settings_usb_audio_tab(
-                        ui,
-                        self.radio_audio_devices
-                            .as_ref()
-                            .map(|(i, o)| (i.as_slice(), o.as_slice())),
-                        io.radio_edit,
-                        io.audio_rescan,
-                        io.can_probe,
-                    ),
+                    Backend::UsbAudio => settings_usb_audio_tab(ui),
                     Backend::AtsMini => settings_atsmini_tab(
                         ui,
-                        self.radio_audio_devices
-                            .as_ref()
-                            .map(|(i, o)| (i.as_slice(), o.as_slice())),
                         io.radio_edit,
+                        // Carries the tab's "Apply / reconnect" button, and it
+                        // has always been handed the *audio rescan* flag. Both
+                        // are `&mut bool`, so the types never caught it: the
+                        // button re-asks for device lists rather than reopening
+                        // the radio. Left exactly as it was — fixing it belongs
+                        // with whoever changes this path, not inside a settings
+                        // refactor.
                         io.audio_rescan,
-                        io.can_probe,
                         self.atsmini_memories.as_deref(),
                         cmds,
                     ),
@@ -3023,7 +3149,6 @@ impl SdroxideApp {
                         &self.elad_devices,
                         &self.serial_ports,
                         &self.state.antenna_rx,
-                        self.radio_audio_devices.as_ref().map(|(_, o)| o.as_slice()),
                         io.radio_edit,
                         io.elad_rescan,
                         io.elad_copy_report,
@@ -4976,5 +5101,205 @@ mod tests {
         assert_eq!(cb_call_length_problem("DL1ABCDEFGH"), None);
         assert_eq!(cb_call_length_problem(""), None);
         assert_eq!(cb_call_length_problem("K1ABC"), None);
+    }
+}
+
+/// Render the settings window to a PNG, so the layout can be looked at.
+///
+/// A settings window is a *drawn* thing: the menu fits or it does not, the page
+/// is readable or it is not, and no assertion about a rectangle can say. So this
+/// writes the real window at three widths — the desktop default, a tablet, and a
+/// phone — and leaves the pictures in `target/settings-probe-*.png` to open.
+///
+/// `SDROXIDE_PROBE=1 cargo test -p sdroxide-ui --lib settings_probe_png -- --nocapture`
+#[cfg(test)]
+mod settings_probe {
+    use super::SettingsTab;
+    use crate::app::SdroxideApp;
+
+    /// A station with no radio behind it, which is all a layout needs: the
+    /// window is drawn from the app's own state and the device lists are the
+    /// ones it has been told about.
+    struct Bare;
+
+    impl sdroxide_types::RadioController for Bare {
+        fn send(&mut self, _cmd: sdroxide_types::Command) {}
+        fn poll_event(&mut self) -> Option<sdroxide_types::RadioEvent> {
+            None
+        }
+    }
+
+    fn probe_app() -> (eframe::egui::Context, SdroxideApp) {
+        use eframe::egui;
+        let dir = std::env::temp_dir().join("sdroxide-settings-probe");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        unsafe { std::env::set_var("SDROXIDE_CONFIG_DIR", &dir) };
+        let ctx = egui::Context::default();
+        let app = SdroxideApp::new_tab(&ctx, None, None, Box::new(Bare), 0, true);
+        (ctx, app)
+    }
+
+    /// One width, one page, one picture.
+    fn shot(name: &str, size: eframe::egui::Vec2, tab: SettingsTab) {
+        use eframe::egui;
+        if std::env::var("SDROXIDE_PROBE").is_err() {
+            return;
+        }
+        let (ctx, mut app) = probe_app();
+        // A sound-card radio, so the pickers and the typed field are in the
+        // picture: with no radio attached there is nothing under "this radio's
+        // audio" to look at, and looking at the wrong radio proves nothing.
+        // A sound-card radio, so the pickers and the typed field are in the
+        // picture. Re-stated every frame: opening the window re-reads the radio
+        // configuration from the controller, which here has none.
+        fn cat_radio(app: &SdroxideApp) -> Option<sdroxide_types::RadioConfig> {
+            let mut cfg = app.radio_cfg.clone().unwrap_or_default();
+            cfg.backend = sdroxide_types::Backend::Cat;
+            cfg.radio_audio_in = Some("Generic AB13X USB Audio".into());
+            cfg.rx_audio_gain_db = 6.0;
+            Some(cfg)
+        }
+        app.radio_cfg = cat_radio(&app);
+        app.settings_tab = tab;
+        // The same edge the operator's chip takes; `open_radio_settings` is the
+        // variant that also picks the Radio page.
+        app.show_settings = true;
+        // A few frames: the first opens the window, the second lays it out, and
+        // the device lists are asked for on the open.
+        // Textures accumulate across every frame, not the last one: the font
+        // atlas is handed out once, in the first frame, and a mesh whose texture
+        // is unknown is skipped — so keeping only the final frame's delta
+        // rasterises every piece of text to nothing.
+        let mut textures = crate::test_raster::Textures::default();
+        let mut full = None;
+        for _ in 0..4 {
+            let input = egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, size)),
+                ..Default::default()
+            };
+            app.radio_cfg = cat_radio(&app);
+            let out = ctx.run_ui(input, |ui| {
+                eframe::App::ui(&mut app, ui, &mut eframe::Frame::_new_kittest())
+            });
+            textures.apply(&out.textures_delta);
+            full = Some(out);
+        }
+        let full = full.expect("at least one frame");
+        let img = crate::test_raster::rasterize(
+            &ctx,
+            full,
+            &textures,
+            size,
+            ctx.style_of(egui::Theme::Dark).visuals.window_fill(),
+        );
+        // `target/` is relative to the crate a test binary runs in, so the
+        // path is anchored on the manifest directory rather than the cwd.
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../target");
+        let _ = std::fs::create_dir_all(&dir);
+        let path = dir.join(format!("settings-probe-{name}.png"));
+        img.save(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+        println!("wrote {}", path.display());
+    }
+
+    #[test]
+    fn settings_probe_png() {
+        shot("desktop-audio", eframe::egui::Vec2::new(1280.0, 900.0), SettingsTab::Audio);
+        shot("desktop-general", eframe::egui::Vec2::new(1280.0, 900.0), SettingsTab::General);
+        shot("tablet-audio", eframe::egui::Vec2::new(820.0, 900.0), SettingsTab::Audio);
+        shot("phone-audio", eframe::egui::Vec2::new(400.0, 780.0), SettingsTab::Audio);
+    }
+}
+
+#[cfg(test)]
+mod settings_menu_tests {
+    use super::{SETTINGS_GROUPS, SettingsTab, use_left_menu};
+
+    /// Every tab, counted.
+    const EVERY_TAB: &[SettingsTab] = &[
+        SettingsTab::General,
+        SettingsTab::Radio,
+        SettingsTab::Audio,
+        SettingsTab::Cw,
+        SettingsTab::Ui,
+        SettingsTab::Alerts,
+        SettingsTab::Controls,
+        SettingsTab::Spots,
+        SettingsTab::FreeDv,
+        SettingsTab::Uploads,
+        SettingsTab::Winlink,
+        SettingsTab::Servers,
+        SettingsTab::TrSwitch,
+        SettingsTab::Tle,
+        SettingsTab::Profiles,
+    ];
+
+    /// **A tab that is not in the menu is a setting that does not exist.**
+    ///
+    /// The menu is a list somebody wrote out by hand, and the enum is the truth.
+    /// Adding a page and forgetting the menu is the one way this window loses a
+    /// setting without anything failing to compile — so it is counted here
+    /// instead, and the narrow strip's fallback list is the same constant, so
+    /// the two layouts cannot disagree about what exists either.
+    #[test]
+    fn every_tab_is_in_exactly_one_group() {
+        let mut seen: Vec<SettingsTab> =
+            SETTINGS_GROUPS.iter().flat_map(|(_, e)| e.iter().map(|(t, _)| *t)).collect();
+        seen.sort_by_key(|t| tab_name(*t));
+        assert_eq!(
+            seen.len(),
+            EVERY_TAB.len(),
+            "the menu lists {} entries for {} tabs",
+            seen.len(),
+            EVERY_TAB.len()
+        );
+        for tab in EVERY_TAB {
+            let n = seen.iter().filter(|t| *t == tab).count();
+            assert_eq!(n, 1, "{} appears {n} times in the menu — exactly once, or not at all", tab_name(*tab));
+        }
+        seen.dedup();
+        let missing: Vec<&str> = EVERY_TAB
+            .iter()
+            .filter(|t| !seen.contains(t))
+            .map(|t| tab_name(*t))
+            .collect();
+        assert!(missing.is_empty(), "these tabs are missing from the menu: {missing:?}");
+    }
+
+    #[test]
+    fn the_groups_are_named_and_ordered_for_reading() {
+        let names: Vec<&str> = SETTINGS_GROUPS.iter().map(|(g, _)| *g).collect();
+        assert_eq!(names, ["Station", "Radio work", "Sending", "Setup"]);
+        // Station first and Setup last: the things you set once when building the
+        // station, and the things you reach for rarely, in that order.
+        assert!(SETTINGS_GROUPS[0].1.iter().any(|(t, _)| *t == SettingsTab::Audio));
+    }
+
+    /// A tab's own name, for a message a person can act on — a discriminant
+    /// number helps nobody.
+    fn tab_name(t: SettingsTab) -> &'static str {
+        SETTINGS_GROUPS
+            .iter()
+            .flat_map(|(_, e)| *e)
+            .find(|(x, _)| *x == t)
+            .map(|(_, l)| *l)
+            .unwrap_or("?")
+    }
+
+    /// The threshold, which is the whole of the difference between the two
+    /// layouts and the number most worth pinning.
+    #[test]
+    fn a_wide_window_gets_the_menu_and_a_narrow_one_the_strip() {
+        assert!(use_left_menu(900.0), "the settings window's own default");
+        assert!(use_left_menu(1280.0));
+        assert!(!use_left_menu(400.0), "a phone keeps the strip it had");
+        assert!(!use_left_menu(380.0), "the window's own floor keeps the strip");
+        // And the reason for the number: at the threshold the page still has a
+        // readable width, where at the window's floor it would not.
+        let page_at_threshold = 620.0 - super::MENU_WIDTH;
+        let page_at_floor = 380.0 - super::MENU_WIDTH;
+        assert!(page_at_threshold >= 400.0, "a page of {page_at_threshold} pt is too narrow to read");
+        assert!(page_at_floor < 260.0, "which is why the floor keeps the strip");
     }
 }

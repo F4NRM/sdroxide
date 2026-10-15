@@ -9,7 +9,7 @@ use eframe::egui::{self, Color32, ComboBox, DragValue, RichText, Slider};
 use sdroxide_types::{Command, Direction};
 
 use crate::app::SdroxideApp;
-use crate::app::settings::{device_combo, enum_combo};
+use crate::app::settings::enum_combo;
 use crate::chrome::StyledCombo;
 
 /// Why a discovery or test control is greyed out.
@@ -170,11 +170,7 @@ pub(in crate::app) fn settings_cat_tab(
     // antenna, where it has one, is in the receive path.
     antenna_rx: &str,
     rx_antenna: bool,
-    // The sound cards on the machine the *rig* is plugged into, once that
-    // machine has answered. `None` until it has.
-    radio_audio: Option<(&[String], &[String])>,
     can_probe: bool,
-    apply: &mut bool,
     cmds: &mut Vec<Command>,
 ) {
     use sdroxide_types::{
@@ -999,7 +995,7 @@ pub(in crate::app) fn settings_cat_tab(
             }
         }
     });
-    cat_radio_audio(ui, cfg, radio_audio, can_probe, apply);
+    cat_radio_audio(ui);
     ui.add_space(6.0);
     ui.label(RichText::new("Press \"Apply / reconnect\" to switch without a restart.").weak());
 }
@@ -1020,150 +1016,48 @@ pub(in crate::app) fn settings_cat_tab(
 /// is this screen's own speaker and microphone, and offering a laptop's
 /// built-in mic as the shack transceiver's transmit path would be worse than
 /// offering nothing at all.
-fn cat_radio_audio(
-    ui: &mut egui::Ui,
-    cfg: &mut sdroxide_types::RadioConfig,
-    devices: Option<(&[String], &[String])>,
-    can_probe: bool,
-    rescan: &mut bool,
-) {
+fn cat_radio_audio(ui: &mut egui::Ui) {
+    // The pickers moved to Settings → Audio, where your own sound and this
+    // radio's sit together. What is left here is what only this tab knows.
     ui.add_space(10.0);
     ui.separator();
     ui.add_space(6.0);
     ui.label(RichText::new("Radio audio (sound card)").strong());
-    let Some((inputs, outputs)) = devices else {
-        ui.label(
-            RichText::new("Waiting for the sound cards on the machine the radio is plugged into.")
-                .weak(),
-        );
-        return;
-    };
-    let (ci, co) = (cfg.radio_audio_in.clone(), cfg.radio_audio_out.clone());
-    // Beside the pickers rather than at the foot of the tab, where every other
-    // interface puts its Rescan \u{2014} this is the row the rescan is *for*, and
-    // the same shape as the RTL-SDR dongle row's.
-    probe_only(ui, can_probe, |ui| {
-        if ui
-            .button("Rescan")
-            .on_hover_text(
-                "Ask the machine again which sound cards it has. No device is opened, so \
-                 this is safe to press while receiving.\n\nUse it after plugging a codec in. \
-                 It does not re-open the radio \u{2014} that is Apply \u{2014} and it cannot \
-                 repair a card the sound server has renamed, which is reported on the radio \
-                 instead.",
-            )
-            .clicked()
-        {
-            *rescan = true;
-        }
-    });
-    egui::Grid::new("radio-audio").num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
-        ui.label("From radio (RX)");
-        probe_only(ui, can_probe, |ui| {
-            device_combo(ui, "r-in", inputs, &ci, |n| cfg.radio_audio_in = n)
-        });
-        ui.end_row();
-        ui.label("To radio (TX)");
-        probe_only(ui, can_probe, |ui| {
-            device_combo(ui, "r-out", outputs, &co, |n| cfg.radio_audio_out = n)
-        });
-        ui.end_row();
-    });
-    // No button here. There is one "Apply / reconnect" at the foot of this
-    // tab, and it already does this and everything else — it writes the
-    // whole radio config and reopens the source. A second button with the same
-    // label, a different hover and the same effect is the fork's own bug
-    // class: two controls that look like they do different things and cannot
-    // be told apart. So this section says where the button is instead.
-    ui.add_space(4.0);
     ui.label(
         RichText::new(
-            "These cards are opened by \u{201c}Apply / reconnect\u{201d} at the foot of this tab.",
+            "Which sound card carries this radio's audio is under **Audio**, with your own \
+             speakers and microphone \u{2014} it is the same pair of settings whichever radio \
+             you are working, so it is one page.",
         )
         .weak(),
     );
-    crate::app::settings::general::settings_rx_audio_gain(ui, cfg);
 }
 
 /// The sound-card radio: no control cable, so the whole tab is the two card
 /// choices (receive in, transmit out) and the reminder that the rig keys itself
 /// off VOX. Drawn after the CAT tab so the two sink-holes for audio devices
 /// sit together in the file.
-pub(in crate::app) fn settings_usb_audio_tab(
-    ui: &mut egui::Ui,
-    devices: Option<(&[String], &[String])>,
-    radio_edit: &mut Option<sdroxide_types::RadioConfig>,
-    rescan: &mut bool,
-    can_probe: bool,
-) {
-    let Some(cfg) = radio_edit.as_mut() else {
-        ui.label("Waiting for the configuration of the machine the radio is attached to.");
-        return;
-    };
-    // The two lists are the cards on the machine the radio is plugged into,
-    // and they arrive as an answer. Until then the combos would offer nothing
-    // but "System default", which reads as a machine with no sound cards.
-    let Some((inputs, outputs)) = devices else {
-        ui.label(
-            RichText::new("Waiting for the sound cards on the machine the radio is plugged into.")
-                .weak(),
-        );
-        return;
-    };
-    // Read out before the combos, which hand the fields to their editors.
-    let (ci, co) = (cfg.radio_audio_in.clone(), cfg.radio_audio_out.clone());
-    // The same Rescan, in the same place, as the CAT tab's audio section.
-    probe_only(ui, can_probe, |ui| {
-        if ui
-            .button("Rescan")
-            .on_hover_text(
-                "Ask the machine again which sound cards it has. No device is opened, so \
-                 this is safe to press while receiving.\n\nUse it after plugging the rig's \
-                 codec in. It does not re-open the radio \u{2014} that is Apply \u{2014} and it \
-                 cannot repair a card the sound server has renamed, which is reported on \
-                 the radio instead.",
-            )
-            .clicked()
-        {
-            *rescan = true;
-        }
-    });
-    egui::Grid::new("usb-audio-grid").num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
-        // Only the combos are greyed: wrapping whole rows would put both of
-        // them, `end_row` and all, inside a single cell of the grid.
-        ui.label("Receive (radio → PC)").on_hover_text(
-            "The sound card the radio's own audio comes in on — its headphone \
-             socket into the computer's line or mic input. Everything on the \
-             panadapter and in the decoders arrives here.",
-        );
-        probe_only(ui, can_probe, |ui| {
-            device_combo(ui, "ua-in", inputs, &ci, |n| cfg.radio_audio_in = n)
-        });
-        ui.end_row();
-        ui.label("Transmit (PC → radio mic)").on_hover_text(
-            "The sound card that carries the audio the radio must broadcast — \
-             the computer's output into the radio's mic socket. The radio keys \
-             itself, by VOX, the moment audio arrives here, so this device is \
-             silent unless the radio is being transmitted through.",
-        );
-        probe_only(ui, can_probe, |ui| {
-            device_combo(ui, "ua-out", outputs, &co, |n| cfg.radio_audio_out = n)
-        });
-        ui.end_row();
-    });
-    ui.add_space(4.0);
+pub(in crate::app) fn settings_usb_audio_tab(ui: &mut egui::Ui) {
+    // The pickers moved to Settings → Audio, where your own sound and this
+    // radio's sit together. What is left here is what only this tab knows.
+    ui.add_space(10.0);
+    ui.separator();
+    ui.add_space(6.0);
+    ui.label(RichText::new("Radio audio (sound card)").strong());
     ui.label(
         RichText::new(
-            "This radio has no control cable — it keys itself off VOX, so there is no PTT to \
-             command. Transmit is audio into the radio's microphone.",
+            "Which sound card carries this radio's audio is under **Audio**, with your own \
+             speakers and microphone \u{2014} it is the same pair of settings whichever radio \
+             you are working, so it is one page.",
         )
         .weak(),
     );
-    // The same single button as every other interface tab — see
-    // `cat_radio_audio`. A sentence here rather than a second button.
+    ui.add_space(4.0);
     ui.label(
         RichText::new(
-            "These cards are opened by \u{201c}Apply / reconnect\u{201d} at the foot of this tab.",
+            "This radio has no control cable \u{2014} it keys itself off VOX, so there is no PTT to \
+             command. Transmit is audio into the radio's microphone, which is why the radio's \
+             transmit audio is on the Audio page and not here.",
         )
         .weak(),
     );
@@ -1175,10 +1069,8 @@ pub(in crate::app) fn settings_usb_audio_tab(
 /// offered — the Si4732 demodulates in hardware and there is nothing to key.
 pub(in crate::app) fn settings_atsmini_tab(
     ui: &mut egui::Ui,
-    devices: Option<(&[String], &[String])>,
     radio_edit: &mut Option<sdroxide_types::RadioConfig>,
     apply: &mut bool,
-    can_probe: bool,
     memories: Option<&[sdroxide_types::atsmini::AtsMiniMemory]>,
     cmds: &mut Vec<Command>,
 ) {
@@ -1218,34 +1110,20 @@ pub(in crate::app) fn settings_atsmini_tab(
         ui.end_row();
     });
 
+    // The pickers moved to Settings → Audio, where your own sound and this
+    // radio's sit together. What is left here is what only this tab knows.
     ui.add_space(10.0);
     ui.separator();
     ui.add_space(6.0);
     ui.label(RichText::new("Radio audio (sound card)").strong());
-    let ci = cfg.radio_audio_in.clone();
-    egui::Grid::new("atsmini-audio").num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
-        ui.label("Receive (radio → PC)").on_hover_text(
-            "The PC input the receiver's headphone jack is wired to. Everything on the \
-             panadapter and in the decoders arrives here — the ATS Mini has no digital audio.",
-        );
-        // The list arrives as an answer; until then say so rather than leave the
-        // combo empty. It must not skip the Apply button below, which is the
-        // whole reason the host/port fields above are editable at all.
-        match devices {
-            Some((inputs, _outputs)) => probe_only(ui, can_probe, |ui| {
-                device_combo(ui, "ats-in", inputs, &ci, |n| cfg.radio_audio_in = n)
-            }),
-            None => {
-                ui.label(
-                    RichText::new(
-                        "Waiting for the sound cards on the machine the radio is attached to.",
-                    )
-                    .weak(),
-                );
-            }
-        }
-        ui.end_row();
-    });
+    ui.label(
+        RichText::new(
+            "Which sound card carries this radio's audio is under **Audio**, with your own \
+             speakers and microphone \u{2014} it is the same pair of settings whichever radio \
+             you are working, so it is one page.",
+        )
+        .weak(),
+    );
 
     ui.add_space(4.0);
     ui.label(
@@ -4979,7 +4857,6 @@ pub(in crate::app) fn settings_elad_tab(
     // the radio remembers it across power cycles and a third copy of it here
     // could only ever disagree.
     antenna_rx: &str,
-    audio_outputs: Option<&[String]>,
     radio_edit: &mut Option<sdroxide_types::RadioConfig>,
     rescan: &mut bool,
     copy_report: &mut bool,
@@ -5288,30 +5165,13 @@ pub(in crate::app) fn settings_elad_tab(
         ui.add(DragValue::new(&mut cfg.cat.poll_hz).speed(0.5).range(0.5..=20.0).suffix(" Hz"));
         ui.end_row();
 
+        // The transmit-audio picker moved to Settings → Audio with every other
+        // audio device. What is specific to this rig stays here.
         ui.label("Transmit audio");
-        match audio_outputs {
-            Some(outs) => {
-                let shown =
-                    cfg.radio_audio_out.clone().unwrap_or_else(|| "— system default —".to_string());
-                ComboBox::from_id_salt("elad_txaudio")
-                    .width(300.0)
-                    .selected_text(shown)
-                    .show_styled(ui, |ui| {
-                        ui.selectable_value(&mut cfg.radio_audio_out, None, "— system default —");
-                        for o in outs {
-                            ui.selectable_value(&mut cfg.radio_audio_out, Some(o.clone()), o);
-                        }
-                    })
-                    .response
-                    .on_hover_text(
-                        "The FDM-DUO's own USB Audio port. Left on the system default \
-                     it is almost never the radio — it is the machine's speakers.",
-                    );
-            }
-            None => {
-                ui.label(RichText::new("press Rescan to list the sound cards").weak());
-            }
-        }
+        ui.label(
+            RichText::new("Which sound card carries the audio is under **Audio**.")
+                .weak(),
+        );
         ui.end_row();
 
         ui.label("");

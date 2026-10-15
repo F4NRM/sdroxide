@@ -13,6 +13,13 @@ and the [README](https://github.com/madmedicnl/sdroxide-brown#readme).
 
 ## [Unreleased]
 
+### Added
+- **A Settings → Audio page** — your speakers and microphone, this radio's sound card, and where recordings are written, in one place instead of four pages under four names.
+- **Device pickers you can type into** — a sound server can offer a device the host API does not enumerate, and the name can now be typed when it is not on the list.
+
+### Changed
+- **The Settings window has a menu down the left** — the pages are grouped Station / Radio work / Sending / Setup, with the page beside them. Below 620 pt it still uses the tab strip, which wraps rather than cutting labels off.
+
 ### Fixed
 - **The link button opens the radio where it last tuned** — a start frequency the tuner cannot reach no longer has to be corrected by hand on every start, and a station already stuck on one now opens on one of its own channels (#72).
 

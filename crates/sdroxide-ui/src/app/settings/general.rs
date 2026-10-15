@@ -71,6 +71,53 @@ pub(in crate::app) fn device_combo(
     });
 }
 
+/// A device picker that can also be typed into.
+///
+/// [`device_combo`]'s list is a convenience, not the truth. A sound server can
+/// expose a device the host API does not enumerate — a PipeWire node, a
+/// capture device another program is holding, one that appears only once
+/// something asks for it — and a picker that can only be pointed at leaves the
+/// operator with no way to name it. That is not hypothetical here: enumerating
+/// PipeWire nodes is the open half of the Bluetooth microphone work.
+///
+/// So the value is one editable line under the list, and typing wins. The field
+/// is **controlled** — re-seeded from the value every frame rather than kept in
+/// a buffer of its own — so a name picked from the list and a name typed in are
+/// the same value and cannot drift apart, and there is nothing per-field to
+/// keep alive between frames or to go stale when a pick arrives from elsewhere.
+pub(in crate::app) fn device_field(
+    ui: &mut egui::Ui,
+    id: &str,
+    names: &[String],
+    selected: &mut Option<String>,
+    what: &str,
+) {
+    // Stacked, not side by side: in a two-column grid row the second control
+    // lands in the next cell and the entry field is clipped to a few characters
+    // of whatever the name happens to start with.
+    ui.vertical(|ui| {
+        // The list reads the value and the closure writes it, so the value is
+        // copied across rather than borrowed twice.
+        let shown = selected.clone();
+        device_combo(ui, id, names, &shown, |n| *selected = n);
+        let mut text = selected.clone().unwrap_or_default();
+        let resp = ui.add(
+            egui::TextEdit::singleline(&mut text)
+                .id(egui::Id::new(id).with("typed"))
+                .desired_width(300.0)
+                .hint_text("…or type the name — empty is the system default"),
+        );
+        if resp.changed() {
+            *selected = (!text.is_empty()).then_some(text);
+        }
+        resp.on_hover_text(format!(
+            "The exact name {what} is opened by. Pick it from the list when it is there; type it \
+             when the list does not show it — a sound server can offer a device the host API \
+             does not enumerate. Empty uses the system default."
+        ));
+    });
+}
+
 /// Which station this client is signed in to, and the way back out of it.
 ///
 /// The other half of the sign-in cookie, and it lives here because a cookie
@@ -235,18 +282,23 @@ pub(in crate::app) fn settings_rx_audio_gain(
         }
     });
     ui.add_space(4.0);
-    ui.label(
-        RichText::new(
-            "Extra gain on everything this radio sends to the speakers, on top of the volume \
-             control. Leave it at 0 dB unless the radio is quiet at full volume: the volume \
-             rail's top is the audio as it arrives, so it can turn a radio down but never up, \
-             and some transceivers' USB sound output sits well below full scale.\n\n\
-             Go up 6 dB at a time. Too much clips — the audio is limited at full scale rather \
-             than allowed to wrap round, so overdoing it sounds harsh rather than loud. \
-             Recordings are taken ahead of this and are not affected.",
+    // Wrapped: an unwrapped label here runs the width of the page and is drawn
+    // over the paragraph after it, which is what rendering this page showed.
+    ui.add(
+        egui::Label::new(
+            RichText::new(
+                "Extra gain on everything this radio sends to the speakers, on top of the \
+                 volume control. Leave it at 0 dB unless the radio is quiet at full volume: the \
+                 volume rail's top is the audio as it arrives, so it can turn a radio down but \
+                 never up, and some transceivers' USB sound output sits well below full scale.\n\n\
+                 Go up 6 dB at a time. Too much clips — the audio is limited at full scale rather \
+                 than allowed to wrap round, so overdoing it sounds harsh rather than loud. \
+                 Recordings are taken ahead of this and are not affected.",
+            )
+            .size(10.5)
+            .color(crate::theme::gray(140)),
         )
-        .size(10.5)
-        .color(crate::theme::gray(140)),
+        .wrap(),
     );
 }
 
@@ -434,13 +486,15 @@ impl SdroxideApp {
     /// for the same reason: a remote client would be changing its own laptop's
     /// folder, not the station's.
     #[cfg(not(target_arch = "wasm32"))]
+    /// The folder row alone, for a page that has already said what it is
+    /// called — so the two headings do not sit one line apart saying the same
+    /// word twice.
     pub(in crate::app) fn settings_recordings_dir(
         &self,
         ui: &mut egui::Ui,
         choose: &mut bool,
         reset: &mut bool,
     ) {
-        ui.label(RichText::new("Recordings").strong());
         if self.ctrl.engine_is_remote() {
             ui.label(
                 RichText::new(
@@ -674,49 +728,118 @@ impl SdroxideApp {
         );
     }
 
-    /// The user's own speakers / microphone (applied live).
-    pub(in crate::app) fn settings_user_audio(
-        &self,
-        ui: &mut egui::Ui,
-        audio_pick: &mut Option<(bool, Option<String>)>,
-        routing_pick: &mut Option<sdroxide_types::AudioRouting>,
+}
+
+#[cfg(test)]
+mod device_entry_tests {
+    use super::device_field;
+    use eframe::egui;
+
+    const LIST: &[&str] = &["Built-in Audio", "USB Audio"];
+    const UNLISTED: &str = "bluez_input.AA_BB_CC_DD_EE_FF";
+
+    fn field_id() -> egui::Id {
+        egui::Id::new("t").with("typed")
+    }
+
+    /// One frame: draw the picker, and optionally feed the entry field keys.
+    fn frame(
+        ctx: &egui::Context,
+        selected: &mut Option<String>,
+        keys: &[egui::Event],
     ) {
-        let Some(devs) = &self.audio_devices else {
-            return;
+        let names: Vec<String> = LIST.iter().map(|s| (*s).into()).collect();
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::Vec2::new(700.0, 400.0),
+            )),
+            events: keys.to_vec(),
+            ..Default::default()
         };
-        ui.label(RichText::new("Your audio (speakers / microphone)").strong());
-        egui::Grid::new("user-audio").num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
-            ui.label("Output");
-            device_combo(ui, "u-out", &devs.outputs, &devs.selected_output, |n| {
-                *audio_pick = Some((true, n))
-            });
-            ui.end_row();
-            ui.label("Input");
-            device_combo(ui, "u-in", &devs.inputs, &devs.selected_input, |n| {
-                *audio_pick = Some((false, n))
-            });
-            ui.end_row();
-            // Which channel(s) the received audio reaches (#654). Applied live,
-            // so an operator hearing on one side only is a pick, not a restart.
-            ui.label("Channels");
-            let mut selected = devs.routing;
-            ComboBox::from_id_salt("u-routing")
-                .width(200.0)
-                .selected_text(selected.label())
-                .show_styled(ui, |ui| {
-                    for r in sdroxide_types::AudioRouting::ALL {
-                        ui.selectable_value(&mut selected, r, r.label());
-                    }
-                })
-                .response
-                .on_hover_text(
-                    "Which speaker channel(s) the received audio reaches. Left or right \
-                     silences the other, for hearing on one side only.",
-                );
-            if selected != devs.routing {
-                *routing_pick = Some(selected);
-            }
-            ui.end_row();
+        let _ = ctx.run_ui(input, |ui| {
+            device_field(ui, "t", &names, selected, "the test device");
         });
+    }
+
+    /// One frame that only draws and claims the keyboard, so the next frame's
+    /// keys go to the entry field rather than to nothing.
+    fn focus(ctx: &egui::Context, selected: &mut Option<String>) {
+        let _ = ctx.run_ui(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::Vec2::new(700.0, 400.0),
+                )),
+                ..Default::default()
+            },
+            |ui| {
+                let names: Vec<String> = LIST.iter().map(|s| (*s).into()).collect();
+                device_field(ui, "t", &names, selected, "the test device");
+                ui.memory_mut(|m| m.request_focus(field_id()));
+            },
+        );
+    }
+
+    fn text(s: &str) -> egui::Event {
+        egui::Event::Text(s.to_owned())
+    }
+
+    fn backspace() -> egui::Event {
+        egui::Event::Key {
+            key: egui::Key::Backspace,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::default(),
+        }
+    }
+
+    /// **A name the list does not carry is still enterable.**
+    ///
+    /// The whole point of the text field. A sound server can offer a device the
+    /// host API does not enumerate — enumerating PipeWire nodes is the open half
+    /// of the Bluetooth microphone work — and a picker that can only be pointed
+    /// at leaves the operator with no way to name it at all. Typed with real key
+    /// events, not by poking the value: a test that sets the field itself is
+    /// asserting that a struct holds what it was given.
+    #[test]
+    fn a_device_the_list_does_not_show_can_still_be_typed() {
+        let ctx = egui::Context::default();
+        let mut selected = None;
+        // Focus the entry field, then type into it as a person would.
+        focus(&ctx, &mut selected);
+        let keys: Vec<egui::Event> = std::iter::once(text(UNLISTED)).collect();
+        frame(&ctx, &mut selected, &keys);
+
+        assert_eq!(
+            selected.as_deref(),
+            Some(UNLISTED),
+            "a device name that is not in the list must be enterable — the list is a \
+             convenience, not the truth"
+        );
+        assert!(
+            !LIST.contains(&UNLISTED),
+            "the premise of this test: {UNLISTED} is deliberately not one of {LIST:?}"
+        );
+    }
+
+    /// **An emptied field means the system default**, not a device named "".
+    ///
+    /// `None` is how the rest of the audio code spells "system default"
+    /// everywhere, so a field left holding an empty string would ask the sound
+    /// server for a device called nothing.
+    #[test]
+    fn clearing_the_field_goes_back_to_the_system_default() {
+        let ctx = egui::Context::default();
+        let mut selected = Some("USB Audio".to_string());
+        focus(&ctx, &mut selected);
+        // One backspace per character typed so far.
+        let keys: Vec<egui::Event> = (0.."USB Audio".len()).map(|_| backspace()).collect();
+        frame(&ctx, &mut selected, &keys);
+        assert_eq!(
+            selected, None,
+            "an empty entry field is the system default, not an empty device name"
+        );
     }
 }
