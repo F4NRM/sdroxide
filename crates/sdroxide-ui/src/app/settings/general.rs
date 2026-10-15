@@ -104,7 +104,7 @@ pub(in crate::app) fn device_field(
         let resp = ui.add(
             egui::TextEdit::singleline(&mut text)
                 .id(egui::Id::new(id).with("typed"))
-                .desired_width(300.0)
+                .desired_width(super::audio::DEVICE_WIDTH)
                 .hint_text("…or type the name — empty is the system default"),
         );
         if resp.changed() {

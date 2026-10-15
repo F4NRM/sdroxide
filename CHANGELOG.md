@@ -20,8 +20,11 @@ and the [README](https://github.com/madmedicnl/sdroxide-brown#readme).
 
 ### Changed
 - **The Settings window has a menu down the left** — the pages are grouped Station / Radio work / Sending / Setup, with the page beside them. Below 620 pt it still uses the tab strip, which wraps rather than cutting labels off.
+- **Device rows on the Audio page are a label above a control**, not a two-column grid, and the controls are wide enough for a sound card's whole name.
 
 ### Fixed
+- **The current page's name is visible in the Settings menu** — it was drawn in the ordinary text colour over the selection colour, so the highlighted row had nothing written on it.
+- **A description on a settings page no longer paints itself over the Apply button** — 53 of them wrapped to two lines while reserving one.
 - **The ATS Mini's "Apply / reconnect" reopens the radio again** — it had been wired to the sound-card rescan, so it re-asked for the device list and reopened nothing.
 - **The link button opens the radio where it last tuned** — a start frequency the tuner cannot reach no longer has to be corrected by hand on every start, and a station already stuck on one now opens on one of its own channels (#72).
 - **The fill under the spectrum line no longer shows as vertical stripes** — it is shaded by height, with a choice of Fixed, Gradient or Mixed in Settings → UI and the SPEC popup's line row.

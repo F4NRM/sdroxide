@@ -58,6 +58,24 @@ fn section(ui: &mut egui::Ui, title: &str, why: &str) {
     ui.add_space(2.0);
 }
 
+/// One labelled control: the name above it, the control under it.
+///
+/// **Not a two-column grid.** In a grid the label is centred against the whole
+/// cell, and a device picker is two controls stacked — so the label landed
+/// beside the entry field instead of the dropdown, and the field was left at the
+/// dropdown's width with its hint cut off. Both were visible in a screenshot
+/// before anything here had been run by a person.
+fn field(ui: &mut egui::Ui, label: &str, add: impl FnOnce(&mut egui::Ui)) {
+    ui.label(RichText::new(label).size(10.5).color(gray(150)));
+    add(ui);
+    ui.add_space(6.0);
+}
+
+/// How wide a device control is drawn. Wider than the old 300 pt: a sound card
+/// is named in full — *Generic AB13X USB Audio, USB Audio [Audio]…* — and 300
+/// cut it off mid-name, so a list of four devices looked like one.
+pub(super) const DEVICE_WIDTH: f32 = 460.0;
+
 /// A wrapped note, in the same grey as the section explanations.
 fn note(ui: &mut egui::Ui, text: &str) {
     ui.add(egui::Label::new(RichText::new(text).size(10.5).color(gray(140))).wrap());
@@ -115,16 +133,15 @@ impl SdroxideApp {
             return;
         };
 
-        egui::Grid::new("your-audio").num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
-            ui.label("Speakers");
-            let mut out = devs.selected_output.clone();
+        let mut out = devs.selected_output.clone();
+        field(ui, "Speakers", |ui| {
             device_field(ui, "a-your-out", &devs.outputs, &mut out, "your speakers");
-            if out != devs.selected_output {
-                *audio_pick = Some((true, out));
-            }
-            ui.end_row();
+        });
+        if out != devs.selected_output {
+            *audio_pick = Some((true, out));
+        }
 
-            ui.label("Channels");
+        field(ui, "Channels", |ui| {
             let mut routing = devs.routing;
             ComboBox::from_id_salt("a-your-routing")
                 .width(200.0)
@@ -142,16 +159,15 @@ impl SdroxideApp {
             if routing != devs.routing {
                 *routing_pick = Some(routing);
             }
-            ui.end_row();
-
-            ui.label("Microphone");
-            let mut mic = devs.selected_input.clone();
-            device_field(ui, "a-your-in", &devs.inputs, &mut mic, "your microphone");
-            if mic != devs.selected_input {
-                *audio_pick = Some((false, mic));
-            }
-            ui.end_row();
         });
+
+        let mut mic = devs.selected_input.clone();
+        field(ui, "Microphone", |ui| {
+            device_field(ui, "a-your-in", &devs.inputs, &mut mic, "your microphone");
+        });
+        if mic != devs.selected_input {
+            *audio_pick = Some((false, mic));
+        }
 
         note(
             ui,
@@ -219,26 +235,24 @@ impl SdroxideApp {
             }
         });
 
-        egui::Grid::new("radio-audio").num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
-            if has_rx {
-                ui.label("From the radio");
-                let mut rx = cfg.radio_audio_in.clone();
+        if has_rx {
+            let mut rx = cfg.radio_audio_in.clone();
+            field(ui, "From the radio", |ui| {
                 device_field(ui, "a-radio-in", inputs, &mut rx, "this radio's receive audio");
-                if rx != cfg.radio_audio_in {
-                    cfg.radio_audio_in = rx;
-                }
-                ui.end_row();
+            });
+            if rx != cfg.radio_audio_in {
+                cfg.radio_audio_in = rx;
             }
-            if has_tx {
-                ui.label("To the radio");
-                let mut tx = cfg.radio_audio_out.clone();
+        }
+        if has_tx {
+            let mut tx = cfg.radio_audio_out.clone();
+            field(ui, "To the radio", |ui| {
                 device_field(ui, "a-radio-out", outputs, &mut tx, "this radio's transmit audio");
-                if tx != cfg.radio_audio_out {
-                    cfg.radio_audio_out = tx;
-                }
-                ui.end_row();
+            });
+            if tx != cfg.radio_audio_out {
+                cfg.radio_audio_out = tx;
             }
-        });
+        }
 
         if has_rx {
             settings_rx_audio_gain(ui, cfg);

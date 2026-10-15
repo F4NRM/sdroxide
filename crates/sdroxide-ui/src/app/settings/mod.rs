@@ -2144,34 +2144,26 @@ impl SdroxideApp {
     /// is inside a collapsed group is a setting that is not there, and the whole
     /// point of this window is that a beginner can see what exists.
     fn settings_menu(&self, ui: &mut egui::Ui, io: &mut SettingsIo) {
-        let selection = ui.visuals().selection.bg_fill;
-        let heading = ui.visuals().weak_text_color();
         for (group, entries) in SETTINGS_GROUPS {
             ui.label(
                 egui::RichText::new(*group)
                     .size(10.5)
-                    .color(heading)
+                    .color(ui.visuals().weak_text_color())
                     .strong(),
             );
             for (tab, label) in *entries {
-                let lit = *io.tab == *tab;
-                // The row paints the highlight rather than the label, so the
-                // whole width of the column is the target — a 60 pt label is a
-                // small thing to aim at.
-                egui::Frame::new()
-                    .fill(if lit { selection } else { egui::Color32::TRANSPARENT })
-                    .corner_radius(3)
-                    .inner_margin(egui::Margin::symmetric(8, 3))
-                    .show(ui, |ui| {
-                        // `selected` is false on purpose: the frame has already
-                        // drawn the highlight, and egui's own would double it.
-                        if ui
-                            .selectable_label(false, egui::RichText::new(*label).strong())
-                            .clicked()
-                        {
-                            *io.tab = *tab;
-                        }
-                    });
+                // A plain selectable row, **not** a row that paints its own
+                // highlight. Painting the frame and then drawing the label with
+                // `selected` false left the label in the ordinary text colour
+                // over the selection colour, which on the station's own theme
+                // made the current page's name invisible — a highlighted box with
+                // nothing written on it. egui draws the two together.
+                if ui
+                    .selectable_label(*io.tab == *tab, egui::RichText::new(*label).strong())
+                    .clicked()
+                {
+                    *io.tab = *tab;
+                }
             }
             ui.add_space(4.0);
         }
@@ -5219,6 +5211,55 @@ mod settings_probe {
         let path = dir.join(format!("settings-probe-{name}.png"));
         img.save(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
         println!("wrote {}", path.display());
+    }
+
+    /// The same window on an SDR, where the page ends in a description and the
+    /// shared **Apply / reconnect** button — the pair a reporter's screenshot
+    /// showed drawn on top of each other.
+    #[test]
+    fn settings_probe_radio_png() {
+        use eframe::egui;
+        if std::env::var("SDROXIDE_PROBE").is_err() {
+            return;
+        }
+        let (ctx, mut app) = probe_app();
+        let mut cfg = app.radio_cfg.clone().unwrap_or_default();
+        cfg.backend = sdroxide_types::Backend::SdrPlay;
+        app.radio_cfg = Some(cfg);
+        app.settings_tab = SettingsTab::Radio;
+        app.show_settings = true;
+        let mut textures = crate::test_raster::Textures::default();
+        let mut full = None;
+        for _ in 0..4 {
+            app.radio_cfg = app.radio_cfg.clone().map(|mut c| {
+                c.backend = sdroxide_types::Backend::SdrPlay;
+                c
+            });
+            let input = egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::Vec2::new(1280.0, 900.0),
+                )),
+                ..Default::default()
+            };
+            let out = ctx.run_ui(input, |ui| {
+                eframe::App::ui(&mut app, ui, &mut eframe::Frame::_new_kittest())
+            });
+            textures.apply(&out.textures_delta);
+            full = Some(out);
+        }
+        let full = full.expect("a frame");
+        let img = crate::test_raster::rasterize(
+            &ctx,
+            full,
+            &textures,
+            egui::Vec2::new(1280.0, 900.0),
+            ctx.style_of(egui::Theme::Dark).visuals.window_fill(),
+        );
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target");
+        let _ = std::fs::create_dir_all(&dir);
+        img.save(dir.join("settings-probe-radio.png")).unwrap();
+        println!("wrote radio probe");
     }
 
     #[test]

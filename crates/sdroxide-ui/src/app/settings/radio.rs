@@ -1023,13 +1023,16 @@ fn cat_radio_audio(ui: &mut egui::Ui) {
     ui.separator();
     ui.add_space(6.0);
     ui.label(RichText::new("Radio audio (sound card)").strong());
-    ui.label(
-        RichText::new(
+    ui.add(
+        egui::Label::new(
+            RichText::new(
             "Which sound card carries this radio's audio is under **Audio**, with your own \
-             speakers and microphone \u{2014} it is the same pair of settings whichever radio \
-             you are working, so it is one page.",
+            speakers and microphone \u{2014} it is the same pair of settings whichever radio \
+            you are working, so it is one page.",
+            )
+            .weak()
         )
-        .weak(),
+        .wrap(),
     );
 }
 
@@ -1044,22 +1047,28 @@ pub(in crate::app) fn settings_usb_audio_tab(ui: &mut egui::Ui) {
     ui.separator();
     ui.add_space(6.0);
     ui.label(RichText::new("Radio audio (sound card)").strong());
-    ui.label(
-        RichText::new(
+    ui.add(
+        egui::Label::new(
+            RichText::new(
             "Which sound card carries this radio's audio is under **Audio**, with your own \
-             speakers and microphone \u{2014} it is the same pair of settings whichever radio \
-             you are working, so it is one page.",
+            speakers and microphone \u{2014} it is the same pair of settings whichever radio \
+            you are working, so it is one page.",
+            )
+            .weak()
         )
-        .weak(),
+        .wrap(),
     );
     ui.add_space(4.0);
-    ui.label(
-        RichText::new(
+    ui.add(
+        egui::Label::new(
+            RichText::new(
             "This radio has no control cable \u{2014} it keys itself off VOX, so there is no PTT to \
-             command. Transmit is audio into the radio's microphone, which is why the radio's \
-             transmit audio is on the Audio page and not here.",
+            command. Transmit is audio into the radio's microphone, which is why the radio's \
+            transmit audio is on the Audio page and not here.",
+            )
+            .weak()
         )
-        .weak(),
+        .wrap(),
     );
 }
 
@@ -1116,34 +1125,43 @@ pub(in crate::app) fn settings_atsmini_tab(
     ui.separator();
     ui.add_space(6.0);
     ui.label(RichText::new("Radio audio (sound card)").strong());
-    ui.label(
-        RichText::new(
+    ui.add(
+        egui::Label::new(
+            RichText::new(
             "Which sound card carries this radio's audio is under **Audio**, with your own \
-             speakers and microphone \u{2014} it is the same pair of settings whichever radio \
-             you are working, so it is one page.",
+            speakers and microphone \u{2014} it is the same pair of settings whichever radio \
+            you are working, so it is one page.",
+            )
+            .weak()
         )
-        .weak(),
+        .wrap(),
     );
 
     ui.add_space(4.0);
-    ui.label(
-        RichText::new(
+    ui.add(
+        egui::Label::new(
+            RichText::new(
             "Receive only: the Si4732 demodulates in hardware, so the mode picked here is \
-             commanded to the radio and everything else — detection, decoding, the log — is \
-             done on this computer.",
+            commanded to the radio and everything else — detection, decoding, the log — is \
+            done on this computer.",
+            )
+            .weak()
         )
-        .weak(),
+        .wrap(),
     );
-    ui.label(
-        RichText::new(
+    ui.add(
+        egui::Label::new(
+            RichText::new(
             "Tuning follows the receiver's own band cycle, so the dial lags your scroll by a \
-             moment — most when the frequency crosses into another band. Let it settle before \
-             scrolling on, and it will always land on the frequency you asked for.\n\nThe \
-             receiver's tuning step is its own (the STEP control above): a change finer than \
-             that step rounds away on the radio, and the dial snaps back to the step it \
-             actually landed on.",
+            moment — most when the frequency crosses into another band. Let it settle before \
+            scrolling on, and it will always land on the frequency you asked for.\n\nThe \
+            receiver's tuning step is its own (the STEP control above): a change finer than \
+            that step rounds away on the radio, and the dial snaps back to the step it \
+            actually landed on.",
+            )
+            .weak()
         )
-        .weak(),
+        .wrap(),
     );
     ui.horizontal(|ui| {
         if ui
@@ -1186,12 +1204,15 @@ pub(in crate::app) fn settings_atsmini_tab(
             }
         }
     });
-    ui.label(
-        RichText::new(
+    ui.add(
+        egui::Label::new(
+            RichText::new(
             "Sent to the radio at once. VOL is the receiver's own volume (its knob, and the \
-             Si4732's), not sdroxide's AF slider.",
+            Si4732's), not sdroxide's AF slider.",
+            )
+            .weak()
         )
-        .weak(),
+        .wrap(),
     );
     ui.add_space(10.0);
     ui.separator();
@@ -1628,11 +1649,14 @@ pub(in crate::app) fn settings_hpsdr_tab(
     });
     hpsdr_oc_table(ui, cfg);
     ui.add_space(6.0);
-    ui.label(
-        RichText::new(
+    ui.add(
+        egui::Label::new(
+            RichText::new(
             "A manual IP overrides discovery. Press \"Apply / reconnect\" to switch without a restart.",
+            )
+            .weak()
         )
-        .weak(),
+        .wrap(),
     );
 }
 
@@ -1661,16 +1685,19 @@ fn hpsdr_oc_table(ui: &mut egui::Ui, cfg: &mut sdroxide_types::RadioConfig) {
             .color(crate::theme::CYAN()),
     );
     ui.add_space(2.0);
-    ui.label(
-        RichText::new(
+    ui.add(
+        egui::Label::new(
+            RichText::new(
             "One control word per band, as your hardware's documentation states it: bit 0 is \
-             output 1, bit 6 is output 7. RX is asserted while receiving on that band and TX \
-             while the transmitter is keyed — give them the same value for a filter, and \
-             different ones for anything that belongs on one side of the changeover only \
-             (an amplifier's key line, a receive preamplifier's bypass). Bands left at 00 \
-             assert nothing. Applies on Apply / reconnect.",
+            output 1, bit 6 is output 7. RX is asserted while receiving on that band and TX \
+            while the transmitter is keyed — give them the same value for a filter, and \
+            different ones for anything that belongs on one side of the changeover only \
+            (an amplifier's key line, a receive preamplifier's bypass). Bands left at 00 \
+            assert nothing. Applies on Apply / reconnect.",
+            )
+            .weak()
         )
-        .weak(),
+        .wrap(),
     );
     ui.add_space(6.0);
 
@@ -2002,12 +2029,15 @@ pub(in crate::app) fn settings_rtlsdr_tab(
     }
 
     ui.add_space(4.0);
-    ui.label(
-        RichText::new(
+    ui.add(
+        egui::Label::new(
+            RichText::new(
             "Receive only. The dongle and sample rate take effect on Apply; \
-             everything else applies as you change it.",
+            everything else applies as you change it.",
+            )
+            .weak()
         )
-        .weak(),
+        .wrap(),
     );
 }
 
@@ -2225,15 +2255,18 @@ pub(in crate::app) fn settings_rtltcp_tab(
     ui.add_space(8.0);
     ui.separator();
     ui.label(RichText::new("SDRplay server (rsp_tcp)").strong());
-    ui.label(
-        RichText::new(
+    ui.add(
+        egui::Label::new(
+            RichText::new(
             "An SDRplay server greets exactly like a dongle, so these are shown \
-             always rather than when one is detected. Against an ordinary \
-             rtl_tcp server they are simply ignored — the protocol has no \
-             replies and discards commands it does not know. The Device tab \
-             names the server as rsp_tcp once one has identified itself.",
+            always rather than when one is detected. Against an ordinary \
+            rtl_tcp server they are simply ignored — the protocol has no \
+            replies and discards commands it does not know. The Device tab \
+            names the server as rsp_tcp once one has identified itself.",
+            )
+            .weak()
         )
-        .weak(),
+        .wrap(),
     );
     ui.add_space(4.0);
 
@@ -2338,14 +2371,17 @@ pub(in crate::app) fn settings_rtltcp_tab(
     });
 
     ui.add_space(4.0);
-    ui.label(
-        RichText::new(
+    ui.add(
+        egui::Label::new(
+            RichText::new(
             "Receive only. The address and sample rate take effect on Apply; \
-             everything else applies as you change it. A dropped connection is \
-             retried on its own, so a server that is restarted comes back \
-             without touching anything here.",
+            everything else applies as you change it. A dropped connection is \
+            retried on its own, so a server that is restarted comes back \
+            without touching anything here.",
+            )
+            .weak()
         )
-        .weak(),
+        .wrap(),
     );
 }
 
@@ -2683,16 +2719,19 @@ pub(in crate::app) fn settings_spyserver_tab(
     });
     test_result_line(ui, test_result);
     ui.add_space(6.0);
-    ui.label(
-        RichText::new(if vfo {
+    ui.add(
+        egui::Label::new(
+            RichText::new(if vfo {
             "Receive only. The panadapter is the narrow I/Q window, which follows the dial; \
-             the band view is the server's FFT in the strip above it. Press \"Apply / \
-             reconnect\" to switch without a restart."
-        } else {
+            the band view is the server's FFT in the strip above it. Press \"Apply / \
+            reconnect\" to switch without a restart."
+            } else {
             "Receive only. Wideband I/Q, the same as any local SDR. Press \"Apply / reconnect\" \
-             to switch without a restart."
-        })
-        .weak(),
+            to switch without a restart."
+            })
+            .weak()
+        )
+        .wrap(),
     );
 }
 
@@ -2894,15 +2933,18 @@ pub(in crate::app) fn settings_kiwisdr_tab(
     });
     test_result_line(ui, test_result);
     ui.add_space(6.0);
-    ui.label(
-        RichText::new(format!(
+    ui.add(
+        egui::Label::new(
+            RichText::new(format!(
             "Receive only — this is somebody else's antenna. The panadapter is the ~12 kHz \
-             the receiver sends as I/Q, which follows the dial; the band view above it is its \
-             own waterfall, and tuning across it retunes the receiver. About {:.0} kB/s while \
-             connected. Press \"Apply / reconnect\" to switch without a restart.",
+            the receiver sends as I/Q, which follows the dial; the band view above it is its \
+            own waterfall, and tuning across it retunes the receiver. About {:.0} kB/s while \
+            connected. Press \"Apply / reconnect\" to switch without a restart.",
             cfg.link_kbytes_s(),
-        ))
-        .weak(),
+            ))
+            .weak()
+        )
+        .wrap(),
     );
 }
 
@@ -2997,11 +3039,14 @@ pub(in crate::app) fn settings_tci_tab(
     });
     test_result_line(ui, test_result);
     ui.add_space(6.0);
-    ui.label(
-        RichText::new(
+    ui.add(
+        egui::Label::new(
+            RichText::new(
             "Wideband IQ receive, audio transmit. Press \"Apply / reconnect\" to switch without a restart.",
+            )
+            .weak()
         )
-        .weak(),
+        .wrap(),
     );
 }
 
@@ -3253,13 +3298,16 @@ pub(in crate::app) fn settings_icomnet_tab(
     test_result_line(ui, test_result);
 
     ui.add_space(6.0);
-    ui.label(
-        RichText::new(
+    ui.add(
+        egui::Label::new(
+            RichText::new(
             "Control, audio and the radio's own scope over one network connection — no \
-             serial cable and no sound card. Press \"Apply / reconnect\" to switch without \
-             a restart.",
+            serial cable and no sound card. Press \"Apply / reconnect\" to switch without \
+            a restart.",
+            )
+            .weak()
         )
-        .weak(),
+        .wrap(),
     );
 }
 
@@ -3290,12 +3338,15 @@ fn test_result_line(ui: &mut egui::Ui, result: &Option<crate::app::settings::Tes
             ui.label(
                 RichText::new(format!("Connected: {s}")).color(Color32::from_rgb(90, 200, 110)),
             );
-            ui.label(
-                RichText::new(
+            ui.add(
+                egui::Label::new(
+                    RichText::new(
                     "That was only a check — press Apply / reconnect below to start \
-                     using this radio.",
+                    using this radio.",
+                    )
+                    .weak()
                 )
-                .weak(),
+                .wrap(),
             );
         }
         Err(e) => {
@@ -3668,13 +3719,16 @@ pub(in crate::app) fn settings_pluto_tab(
             // the decision is made in. Worked out against the rate set two rows
             // up rather than left to the operator.
             let rate = cfg.pluto.sample_rate_hz.max(1.0);
-            ui.label(
-                RichText::new(format!(
+            ui.add(
+                egui::Label::new(
+                    RichText::new(format!(
                     "≈ {:.1} ms, {} KiB per transfer",
                     cfg.pluto.buffer_samples as f64 / rate * 1e3,
                     cfg.pluto.buffer_samples * 4 / 1024,
-                ))
-                .weak(),
+                    ))
+                    .weak()
+                )
+                .wrap(),
             );
         });
         ui.end_row();
@@ -3732,13 +3786,16 @@ pub(in crate::app) fn settings_pluto_tab(
     test_result_line(ui, test_result);
 
     ui.add_space(6.0);
-    ui.label(
-        RichText::new(
+    ui.add(
+        egui::Label::new(
+            RichText::new(
             "Wideband IQ receive and transmit. Half duplex — receive stops for the \
-             length of an over, because the USB network link will not carry both at \
-             once. No SoapySDR and no libiio needed.",
+            length of an over, because the USB network link will not carry both at \
+            once. No SoapySDR and no libiio needed.",
+            )
+            .weak()
         )
-        .weak(),
+        .wrap(),
     );
 }
 
@@ -3842,13 +3899,16 @@ pub(in crate::app) fn settings_smartsdr_tab(
         // #184), and an operator wondering that is looking at this row, not
         // hovering it.
         ui.label("");
-        ui.label(
-            RichText::new(
+        ui.add(
+            egui::Label::new(
+                RichText::new(
                 "192 kHz is the widest DAX IQ stream a FLEX will send, and the radio ties \
-                 the panadapter's span to it — so that is the whole span, and no setting \
-                 here widens it.",
+                the panadapter's span to it — so that is the whole span, and no setting \
+                here widens it.",
+                )
+                .weak()
             )
-            .weak(),
+            .wrap(),
         );
         ui.end_row();
 
@@ -3956,12 +4016,15 @@ pub(in crate::app) fn settings_smartsdr_tab(
     test_result_line(ui, test_result);
 
     ui.add_space(6.0);
-    ui.label(
-        RichText::new(
+    ui.add(
+        egui::Label::new(
+            RichText::new(
             "Wideband IQ receive over DAX, audio transmit the radio modulates. Press \
-             \"Apply / reconnect\" to switch without a restart.",
+            \"Apply / reconnect\" to switch without a restart.",
+            )
+            .weak()
         )
-        .weak(),
+        .wrap(),
     );
     ui.label(
         RichText::new(
@@ -3994,13 +4057,16 @@ pub(in crate::app) fn settings_soapy_devices(
     // answered there is nothing here worth drawing a Rescan button beside.
     if !can_probe && devices.is_none() {
         ui.label(RichText::new("Devices SoapySDR can see").strong());
-        ui.label(
-            RichText::new(
+        ui.add(
+            egui::Label::new(
+                RichText::new(
                 "Waiting for the machine the radio is attached to, where the modules are \
-                 installed. Which device it opens is `device_args` in that machine's \
-                 config.toml, or its --device.",
+                installed. Which device it opens is `device_args` in that machine's \
+                config.toml, or its --device.",
+                )
+                .weak()
             )
-            .weak(),
+            .wrap(),
         );
         return;
     }
@@ -4026,12 +4092,15 @@ pub(in crate::app) fn settings_soapy_devices(
         return;
     };
     if devices.is_empty() {
-        ui.label(
-            RichText::new(
+        ui.add(
+            egui::Label::new(
+                RichText::new(
                 "No SoapySDR devices found. Check that the module for your radio is \
-                 installed and that you may access the device.",
+                installed and that you may access the device.",
+                )
+                .weak()
             )
-            .weak(),
+            .wrap(),
         );
         return;
     }
@@ -4084,12 +4153,15 @@ pub(in crate::app) fn settings_soapy_devices(
     }
 
     ui.add_space(4.0);
-    ui.label(
-        RichText::new(
+    ui.add(
+        egui::Label::new(
+            RichText::new(
             "Which one opens is set by --device or device_args in config.toml; with \
-             neither, the first radio listed wins.",
+            neither, the first radio listed wins.",
+            )
+            .weak()
         )
-        .weak(),
+        .wrap(),
     );
 }
 
@@ -4252,12 +4324,15 @@ pub(in crate::app) fn settings_soapy_tab(
         return;
     };
     let Some(caps) = caps else {
-        ui.label(
-            RichText::new(
+        ui.add(
+            egui::Label::new(
+                RichText::new(
                 "These controls appear once a SoapySDR device is open — they are the \
-                 device's own, and it has to be asked.",
+                device's own, and it has to be asked.",
+                )
+                .weak()
             )
-            .weak(),
+            .wrap(),
         );
         return;
     };
@@ -4804,19 +4879,22 @@ pub(in crate::app) fn settings_rx888_tab(
     }
 
     ui.add_space(6.0);
-    ui.label(
-        egui::RichText::new(
+    ui.add(
+        egui::Label::new(
+            egui::RichText::new(
             "Receive only. Below the ADC's Nyquist limit the antenna is sampled \
-             directly and retuning is instant, because there is no hardware \
-             downconverter — the full ADC stream is converted to baseband on the \
-             host. Above it the receiver switches to its R828D tuner and the VHF \
-             SMA automatically, so both antennas need to be connected. VHF needs \
-             an ADC clock of 32.4 Msps or more for the tuner's IF to fit, and at \
-             clocks below 48 Msps there is a gap between the two ranges that \
-             nothing can reach. Every setting here applies straight away — there \
-             is no Apply button to press.",
+            directly and retuning is instant, because there is no hardware \
+            downconverter — the full ADC stream is converted to baseband on the \
+            host. Above it the receiver switches to its R828D tuner and the VHF \
+            SMA automatically, so both antennas need to be connected. VHF needs \
+            an ADC clock of 32.4 Msps or more for the tuner's IF to fit, and at \
+            clocks below 48 Msps there is a gap between the two ranges that \
+            nothing can reach. Every setting here applies straight away — there \
+            is no Apply button to press.",
+            )
+            .weak()
         )
-        .weak(),
+        .wrap(),
     );
 }
 
@@ -5003,27 +5081,33 @@ pub(in crate::app) fn settings_elad_tab(
 
     ui.add_space(8.0);
     ui.label(RichText::new("Rig control — FDM-DUO only").strong());
-    ui.label(
-        RichText::new(
+    ui.add(
+        egui::Label::new(
+            RichText::new(
             "The transceiver's CAT USB port, which is a separate cable from the \
-             receive one. Leave the port unset on an FDM-S1 or FDM-S2, which have \
-             none — and on an FDM-DUO you would rather drive through its receive \
-             cable alone, where it can still be tuned and keyed but no meter can \
-             be read.",
+            receive one. Leave the port unset on an FDM-S1 or FDM-S2, which have \
+            none — and on an FDM-DUO you would rather drive through its receive \
+            cable alone, where it can still be tuned and keyed but no meter can \
+            be read.",
+            )
+            .weak()
         )
-        .weak(),
+        .wrap(),
     );
-    ui.label(
-        RichText::new(
+    ui.add(
+        egui::Label::new(
+            RichText::new(
             "With the port set, the radio's display and this dial are the same \
-             number in both directions: the FDM-DUO's receive window is built \
-             around its VFO, so tuning here moves the front panel and turning the \
-             front-panel knob moves the readout here. The panadapter re-centres on \
-             the dial as it goes. With no port — or none the radio answers on — \
-             there is no VFO to command, and tuning stays inside the window the \
-             radio is already sending.",
+            number in both directions: the FDM-DUO's receive window is built \
+            around its VFO, so tuning here moves the front panel and turning the \
+            front-panel knob moves the readout here. The panadapter re-centres on \
+            the dial as it goes. With no port — or none the radio answers on — \
+            there is no VFO to command, and tuning stays inside the window the \
+            radio is already sending.",
+            )
+            .weak()
         )
-        .weak(),
+        .wrap(),
     );
 
     egui::Grid::new("elad-cat-grid").num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
@@ -5168,9 +5252,12 @@ pub(in crate::app) fn settings_elad_tab(
         // The transmit-audio picker moved to Settings → Audio with every other
         // audio device. What is specific to this rig stays here.
         ui.label("Transmit audio");
-        ui.label(
-            RichText::new("Which sound card carries the audio is under **Audio**.")
-                .weak(),
+        ui.add(
+            egui::Label::new(
+                RichText::new("Which sound card carries the audio is under **Audio**.")
+                .weak()
+            )
+            .wrap(),
         );
         ui.end_row();
 
@@ -5199,12 +5286,15 @@ pub(in crate::app) fn settings_elad_tab(
         )
         .color(crate::theme::YELLOW()),
     );
-    ui.label(
-        RichText::new(
+    ui.add(
+        egui::Label::new(
+            RichText::new(
             "CW is keyed by the radio's own key or paddle: the FDM-DUO has no \
-             command that accepts text, so the CW panel cannot key it.",
+            command that accepts text, so the CW panel cannot key it.",
+            )
+            .weak()
         )
-        .weak(),
+        .wrap(),
     );
 
     if (
@@ -5500,14 +5590,17 @@ pub(in crate::app) fn settings_airspyhf_tab(
     }
 
     ui.add_space(4.0);
-    ui.label(
-        RichText::new(
+    ui.add(
+        egui::Label::new(
+            RichText::new(
             "Receive only. No SoapySDR and no libairspyhf needed. Below the \
-             synthesiser's floor the host oscillator does the tuning, which is how \
-             this receiver reaches VLF. The receiver and sample rate take effect on \
-             Apply; everything else applies as you change it.",
+            synthesiser's floor the host oscillator does the tuning, which is how \
+            this receiver reaches VLF. The receiver and sample rate take effect on \
+            Apply; everything else applies as you change it.",
+            )
+            .weak()
         )
-        .weak(),
+        .wrap(),
     );
     ui.label(
         RichText::new(
@@ -5779,13 +5872,16 @@ pub(in crate::app) fn settings_airspy_tab(
     });
 
     ui.add_space(4.0);
-    ui.label(
-        RichText::new(
+    ui.add(
+        egui::Label::new(
+            RichText::new(
             "Receive only, 24–1800 MHz. No SoapySDR and no libairspy needed. The \
-             receiver, sample rate and packing take effect on Apply; everything \
-             else applies as you change it.",
+            receiver, sample rate and packing take effect on Apply; everything \
+            else applies as you change it.",
+            )
+            .weak()
         )
-        .weak(),
+        .wrap(),
     );
     ui.label(
         RichText::new(
@@ -6085,14 +6181,17 @@ pub(in crate::app) fn settings_hydrasdr_tab(
 
     if devices.iter().any(|d| d.legacy_usb_id) {
         ui.add_space(4.0);
-        ui.label(
-            RichText::new(
+        ui.add(
+            egui::Label::new(
+                RichText::new(
                 "One of these boards is on 1d50:60a1, the USB id HydraSDR's prototypes \
-                 share with the Airspy R2 and Mini. sdroxide checks the firmware after \
-                 opening and will say so if the wrong interface has been picked, in \
-                 either direction.",
+                share with the Airspy R2 and Mini. sdroxide checks the firmware after \
+                opening and will say so if the wrong interface has been picked, in \
+                either direction.",
+                )
+                .weak()
             )
-            .weak(),
+            .wrap(),
         );
     }
 
@@ -6115,13 +6214,16 @@ pub(in crate::app) fn settings_hydrasdr_tab(
     });
 
     ui.add_space(4.0);
-    ui.label(
-        RichText::new(
+    ui.add(
+        egui::Label::new(
+            RichText::new(
             "Receive only, 24–1800 MHz. No SoapySDR and no libhydrasdr needed. The \
-             receiver, sample rate and packing take effect on Apply; everything \
-             else applies as you change it.",
+            receiver, sample rate and packing take effect on Apply; everything \
+            else applies as you change it.",
+            )
+            .weak()
         )
-        .weak(),
+        .wrap(),
     );
     ui.label(
         RichText::new(
@@ -6343,12 +6445,15 @@ pub(in crate::app) fn settings_fobos_tab(
                         f64::from(cfg.fobos.div_taps),
                     );
                 }
-                ui.label(
-                    RichText::new(diversity_cost_note(
+                ui.add(
+                    egui::Label::new(
+                        RichText::new(diversity_cost_note(
                         cfg.fobos.div_taps,
                         cfg.fobos.sample_rate_hz,
-                    ))
-                    .weak(),
+                        ))
+                        .weak()
+                    )
+                    .wrap(),
                 );
             });
             ui.end_row();
@@ -6360,15 +6465,18 @@ pub(in crate::app) fn settings_fobos_tab(
     }
 
     ui.add_space(6.0);
-    ui.label(
-        RichText::new(
+    ui.add(
+        egui::Label::new(
+            RichText::new(
             "Receive only. RF port (tuner), HF1/HF2 (direct sampling, decoded in software) \
-             and HF1+HF2 (both at once, combined by the diversity filter) all work. The \
-             receiver, input and sample rate take effect on Apply; gain, clock source and \
-             taps apply as you change them — the diversity filter's mode, adapt rate and \
-             hold are on the main window's own DIV box once this radio is selected.",
+            and HF1+HF2 (both at once, combined by the diversity filter) all work. The \
+            receiver, input and sample rate take effect on Apply; gain, clock source and \
+            taps apply as you change them — the diversity filter's mode, adapt rate and \
+            hold are on the main window's own DIV box once this radio is selected.",
+            )
+            .weak()
         )
-        .weak(),
+        .wrap(),
     );
 }
 
@@ -6740,16 +6848,19 @@ pub(in crate::app) fn settings_hackrf_tab(
     });
 
     ui.add_space(4.0);
-    ui.label(
-        RichText::new(
+    ui.add(
+        egui::Label::new(
+            RichText::new(
             "DC – 7.25 GHz, half duplex. No SoapySDR, no libusb and no libhackrf \
-             needed. The radio and the sample rate take effect on Apply; \
-             everything else applies as you change it. The band edges are the \
-             firmware's: a HackRF is specified for 1 MHz – 6 GHz (100 kHz on a \
-             Pro) and is heavily attenuated outside that, but it does tune \
-             there.",
+            needed. The radio and the sample rate take effect on Apply; \
+            everything else applies as you change it. The band edges are the \
+            firmware's: a HackRF is specified for 1 MHz – 6 GHz (100 kHz on a \
+            Pro) and is heavily attenuated outside that, but it does tune \
+            there.",
+            )
+            .weak()
         )
-        .weak(),
+        .wrap(),
     );
 }
 
@@ -6899,11 +7010,14 @@ pub(in crate::app) fn settings_sdrplay_tab(
                     .selected_text(shown)
                     .show_styled(ui, |ui| {
                         if devices.is_empty() {
-                            ui.label(
-                                RichText::new(
+                            ui.add(
+                                egui::Label::new(
+                                    RichText::new(
                                     "no RSPs — press Rescan (needs the SDRplay API service)",
+                                    )
+                                    .weak()
                                 )
-                                .weak(),
+                                .wrap(),
                             );
                         }
                         ui.selectable_value(
@@ -7315,16 +7429,19 @@ pub(in crate::app) fn settings_sdrplay_tab(
         ui.add_space(6.0);
         ui.separator();
         ui.label(RichText::new("Second tuner").strong());
-        ui.label(
-            RichText::new(
+        ui.add(
+            egui::Label::new(
+                RichText::new(
                 "An RSPduo is two whole tuners on one board, clocked from one reference. \
-                 Run both and they hear their spans at the same instant from the same \
-                 clock — which makes two aerials on them coherent, with a relative phase \
-                 set by the feedlines rather than by chance, and lets the pair be combined. \
-                 Or leave them apart: the tuners tune separately, so the other one can be a \
-                 second radio on its own band.",
+                Run both and they hear their spans at the same instant from the same \
+                clock — which makes two aerials on them coherent, with a relative phase \
+                set by the feedlines rather than by chance, and lets the pair be combined. \
+                Or leave them apart: the tuners tune separately, so the other one can be a \
+                second radio on its own band.",
+                )
+                .weak()
             )
-            .weak(),
+            .wrap(),
         );
         if crate::chrome::checkbox(ui, &mut cfg.sdrplay.duo.enabled, "Run both tuners")
             .on_hover_text(
@@ -7365,17 +7482,20 @@ pub(in crate::app) fn settings_sdrplay_tab(
         }
 
         if cfg.sdrplay.duo.enabled && cfg.sdrplay.duo.role == SdrPlayDuoRole::SecondRadio {
-            ui.label(
-                RichText::new(
+            ui.add(
+                egui::Label::new(
+                    RichText::new(
                     "Add a second radio (Settings → Radio → +), give it this same receiver \
-                     and the RSPduo's other tuner, and set it to run both tuners too — \
-                     whichever radio opens the board puts it in dual-tuner mode, so both \
-                     have to be expecting it. The two then tune independently: HF in one \
-                     tab and VHF in the other, off one board. They share one ADC clock, so \
-                     both run at the sample rate whichever radio opened the board asked \
-                     for, and neither can transmit.",
+                    and the RSPduo's other tuner, and set it to run both tuners too — \
+                    whichever radio opens the board puts it in dual-tuner mode, so both \
+                    have to be expecting it. The two then tune independently: HF in one \
+                    tab and VHF in the other, off one board. They share one ADC clock, so \
+                    both run at the sample rate whichever radio opened the board asked \
+                    for, and neither can transmit.",
+                    )
+                    .weak()
                 )
-                .weak(),
+                .wrap(),
             );
         }
 
@@ -7471,12 +7591,15 @@ pub(in crate::app) fn settings_sdrplay_tab(
                         {
                             push_gain(cmds, SdrPlayConfig::DIV_TAPS_ELEMENT, f64::from(div.taps));
                         }
-                        ui.label(
-                            RichText::new(diversity_cost_note(
+                        ui.add(
+                            egui::Label::new(
+                                RichText::new(diversity_cost_note(
                                 div.taps,
                                 cfg.sdrplay.sample_rate_hz.min(2_000_000.0),
-                            ))
-                            .weak(),
+                                ))
+                                .weak()
+                            )
+                            .wrap(),
                         );
                     });
                     ui.end_row();
@@ -7523,16 +7646,19 @@ pub(in crate::app) fn settings_sdrplay_tab(
                     ui.end_row();
                 },
             );
-            ui.label(
-                RichText::new(
+            ui.add(
+                egui::Label::new(
+                    RichText::new(
                     "Nothing here can tell a wanted signal from an unwanted one — the filter \
-                     only knows what the two aerials have in common. In Cancel, the second \
-                     aerial wants to hear the noise source and as little of the band as \
-                     possible, or it will dutifully cancel the station too. In Combine, both \
-                     want to hear the same station. How deep the null is going runs to the \
-                     log every few seconds.",
+                    only knows what the two aerials have in common. In Cancel, the second \
+                    aerial wants to hear the noise source and as little of the band as \
+                    possible, or it will dutifully cancel the station too. In Combine, both \
+                    want to hear the same station. How deep the null is going runs to the \
+                    log every few seconds.",
+                    )
+                    .weak()
                 )
-                .weak(),
+                .wrap(),
             );
         }
 
@@ -7557,12 +7683,15 @@ pub(in crate::app) fn settings_sdrplay_tab(
                     .color(Color32::from_rgb(220, 170, 70)),
                 );
             } else if devices.is_empty() {
-                ui.label(
-                    RichText::new(
+                ui.add(
+                    egui::Label::new(
+                        RichText::new(
                         "No receiver is listed to check this against — press Rescan, or read \
-                         the log for what actually opened.",
+                        the log for what actually opened.",
+                        )
+                        .weak()
                     )
-                    .weak(),
+                    .wrap(),
                 );
             }
         }
@@ -7594,14 +7723,17 @@ pub(in crate::app) fn settings_sdrplay_tab(
     }
 
     ui.add_space(4.0);
-    ui.label(
-        RichText::new(
+    ui.add(
+        egui::Label::new(
+            RichText::new(
             "Receive only, 1 kHz–2 GHz. Needs the vendor's SDRplay API service \
-             (sdrplay.com/api) — the RSPs after the original RSP1 have no open \
-             protocol. Device, sample rate, bandwidth and RSPduo tuner take \
-             effect on Apply; everything else applies as you change it.",
+            (sdrplay.com/api) — the RSPs after the original RSP1 have no open \
+            protocol. Device, sample rate, bandwidth and RSPduo tuner take \
+            effect on Apply; everything else applies as you change it.",
+            )
+            .weak()
         )
-        .weak(),
+        .wrap(),
     );
 }
 
@@ -7721,14 +7853,17 @@ pub(in crate::app) fn settings_lime_tab(
                         }
                     },
                 );
-                ui.label(
-                    egui::RichText::new(
+                ui.add(
+                    egui::Label::new(
+                        egui::RichText::new(
                         "Both chains tune together — they share one synthesiser — but they are \
-                         separate front ends on separate sockets. Pick the one your aerial is \
-                         on, which is the setting to reach for when one chain has had the HF \
-                         matching modification and the other is stock.",
+                        separate front ends on separate sockets. Pick the one your aerial is \
+                        on, which is the setting to reach for when one chain has had the HF \
+                        matching modification and the other is stock.",
+                        )
+                        .weak()
                     )
-                    .weak(),
+                    .wrap(),
                 );
             });
             ui.end_row();
@@ -7815,14 +7950,17 @@ pub(in crate::app) fn settings_lime_tab(
                     });
                 }
             }
-            ui.label(
-                egui::RichText::new(
+            ui.add(
+                egui::Label::new(
+                    egui::RichText::new(
                     "Automatic follows the frequency: LNAL low, LNAH high — unless a LimeRFE \
-                     is connected below, which is one cable into one socket, and then it is \
-                     LNAW at every frequency. Name the socket yours is wired to if it is not \
-                     that one. Which chain the socket belongs to is the picker above.",
+                    is connected below, which is one cable into one socket, and then it is \
+                    LNAW at every frequency. Name the socket yours is wired to if it is not \
+                    that one. Which chain the socket belongs to is the picker above.",
+                    )
+                    .weak()
                 )
-                .weak(),
+                .wrap(),
             );
         });
         ui.end_row();
@@ -7889,15 +8027,18 @@ pub(in crate::app) fn settings_lime_tab(
         ui.add_space(6.0);
         ui.separator();
         ui.label(egui::RichText::new("Second aerial").strong());
-        ui.label(
-            egui::RichText::new(format!(
+        ui.add(
+            egui::Label::new(
+                egui::RichText::new(format!(
                 "The board's other receive chain, on the {} sockets. It shares the \
-                 synthesiser, so it hears the same span at the same instant as the first — \
-                 which is what lets it carry a second aerial, or a sample of your own \
-                 transmitter.",
+                synthesiser, so it hears the same span at the same instant as the first — \
+                which is what lets it carry a second aerial, or a sample of your own \
+                transmitter.",
                 format_args!("RX{}_*", cfg.lime.aux_channel() + 1)
-            ))
-            .weak(),
+                ))
+                .weak()
+            )
+            .wrap(),
         );
         let aux_chan = cfg.lime.aux_channel();
         egui::Grid::new("lime-aux-grid").num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
@@ -8020,12 +8161,15 @@ pub(in crate::app) fn settings_lime_tab(
                     {
                         push_gain(cmds, LimeConfig::DIV_TAPS_ELEMENT, f64::from(cfg.lime.aux.taps));
                     }
-                    ui.label(
-                        egui::RichText::new(LimeAuxConfig::cost_note(
+                    ui.add(
+                        egui::Label::new(
+                            egui::RichText::new(LimeAuxConfig::cost_note(
                             cfg.lime.aux.taps,
                             cfg.lime.sample_rate_hz,
-                        ))
-                        .weak(),
+                            ))
+                            .weak()
+                        )
+                        .wrap(),
                     );
                 });
                 ui.end_row();
@@ -8146,20 +8290,23 @@ pub(in crate::app) fn settings_lime_tab(
             }
         });
         if cfg.lime.aux.role == LimeAuxRole::PureSignal {
-            ui.label(
-                egui::RichText::new(
+            ui.add(
+                egui::Label::new(
+                    egui::RichText::new(
                     "A directional coupler on the amplifier's output goes into this chain, \
-                     and the transmitter compares what came back with what it meant to send \
-                     — then sends the inverse of the difference, so what leaves the amplifier \
-                     is straight. Twenty-odd decibels less intermodulation on other people's \
-                     QSOs, with the amplifier keeping its power. The correction stays at \
-                     unity until the feedback lines up with the transmission, so a coupler \
-                     that is not connected costs nothing; and it can never ask the converter \
-                     for more than full scale, so a feedback path reading nonsense cannot \
-                     over-drive anything. How it is getting on runs to the log while you \
-                     transmit.",
+                    and the transmitter compares what came back with what it meant to send \
+                    — then sends the inverse of the difference, so what leaves the amplifier \
+                    is straight. Twenty-odd decibels less intermodulation on other people's \
+                    QSOs, with the amplifier keeping its power. The correction stays at \
+                    unity until the feedback lines up with the transmission, so a coupler \
+                    that is not connected costs nothing; and it can never ask the converter \
+                    for more than full scale, so a feedback path reading nonsense cannot \
+                    over-drive anything. How it is getting on runs to the log while you \
+                    transmit.",
+                    )
+                    .weak()
                 )
-                .weak(),
+                .wrap(),
             );
             if !cfg.lime.tx_enabled {
                 ui.label(
@@ -8171,16 +8318,19 @@ pub(in crate::app) fn settings_lime_tab(
             }
         }
         if cfg.lime.aux.role == LimeAuxRole::Diversity {
-            ui.label(
-                egui::RichText::new(
+            ui.add(
+                egui::Label::new(
+                    egui::RichText::new(
                     "Nothing here can tell a wanted signal from an unwanted one — the filter \
-                     only knows what the two aerials have in common. In Cancel, the second \
-                     aerial wants to hear the noise source and as little of the band as \
-                     possible, or it will dutifully cancel the station too. In Combine, both \
-                     want to hear the same station. How deep the null is going runs to the \
-                     log every few seconds.",
+                    only knows what the two aerials have in common. In Cancel, the second \
+                    aerial wants to hear the noise source and as little of the band as \
+                    possible, or it will dutifully cancel the station too. In Combine, both \
+                    want to hear the same station. How deep the null is going runs to the \
+                    log every few seconds.",
+                    )
+                    .weak()
                 )
-                .weak(),
+                .wrap(),
             );
         }
     }
@@ -8315,12 +8465,15 @@ pub(in crate::app) fn settings_lime_tab(
                                 ui.selectable_value(&mut cfg.lime.rfe.serial.path, p.clone(), p);
                             }
                         });
-                    ui.label(
-                        egui::RichText::new(
+                    ui.add(
+                        egui::Label::new(
+                            egui::RichText::new(
                             "The LimeRFE's own micro-USB port, not the radio's. 9600 baud, \
-                             fixed by its firmware.",
+                            fixed by its firmware.",
+                            )
+                            .weak()
                         )
-                        .weak(),
+                        .wrap(),
                     );
                 });
             });
@@ -8473,17 +8626,20 @@ pub(in crate::app) fn settings_lime_tab(
             }
         }
         ui.add_space(4.0);
-        ui.label(
-            egui::RichText::new(
+        ui.add(
+            egui::Label::new(
+                egui::RichText::new(
                 "On Automatic the board receives, and is switched to transmit at key-down and \
-                 back at key-up — on either cabling. Its amateur channels have one filter \
-                 with a transmit/receive switch either side of it, so a board asked for both \
-                 at once puts that switch on the transmitter and stops hearing anything. \
-                 The 30 MHz channel is reachable only through J5, which is one connector for \
-                 both directions; above it, transmitting from J4 keeps the receive path off \
-                 the connector the amplifier is driving.",
+                back at key-up — on either cabling. Its amateur channels have one filter \
+                with a transmit/receive switch either side of it, so a board asked for both \
+                at once puts that switch on the transmitter and stops hearing anything. \
+                The 30 MHz channel is reachable only through J5, which is one connector for \
+                both directions; above it, transmitting from J4 keeps the receive path off \
+                the connector the amplifier is driving.",
+                )
+                .weak()
             )
-            .weak(),
+            .wrap(),
         );
     }
 
@@ -8533,14 +8689,17 @@ pub(in crate::app) fn settings_lime_tab(
     }
 
     ui.add_space(4.0);
-    ui.label(
-        egui::RichText::new(
+    ui.add(
+        egui::Label::new(
+            egui::RichText::new(
             "Gains, filters, corrections, the antenna sockets and every LimeRFE control — its \
-             connectors, band, relays, attenuator, notch and fan — apply immediately. The \
-             board, the receive chain, the sample rate, arming transmit and the LimeRFE's \
-             connection take effect on Apply.",
+            connectors, band, relays, attenuator, notch and fan — apply immediately. The \
+            board, the receive chain, the sample rate, arming transmit and the LimeRFE's \
+            connection take effect on Apply.",
+            )
+            .weak()
         )
-        .weak(),
+        .wrap(),
     );
 }
 
