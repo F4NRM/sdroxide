@@ -71,11 +71,13 @@ impl SdroxideApp {
         audio_pick: &mut Option<(bool, Option<String>)>,
         routing_pick: &mut Option<sdroxide_types::AudioRouting>,
         radio_edit: &mut Option<sdroxide_types::RadioConfig>,
+        can_probe: bool,
+        audio_rescan: &mut bool,
         recordings_choose: &mut bool,
         recordings_reset: &mut bool,
     ) {
         self.your_audio(ui, audio_pick, routing_pick);
-        self.radios_audio(ui, radio_edit);
+        self.radios_audio(ui, radio_edit, can_probe, audio_rescan);
         self.recordings(ui, recordings_choose, recordings_reset);
     }
 
@@ -164,6 +166,8 @@ impl SdroxideApp {
         &self,
         ui: &mut egui::Ui,
         radio_edit: &mut Option<sdroxide_types::RadioConfig>,
+        can_probe: bool,
+        rescan: &mut bool,
     ) {
         let Some(cfg) = radio_edit.as_mut() else { return };
         let Some((has_rx, has_tx)) = sound_card_roles(cfg.backend) else {
@@ -194,6 +198,26 @@ impl SdroxideApp {
             );
         }
         let (inputs, outputs) = cards.unwrap_or((&[], &[]));
+
+        // The rescan belongs beside the pickers it refreshes rather than at the
+        // foot of the Radio tab: it is this row the rescan is *for*. It asks the
+        // machine again which sound cards it has, and opens nothing, so it is
+        // safe to press while receiving.
+        crate::app::settings::radio::probe_only(ui, can_probe, |ui| {
+            if ui
+                .button("Rescan sound cards")
+                .on_hover_text(
+                    "Ask the machine again which sound cards it has. Nothing is opened, so this \
+                     is safe to press while receiving.\n\nUse it after plugging a codec in. It \
+                     does not re-open the radio — that is Apply / reconnect on the Radio tab — \
+                     and it cannot repair a card the sound server has renamed, which is reported \
+                     on the radio instead.",
+                )
+                .clicked()
+            {
+                *rescan = true;
+            }
+        });
 
         egui::Grid::new("radio-audio").num_columns(2).spacing([12.0, 6.0]).show(ui, |ui| {
             if has_rx {

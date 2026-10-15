@@ -27,7 +27,7 @@ const NO_ANSWER_YET: &str = "Waiting for the machine the radio is attached to: t
 
 /// Draw a control that has to ask the radio's own machine, greyed out and
 /// explained while that machine has not answered.
-fn probe_only<R>(ui: &mut egui::Ui, can_probe: bool, add: impl FnOnce(&mut egui::Ui) -> R) {
+pub(in crate::app) fn probe_only<R>(ui: &mut egui::Ui, can_probe: bool, add: impl FnOnce(&mut egui::Ui) -> R) {
     let group = ui.add_enabled_ui(can_probe, add);
     if !can_probe {
         group.response.on_hover_text(NO_ANSWER_YET);
@@ -1070,7 +1070,7 @@ pub(in crate::app) fn settings_usb_audio_tab(ui: &mut egui::Ui) {
 pub(in crate::app) fn settings_atsmini_tab(
     ui: &mut egui::Ui,
     radio_edit: &mut Option<sdroxide_types::RadioConfig>,
-    apply: &mut bool,
+    apply: &mut crate::app::settings::ApplyInterface,
     memories: Option<&[sdroxide_types::atsmini::AtsMiniMemory]>,
     cmds: &mut Vec<Command>,
 ) {
@@ -1151,7 +1151,7 @@ pub(in crate::app) fn settings_atsmini_tab(
             .on_hover_text("Reopen the radio with these settings — no restart")
             .clicked()
         {
-            *apply = true;
+            apply.request();
         }
         ui.add(
             egui::Label::new(RichText::new("Reconnects the radio without restarting.").weak())
@@ -4242,7 +4242,7 @@ pub(in crate::app) fn settings_soapy_tab(
     ui: &mut egui::Ui,
     caps: Option<&sdroxide_types::DeviceCaps>,
     radio_edit: &mut Option<sdroxide_types::RadioConfig>,
-    apply: &mut bool,
+    apply: &mut crate::app::settings::ApplyInterface,
     cmds: &mut Vec<Command>,
 ) {
     use sdroxide_types::SettingKind;
@@ -4277,13 +4277,13 @@ pub(in crate::app) fn settings_soapy_tab(
                     .clicked()
                 {
                     cfg.soapy.sample_rate_hz = 0.0;
-                    *apply = true;
+                    apply.request();
                 }
                 for &r in &caps.sample_rates {
                     let sel = (cfg.soapy.sample_rate_hz - r).abs() < 1.0;
                     if ui.selectable_label(sel, rate_label(r)).clicked() {
                         cfg.soapy.sample_rate_hz = r;
-                        *apply = true;
+                        apply.request();
                     }
                 }
             });
@@ -4306,7 +4306,7 @@ pub(in crate::app) fn settings_soapy_tab(
                     cfg.soapy.sample_rate_hz = msps * 1e6;
                 }
                 if r.drag_stopped() || r.lost_focus() {
-                    *apply = true;
+                    apply.request();
                 }
                 ui.end_row();
             }
@@ -4324,13 +4324,13 @@ pub(in crate::app) fn settings_soapy_tab(
                         .clicked()
                     {
                         cfg.soapy.bandwidth_hz = 0.0;
-                        *apply = true;
+                        apply.request();
                     }
                     for &b in &caps.bandwidths {
                         let sel = (cfg.soapy.bandwidth_hz - b).abs() < 1.0;
                         if ui.selectable_label(sel, bw_label(b)).clicked() {
                             cfg.soapy.bandwidth_hz = b;
-                            *apply = true;
+                            apply.request();
                         }
                     }
                 });
@@ -4417,7 +4417,7 @@ pub(in crate::app) fn settings_rx888_tab(
     devices: &[sdroxide_types::Rx888Device],
     radio_edit: &mut Option<sdroxide_types::RadioConfig>,
     rescan: &mut bool,
-    apply: &mut bool,
+    apply: &mut crate::app::settings::ApplyInterface,
     can_probe: bool,
     // Where the dial is, so a width the tuner's IF cannot fill can say so while
     // the receiver is actually up there rather than only in the abstract.
@@ -4502,7 +4502,7 @@ pub(in crate::app) fn settings_rx888_tab(
                             )
                             .changed()
                         {
-                            *apply = true;
+                            apply.request();
                         }
                     }
                 });
@@ -4537,7 +4537,7 @@ pub(in crate::app) fn settings_rx888_tab(
                 cfg.rx888.adc_rate_hz = (msps * 1e6).round();
             }
             if r.drag_stopped() || r.lost_focus() {
-                *apply = true;
+                apply.request();
             }
         });
         ui.end_row();
@@ -4794,13 +4794,13 @@ pub(in crate::app) fn settings_rx888_tab(
                  the receiver hundreds of times.",
             );
         if r.drag_stopped() || r.lost_focus() {
-            *apply = true;
+            apply.request();
         }
         ui.end_row();
     });
 
     if before != (cfg.rx888.serial.clone(), cfg.rx888.randomize, cfg.rx888.ddc_bins) {
-        *apply = true;
+        apply.request();
     }
 
     ui.add_space(6.0);
@@ -5228,7 +5228,7 @@ pub(in crate::app) fn settings_airspyhf_tab(
     radio_edit: &mut Option<sdroxide_types::RadioConfig>,
     rescan: &mut bool,
     copy_report: &mut bool,
-    apply: &mut bool,
+    apply: &mut crate::app::settings::ApplyInterface,
     can_probe: bool,
     cmds: &mut Vec<Command>,
 ) {
@@ -5428,7 +5428,7 @@ pub(in crate::app) fn settings_airspyhf_tab(
                 } else {
                     // Back to the receiver's own figure needs a reopen: the
                     // flash value is only read when the device is opened.
-                    *apply = true;
+                    apply.request();
                 }
             }
             if let Some(ppb) = cfg.airspyhf.calibration_ppb.as_mut()
@@ -5496,7 +5496,7 @@ pub(in crate::app) fn settings_airspyhf_tab(
     }
 
     if (cfg.airspyhf.serial.clone(), cfg.airspyhf.sample_rate_hz) != before {
-        *apply = true;
+        apply.request();
     }
 
     ui.add_space(4.0);
@@ -5534,7 +5534,7 @@ pub(in crate::app) fn settings_airspy_tab(
     radio_edit: &mut Option<sdroxide_types::RadioConfig>,
     rescan: &mut bool,
     copy_report: &mut bool,
-    apply: &mut bool,
+    apply: &mut crate::app::settings::ApplyInterface,
     can_probe: bool,
     cmds: &mut Vec<Command>,
 ) {
@@ -5761,7 +5761,7 @@ pub(in crate::app) fn settings_airspy_tab(
     }
 
     if (cfg.airspy.serial.clone(), cfg.airspy.sample_rate_hz, cfg.airspy.packing) != before {
-        *apply = true;
+        apply.request();
     }
 
     ui.add_space(6.0);
@@ -5816,7 +5816,7 @@ pub(in crate::app) fn settings_hydrasdr_tab(
     radio_edit: &mut Option<sdroxide_types::RadioConfig>,
     rescan: &mut bool,
     copy_report: &mut bool,
-    apply: &mut bool,
+    apply: &mut crate::app::settings::ApplyInterface,
     can_probe: bool,
     cmds: &mut Vec<Command>,
 ) {
@@ -6097,7 +6097,7 @@ pub(in crate::app) fn settings_hydrasdr_tab(
     }
 
     if (cfg.hydrasdr.serial.clone(), cfg.hydrasdr.sample_rate_hz, cfg.hydrasdr.packing) != before {
-        *apply = true;
+        apply.request();
     }
 
     ui.add_space(6.0);
@@ -6152,7 +6152,7 @@ pub(in crate::app) fn settings_fobos_tab(
     caps: Option<&sdroxide_types::DeviceCaps>,
     radio_edit: &mut Option<sdroxide_types::RadioConfig>,
     rescan: &mut bool,
-    apply: &mut bool,
+    apply: &mut crate::app::settings::ApplyInterface,
     can_probe: bool,
     cmds: &mut Vec<Command>,
 ) {
@@ -6356,7 +6356,7 @@ pub(in crate::app) fn settings_fobos_tab(
     });
 
     if (cfg.fobos.serial.clone(), cfg.fobos.port, cfg.fobos.sample_rate_hz) != before {
-        *apply = true;
+        apply.request();
     }
 
     ui.add_space(6.0);
@@ -6386,7 +6386,7 @@ pub(in crate::app) fn settings_hackrf_tab(
     radio_edit: &mut Option<sdroxide_types::RadioConfig>,
     rescan: &mut bool,
     copy_report: &mut bool,
-    apply: &mut bool,
+    apply: &mut crate::app::settings::ApplyInterface,
     can_probe: bool,
     cmds: &mut Vec<Command>,
 ) {
@@ -6720,7 +6720,7 @@ pub(in crate::app) fn settings_hackrf_tab(
         cfg.hackrf.transfer_kib,
     ) != before
     {
-        *apply = true;
+        apply.request();
     }
 
     ui.add_space(6.0);
@@ -6775,7 +6775,7 @@ pub(in crate::app) fn settings_sdrplay_tab(
     caps: Option<&sdroxide_types::DeviceCaps>,
     radio_edit: &mut Option<sdroxide_types::RadioConfig>,
     rescan: &mut bool,
-    apply: &mut bool,
+    apply: &mut crate::app::settings::ApplyInterface,
     can_probe: bool,
     cmds: &mut Vec<Command>,
 ) {
@@ -7590,7 +7590,7 @@ pub(in crate::app) fn settings_sdrplay_tab(
             cfg.sdrplay.duo.role,
         )
     {
-        *apply = true;
+        apply.request();
     }
 
     ui.add_space(4.0);
@@ -7624,7 +7624,7 @@ pub(in crate::app) fn settings_lime_tab(
     radio_edit: &mut Option<sdroxide_types::RadioConfig>,
     rescan: &mut bool,
     copy_report: &mut bool,
-    apply: &mut bool,
+    apply: &mut crate::app::settings::ApplyInterface,
     can_probe: bool,
     cmds: &mut Vec<Command>,
 ) {
@@ -7807,7 +7807,7 @@ pub(in crate::app) fn settings_lime_tab(
             // it goes back through the reopen.
             if cfg.lime.antenna_rx != before_rx {
                 if cfg.lime.antenna_rx.is_empty() {
-                    *apply = true;
+                    apply.request();
                 } else {
                     cmds.push(Command::SetAntenna {
                         dir: Direction::Rx,
@@ -7942,7 +7942,7 @@ pub(in crate::app) fn settings_lime_tab(
                     // one and listening.
                     if cfg.lime.aux.antenna != before_aux {
                         if cfg.lime.aux.antenna.is_empty() {
-                            *apply = true;
+                            apply.request();
                         } else {
                             cmds.push(Command::SetDeviceSetting {
                                 key: LimeConfig::AUX_ANTENNA_SETTING.to_string(),
@@ -8242,7 +8242,7 @@ pub(in crate::app) fn settings_lime_tab(
             // Immediately, for the same reason the receive socket is.
             if cfg.lime.antenna_tx != before_tx {
                 if cfg.lime.antenna_tx.is_empty() {
-                    *apply = true;
+                    apply.request();
                 } else {
                     cmds.push(Command::SetAntenna {
                         dir: Direction::Tx,
@@ -8529,7 +8529,7 @@ pub(in crate::app) fn settings_lime_tab(
         cfg.lime.aux.role,
     );
     if after != before {
-        *apply = true;
+        apply.request();
     }
 
     ui.add_space(4.0);
