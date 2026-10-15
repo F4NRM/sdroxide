@@ -207,3 +207,64 @@ session rather than rewritten, since the code tables in it are sound.
    how the RTTY framing behaves — but it is a nice-to-have now, not the blocker.
    It was never a blocker; I should have looked for real examples first.
 4. **Then** the rest: RTTY wiring, a window, the manual, a quick-start.
+
+---
+
+## 2026-10-15, later: it built, and what the build cost
+
+The decoder is **in the tree and BETA** (`d1d9bc8c`), with a window and a chip in
+the UI, verified against the four messages above. Issue **#88** asks Kevin to try
+it on the air. What follows is for whoever touches it next.
+
+### The design that works, after the design that did not
+
+**A walk with a cursor.** An ordered list of what may come next — each entry with
+its own shape — and a cursor that never goes back. The first version dispatched
+on length and leading digits and read `41692` (visibility) as a barometer of
+169.2 hPa, with a plausible-looking number the whole way.
+
+The reason a table cannot work is worth stating once: **five-digit groups are
+told apart only by position.** `iRixhVV`, `Nddff`, `1snTTT`, `2snTdTdTd`,
+`4PPPP`, `5appp`, `7wwW1W2`, `8NhCLCMCH`, `9GGgg`, `222DsVs`, `0ssTwTwTw` and
+all three wave groups arrive as five characters, and their leading digits
+overlap. Length does not separate them and neither does the first figure.
+
+### The field widths, which cost six corrections
+
+Every one of these was got wrong first by reading a *spaced* specification
+(`2 sn Td Td Td`) as though the spacing were the transmission:
+
+| Group | Figures | What was assumed first |
+|---|---|---|
+| `YYGGiw` | **5** | 6, with `iw` two digits |
+| `QcLoLoLoLo` | **5** | 9, quadrant plus eight |
+| `1snTTT` | **5** | — (right first) |
+| `2snTdTdTd` | **5** | 6, which let the dew point fall through to the wave matcher |
+| `4PPPP` | **5** | right, but the leading `0` means +1000 hPa |
+| `0ssTwTwTw` | **5** | 6 or 7 |
+| `222DsVs` | **5** | 6 |
+| `2PwPwHwHw`, `4Pw1Pw1Hw1Hw1`, `5Pw2Pw2Hw2Hw2` | **5** | 8 and 10 |
+
+**The rule that would have saved all six: when a source disagrees with this
+code, check a second source before changing the code.** Two of the corrections
+went the *other* way — `iw` and the longitude group were right already, and one
+source's spaced rendering is what made them look wrong.
+
+### Three of the assertions were wrong too
+
+Visibility 92 is 200-500 m, not "under 50 m"; two longitude figures in a test
+string were not what I meant. **Fix the test, not the code** — but check which
+one is wrong by looking at a second example first, because it is not always the
+test.
+
+### What is still uncertain
+
+- **Weather code 4677 is abbreviated.** Anything not listed prints as
+  `weather code NNN`, so an unfamiliar figure is reported rather than lost.
+- **Visibility boundaries** between the code groups are guesses at the edges.
+- **Ships' course** follows the code table (6 = south-west) where one worked
+  example reads it as west, which is the code for 7. The code table is normative
+  and a worked example is not — but if a ship is ever seen apparently going the
+  wrong way, this is why.
+- **No report has been decoded off the air.** Everything above is verified
+  against four published messages and nothing else.
