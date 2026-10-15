@@ -55,11 +55,8 @@ fn a_forgotten_channel_reaches_the_published_state() {
         freq_ranges_rx: vec![(0.0, 1_000_000_000.0)],
         ..DeviceCaps::default()
     };
-    let mut h = start_engine(
-        Box::new(MockSource { center: 222_064_000.0 }),
-        caps,
-        EngineConfig::default(),
-    );
+    let mut h =
+        start_engine(Box::new(MockSource { center: 222_064_000.0 }), caps, EngineConfig::default());
     let thread = h.thread.take();
     std::thread::sleep(Duration::from_millis(150));
 

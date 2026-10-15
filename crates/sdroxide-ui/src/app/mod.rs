@@ -3113,6 +3113,61 @@ mod tests {
         assert_eq!((app.state.vfo_a_hz, app.state.center_hz), (dial + 100.0, centre + 100.0));
     }
 
+    /// A DAB channel cleared with × stays cleared when a snapshot the engine
+    /// sent *before* it heard the clearing arrives after it. The snapshot is
+    /// adopted whole, so it put the channel back on screen, and the next
+    /// settings this screen sent — a station named, a channel picked — wrote
+    /// it back into the station's list for good (a report: "5A never goes").
+    #[test]
+    fn a_late_snapshot_does_not_bring_a_cleared_dab_channel_back() {
+        let _guard = crate::multi::frame_test_lock();
+        let dir = std::env::temp_dir().join(format!("sdroxide-dab-hold-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        unsafe { std::env::set_var("SDROXIDE_CONFIG_DIR", &dir) };
+
+        let events = std::rc::Rc::new(std::cell::RefCell::new(std::collections::VecDeque::new()));
+        let ctx = egui::Context::default();
+        let mut app = SdroxideApp::new_tab(
+            &ctx,
+            None,
+            None,
+            Box::new(SharedController(events.clone())),
+            0,
+            true,
+        );
+        app.state.dab.found = ["8B", "11D", "5A"].map(String::from).to_vec();
+        app.state.dab.channel = "11D".into();
+        let engine = app.state.clone();
+
+        // The ×, as the channel picker does it.
+        app.state.dab.forget_channel("5A");
+        app.dispatch_commands(vec![Command::SetDabConfig(app.state.dab.clone())]);
+
+        // A snapshot from before the engine applied it.
+        events.borrow_mut().push_back(RadioEvent::State(engine.clone()));
+        app.drain_events(&ctx, 1.0);
+        assert_eq!(
+            app.state.dab.found,
+            ["8B", "11D"].map(String::from).to_vec(),
+            "a late snapshot put the cleared channel back"
+        );
+
+        // The engine's answer to the clearing: from here its word stands.
+        let mut after = engine.clone();
+        after.dab.forget_channel("5A");
+        events.borrow_mut().push_back(RadioEvent::State(after.clone()));
+        app.drain_events(&ctx, 1.1);
+        assert_eq!(app.state.dab, after.dab);
+
+        // And a change made at the station after that is taken as it comes.
+        let mut later = after.clone();
+        later.dab.found.push("12C".into());
+        events.borrow_mut().push_back(RadioEvent::State(later.clone()));
+        app.drain_events(&ctx, 1.2);
+        assert_eq!(app.state.dab, later.dab);
+    }
+
     /// JTTY's panel offers the FREQ picker, CLEAR RX and SAVE from the start —
     /// before anything has been heard, since FREQ is how an operator gets onto
     /// a JTTY frequency at all.
@@ -4514,3 +4569,4 @@ mod tests {
         }
     }
 }
+

@@ -16,18 +16,28 @@
 //! same protection for every other route, in the one place every command
 //! leaves by.
 //!
+//! The DAB settings are held the same way, whole. They are edited here and
+//! sent back as one value, so a snapshot from before an edit put the old list
+//! back on screen — a channel cleared with × reappeared at once — and the next
+//! settings sent from the screen wrote it back at the station for good.
+//!
 //! The engine still has the last word. A value it never echoes — a tune it
 //! refused, a centre its downconverter clamped — is held only for
 //! [`DIAL_HOLD_S`] from the first snapshot that disagreed, and then the
 //! engine's value is taken.
 
-use sdroxide_types::{Command, RadioState, Vfo};
+use sdroxide_types::{Command, DabSettings, RadioState, Vfo};
 
 /// How long a value this screen sent outranks a snapshot that disagrees with
 /// it, counted from the first such snapshot. Long enough for a reply to cross a
 /// network to a remote station; short enough that a tune the engine refused
 /// snaps back without anyone wondering why.
 pub(in crate::app) const DIAL_HOLD_S: f64 = 0.5;
+
+/// The same for the DAB settings. Longer, because the engine never refuses
+/// them — a snapshot that disagrees is always one still on its way — and a
+/// remote station's replies can queue behind its audio and spectrum.
+const DAB_HOLD_S: f64 = 3.0;
 
 /// Within this, a snapshot is taken to have caught up with what was sent.
 const SAME_HZ: f64 = 0.5;
@@ -44,6 +54,8 @@ struct Pending {
 pub(in crate::app) struct DialHold {
     vfo: [Option<Pending>; 2],
     center: Option<Pending>,
+    /// The DAB settings last sent, and when a snapshot first disagreed.
+    dab: Option<(DabSettings, Option<f64>)>,
 }
 
 impl DialHold {
@@ -54,6 +66,7 @@ impl DialHold {
         match *cmd {
             Command::SetVfo { vfo, hz } => self.vfo[slot(vfo)] = fresh(hz),
             Command::SetCenter(hz) => self.center = fresh(hz),
+            Command::SetDabConfig(ref d) => self.dab = Some((d.clone(), None)),
             _ => {}
         }
     }
@@ -65,6 +78,15 @@ impl DialHold {
         hold(&mut self.vfo[0], &mut s.vfo_a_hz, now);
         hold(&mut self.vfo[1], &mut s.vfo_b_hz, now);
         hold(&mut self.center, &mut s.center_hz, now);
+        if let Some((sent, since)) = &mut self.dab {
+            if s.dab == *sent {
+                self.dab = None;
+            } else if now - *since.get_or_insert(now) < DAB_HOLD_S {
+                s.dab = sent.clone();
+            } else {
+                self.dab = None;
+            }
+        }
     }
 }
 
