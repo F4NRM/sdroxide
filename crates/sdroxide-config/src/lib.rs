@@ -985,6 +985,27 @@ impl Store {
         }
     }
 
+    /// This radio's DAB settings: its channels, stations and presets.
+    ///
+    /// Each radio keeps its own, because which blocks it hears is a fact about
+    /// its antenna and its front end, and an × on one radio's channel must not
+    /// take it off another's. They used to share the station's `dab.json`, so a
+    /// radio other than the first that has never saved one starts from that —
+    /// the list it was showing — and is its own from its first save.
+    pub fn load_dab_config(&self) -> sdroxide_types::DabSettings {
+        if self.scope.is_some()
+            && let Ok(dir) = self.dir()
+            && matches!(read_config_text(&dir, "dab.json"), FileText::Missing)
+        {
+            return Store::station().load("dab.json");
+        }
+        self.load("dab.json")
+    }
+
+    pub fn save_dab_config(&self, cfg: &sdroxide_types::DabSettings) -> Result<(), ConfigError> {
+        self.save("dab.json", cfg)
+    }
+
     pub fn load_scanner_config(&self) -> sdroxide_types::ScannerConfig {
         self.load("scanner.json")
     }
@@ -2148,12 +2169,14 @@ pub fn save_ais_config(cfg: &sdroxide_types::AisSettings) -> Result<(), ConfigEr
 /// machine running the radio and read back at every start. Kept apart from the
 /// live `RadioState.dab` for the same reason AIS's is: a front end that cannot
 /// feed the lane forces the live one off, and that must not overwrite this.
+/// The first radio's DAB settings; each radio has its own — see
+/// [`Store::load_dab_config`].
 pub fn load_dab_config() -> sdroxide_types::DabSettings {
-    load_json::<sdroxide_types::DabSettings>("dab.json")
+    Store::station().load_dab_config()
 }
 
 pub fn save_dab_config(cfg: &sdroxide_types::DabSettings) -> Result<(), ConfigError> {
-    save_json("dab.json", cfg)
+    Store::station().save_dab_config(cfg)
 }
 
 pub fn load_vdl2_config() -> sdroxide_types::Vdl2Settings {

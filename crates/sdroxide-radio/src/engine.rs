@@ -4140,7 +4140,7 @@ fn engine_thread(
     } else {
         ais_cfg
     };
-    let dab_cfg = sdroxide_config::load_dab_config();
+    let dab_cfg = engine_cfg.store.load_dab_config();
     state.dab = if audio_mode {
         sdroxide_types::DabSettings::OFF // wideband-only, like the rest of the lanes
     } else {
@@ -10038,7 +10038,7 @@ impl Engine {
                 self.state.dab = cfg;
                 self.dab_cfg = self.state.dab.clone();
                 // Written through, so what a scan found outlives the session.
-                if let Err(e) = sdroxide_config::save_dab_config(&self.dab_cfg) {
+                if let Err(e) = self.store.save_dab_config(&self.dab_cfg) {
                     warn!("saving DAB config: {e}");
                 }
                 self.sync_dab();
@@ -17990,7 +17990,6 @@ impl Engine {
         self.dab_play_l.clear();
         self.dab_play_r.clear();
         deinterleave(pcm, channels, &mut self.dab_play_l, &mut self.dab_play_r);
-        self.dab_level = Some(stereo_rms_dbfs(&self.dab_play_l, &self.dab_play_r));
         let (mut left, mut right) = (Vec::new(), Vec::new());
         match self.dab_monitor_rs.as_mut() {
             Some(rs) => {
@@ -18077,6 +18076,11 @@ impl Engine {
         self.main_play_r.clear();
         self.main_play.extend(self.dab_fifo_l.drain(..take));
         self.main_play_r.extend(self.dab_fifo_r.drain(..take));
+        // The meter's level: this block, as it goes to the speakers and before
+        // the volume. Measured here rather than as the decoder hands audio over,
+        // which is in bursts of a whole superframe (120 ms) ahead of the sound —
+        // a level that steps a few times a second, out of time with the beat.
+        self.dab_level = Some(stereo_rms_dbfs(&self.main_play, &self.main_play_r));
         if vol != 1.0 {
             for s in self.main_play.iter_mut() {
                 *s *= vol;

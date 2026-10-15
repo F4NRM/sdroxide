@@ -26,31 +26,18 @@ pub const RED_FROM_VU: i32 = 6;
 /// passages reach the red.
 pub const ALIGN_DBFS: f32 = -12.0;
 
-/// How far the meter drops between full volume and none, in dB. The meter
-/// reads the programme *as the operator hears it*: at full volume the
-/// station's own level, and at the bottom of the volume the column still
-/// moves, but only in the first few segments — the meter never goes dead
-/// while a station plays, so it stays a meter and not a volume gauge.
-pub const VOLUME_SPAN_DB: f32 = 34.0;
-
-/// The level the meter shows for a station measured at `dbfs` (left and
-/// right) and heard at `volume` (0..=1, the receiver's volume).
-pub fn heard_dbfs(dbfs: [f32; 2], volume: f32) -> [f32; 2] {
-    let shift = (volume.clamp(0.0, 1.0) - 1.0) * VOLUME_SPAN_DB;
-    [dbfs[0] + shift, dbfs[1] + shift]
-}
-
 /// One volume step for the wheel and the arrow keys.
 pub const VOLUME_STEP: f32 = 0.05;
 
 /// Below the bottom of the scale: the column is dark.
 const FLOOR_VU: f32 = -70.0;
 
-/// The integration time: the reading takes about this long to reach 99 % of
-/// a step, rising and falling alike. Quicker than a studio VU's 300 ms, so
-/// the column dances with the programme; the peak marker keeps its slower
-/// hold, which gives the column a little hold-and-fall above it.
-const VU_TIME_S: f32 = 0.12;
+/// The ballistics of a hi-fi LED meter: the column jumps up with each beat
+/// (99 % of a rise in [`ATTACK_S`]) and falls back more slowly (99 % of a fall
+/// in [`RELEASE_S`]), so it pumps with the programme instead of drifting with
+/// its average. The peak marker keeps its slower hold above it.
+const ATTACK_S: f32 = 0.03;
+const RELEASE_S: f32 = 0.35;
 
 /// How long the peak marker holds before it starts to fall, and how fast it
 /// falls then.
@@ -82,11 +69,13 @@ impl VuBallistics {
     /// `None` means nothing is playing: the column falls away to dark.
     pub fn step(&mut self, input: Option<[f32; 2]>, dt: f32) {
         let dt = dt.clamp(0.0, 0.5);
-        // A first-order integrator whose 99 % time is `VU_TIME_S`: ln(100) ≈ 4.6.
-        let k = 1.0 - (-dt * 4.6 / VU_TIME_S).exp();
+        // A first-order integrator whose 99 % time is the attack going up and
+        // the release coming down: ln(100) ≈ 4.6.
+        let k = |time: f32| 1.0 - (-dt * 4.6 / time).exp();
         for ch in 0..2 {
             let target = input.map_or(FLOOR_VU, |l| Self::vu_of_dbfs(l[ch]));
-            self.level[ch] += (target - self.level[ch]) * k;
+            let time = if target > self.level[ch] { ATTACK_S } else { RELEASE_S };
+            self.level[ch] += (target - self.level[ch]) * k(time);
             if self.level[ch] >= self.peak[ch] {
                 self.peak[ch] = self.level[ch];
                 self.peak_age[ch] = 0.0;
@@ -435,20 +424,6 @@ pub fn stereo_horizontal(
 mod tests {
     use super::*;
 
-    /// The meter reads the station as heard: full volume is the station's
-    /// own level; none leaves the column moving in its first few segments,
-    /// never dark and never at the top.
-    #[test]
-    fn the_meter_follows_the_volume() {
-        let loud = [-12.0, -12.0];
-        assert_eq!(heard_dbfs(loud, 1.0), loud);
-        let quiet = VuBallistics::vu_of_dbfs(heard_dbfs(loud, 0.0)[0]);
-        let n = lit_segments(quiet);
-        assert!((2..=4).contains(&n), "at no volume a loud station lights {n} segments");
-        let half = lit_segments(VuBallistics::vu_of_dbfs(heard_dbfs(loud, 0.5)[0]));
-        assert!(half > n && half < lit_segments(0.0), "half volume sits between: {half}");
-    }
-
     /// A loud DAB+ station at full volume moves round 0 VU, not in the red.
     #[test]
     fn a_dab_station_at_full_volume_is_not_pinned_in_the_red() {
@@ -472,18 +447,26 @@ mod tests {
         assert_eq!(lit_segments(5.9), 11 + 3, "+6 is red and not reached at +5.9");
     }
 
-    /// The column rises over about 120 ms rather than jumping — quick enough
-    /// to dance with the programme — and settles on the level it is fed.
+    /// Like a hi-fi LED meter: a beat lifts the column within a couple of
+    /// frames, and it falls back over a few hundred milliseconds — so it
+    /// pumps with the music rather than sitting on its average.
     #[test]
-    fn the_column_rises_quickly_and_settles() {
+    fn the_column_jumps_with_a_beat_and_falls_back_slowly() {
         let mut m = VuBallistics::default();
-        let tone = Some([ALIGN_DBFS; 2]);
-        m.step(tone, 1.0 / 60.0);
-        assert!(m.level[0] < -20.0, "one frame does not reach the level: {}", m.level[0]);
-        for _ in 0..12 {
-            m.step(tone, 1.0 / 60.0);
+        let beat = Some([ALIGN_DBFS; 2]);
+        m.step(beat, 1.0 / 30.0);
+        assert!(m.level[0] > -3.0, "one frame of a beat is nearly there: {}", m.level[0]);
+        // The beat stops: a tenth of a second on, the column is still well up…
+        let quiet = Some([ALIGN_DBFS - 30.0; 2]);
+        for _ in 0..3 {
+            m.step(quiet, 1.0 / 30.0);
         }
-        assert!(m.level[0] > -1.0, "after ~0.2 s the level is reached: {}", m.level[0]);
+        assert!(m.level[0] > -25.0, "it falls back slowly: {}", m.level[0]);
+        // …and by half a second it has settled on the quiet passage.
+        for _ in 0..12 {
+            m.step(quiet, 1.0 / 30.0);
+        }
+        assert!(m.level[0] < -28.0, "then it has come down: {}", m.level[0]);
     }
 
     /// The peak marker stays where the loudest moment was for a while, then

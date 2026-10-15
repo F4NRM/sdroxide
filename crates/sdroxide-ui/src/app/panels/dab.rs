@@ -308,15 +308,10 @@ impl SdroxideApp {
         let now = ui.input(|i| i.time);
         let dt = self.dab_vu_at.map_or(0.0, |t| (now - t) as f32);
         self.dab_vu_at = Some(now);
-        // The station as heard: the level the engine measured, brought down by
-        // the volume the operator has it at (a mute is no volume).
-        let rx = &self.state.rx[0];
-        let volume = if rx.muted { 0.0 } else { rx.volume };
-        let input = st
-            .playing
-            .as_ref()
-            .and(st.audio_rms_db)
-            .map(|l| crate::widgets::vu_meter::heard_dbfs(l, volume));
+        // The programme's own level, as a hi-fi meter shows it: the volume is
+        // what the speakers make of it, not what the station sends, so the
+        // column moves just the same with the sound turned down.
+        let input = st.playing.as_ref().and(st.audio_rms_db);
         self.dab_vu.step(input, dt);
         if input.is_some() || self.dab_vu.is_live() {
             // The meter moves between status messages, so it asks for its own

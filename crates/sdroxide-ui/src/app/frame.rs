@@ -3181,7 +3181,9 @@ impl SdroxideApp {
                             changed = true;
                         }
                         if changed {
-                            self.ctrl.send(Command::SetDabConfig(self.state.dab.clone()));
+                            let cmd = Command::SetDabConfig(self.state.dab.clone());
+                            self.dial_hold.note(&cmd);
+                            self.ctrl.send(cmd);
                         }
                     }
                     // Another station playing: the last one's picture is not
