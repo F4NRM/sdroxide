@@ -245,16 +245,17 @@ impl SdroxideApp {
             .map(|s| if s.label.trim().is_empty() { s.service_id.clone() } else { s.label.clone() })
             .unwrap_or_else(|| "no station chosen".to_string());
 
-        // The slideshow: the picture the station sends, else its initials.
+        // The tile: the station's logo, else the slideshow's picture in small —
+        // the logo (SPI) is not decoded, and the slide is very often the
+        // station's own card — else its initials.
+        let tile = self.dab_logo.as_ref().or(self.dab_slide.as_ref());
         let dls_h = 40.0;
         let art_h = (inner.height() - 22.0 - dls_h - 10.0)
             .min(inner.width() * 0.42 * 0.75)
             .clamp(48.0, 150.0);
         // The tile takes the picture's own shape: a square station logo gets a
         // square, a 320x240 slide a 4:3 frame. Never stretched.
-        let aspect = self
-            .dab_logo
-            .as_ref()
+        let aspect = tile
             .map(|t| {
                 let [w, h] = t.size();
                 (w as f32 / h.max(1) as f32).clamp(1.0, 4.0 / 3.0)
@@ -264,7 +265,7 @@ impl SdroxideApp {
             inner.left_top() + Vec2::new(0.0, 22.0),
             Vec2::new(art_h * aspect, art_h),
         );
-        if let Some(tex) = &self.dab_logo {
+        if let Some(tex) = tile {
             p.rect_filled(art, 6.0, Color32::BLACK);
             paint_fitted(&p, tex, art);
         } else {
