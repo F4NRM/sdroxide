@@ -1211,7 +1211,12 @@ fn open_source(cli: &Cli, settings: &Settings) -> anyhow::Result<(Box<dyn IqSour
             // to fall back, which is what left the button doing nothing on
             // 2.0.12 while the startup path appeared to work (#72).
             let fallback =
-                sdroxide_types::reopen::fallback_open_hz(asked, Some(asked), last);
+                sdroxide_types::reopen::fallback_open_hz(
+                    asked,
+                    Some(asked),
+                    last,
+                    &sdroxide_config::load_memories().iter().map(|m| m.freq_hz).collect::<Vec<_>>(),
+                );
             if let Some(last) = fallback {
                 let mut c = cli.clone();
                 c.freq = Some(last);

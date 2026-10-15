@@ -16420,9 +16420,26 @@ impl Engine {
     /// hand each start.
     fn reopen_centre(&self) -> (f64, Option<f64>) {
         let dial = self.state.active_freq_hz();
-        let fallback =
-            sdroxide_types::reopen::fallback_open_hz(dial, self.refused_center_hz, self.good_vfo_hz);
+        let fallback = sdroxide_types::reopen::fallback_open_hz(
+            dial,
+            self.refused_center_hz,
+            self.good_vfo_hz,
+            &self.stored_channels_hz(),
+        );
         (fallback.unwrap_or(dial), fallback)
+    }
+
+    /// The operator's stored channels, as plain frequencies.
+    ///
+    /// The last honest source when the record of the last tuned frequency is
+    /// useless — which is what a station that has never managed to tune holds,
+    /// since the stand-in it runs on answers every tune with "done". They are
+    /// read per attempt rather than cached: a channel added a moment ago is
+    /// exactly the one somebody would want the radio to come up on.
+    fn stored_channels_hz(&self) -> Vec<f64> {
+        // Station-wide, not this radio's scope: one channel list for the
+        // station, which is where the operator put their QO-100 frequencies.
+        sdroxide_config::load_memories().iter().map(|m| m.freq_hz).collect()
     }
 
     /// An open at `center` failed, so an attempt that would repeat it is
