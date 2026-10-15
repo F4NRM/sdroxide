@@ -14,6 +14,9 @@ and the [README](https://github.com/madmedicnl/sdroxide-brown#readme).
 ## [Unreleased]
 
 ### Fixed
+- **A tool window's ⇱ button no longer shows through the window you put on top of it.** The button is drawn as an overlay in its title bar, and it was in the foreground layer — which paints above every window whatever the order they are drawn in.
+
+### Fixed
 - **False OPEN alerts when returning to a band, or when a DX-cluster spot mixes with PSK Reporter.** The warm-up clock survived a band change while the spots behind it had been pruned, so the first traffic back divided by nothing and read as an infinite opening. The tracker is now told when the dial moves.
 
 ### Added

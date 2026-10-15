@@ -309,9 +309,23 @@ fn tool_window_title_button(
         egui::vec2(side, side),
     );
     let mut clicked = false;
+    // **`Order::Middle`, not `Foreground`.** This is the whole of upstream #653's
+    // shape and of the operator's screenshot: a `Foreground` area paints above
+    // *every* window whatever the draw order, so with two tool windows
+    // overlapping, the lower one's chip showed through the upper one's body
+    // while the rest of its title bar was correctly hidden. The window above was
+    // hidden in window order and the chip was not — the same window, half
+    // hidden, which no other explanation fits.
+    //
+    // `Middle` is the order egui's own windows live in, so the chip now takes
+    // its place among them: it sits above the body it belongs to, and a window
+    // raised over that one covers the chip with everything else. It is still an
+    // `Area` rather than a widget in the body's `Ui`, because the title bar is
+    // outside the body's clip rect and a widget there would be clipped away —
+    // which is why this was an overlay to begin with.
     egui::Area::new(win_id.with("title-btn"))
         .fixed_pos(rect.min)
-        .order(egui::Order::Foreground)
+        .order(egui::Order::Middle)
         .show(ctx, |ui| {
             ui.set_min_size(rect.size());
             clicked = crate::chrome::chip_window_icon(ui, crate::chrome::WindowIcon::Out)
