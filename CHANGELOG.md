@@ -14,6 +14,7 @@ and the [README](https://github.com/madmedicnl/sdroxide-brown#readme).
 ## [Unreleased]
 
 ### Fixed
+- **Coming back to DAB brings the radio back to the DAB channel** — after 6 m (50.150) it stayed there, silent; picking a station now retunes too.
 - **The S-meter calibration dropdown is gone** — it was built on a reading taken against the wrong build, so the whole premise was never established.
 
 ### Added
