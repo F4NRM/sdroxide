@@ -271,32 +271,38 @@ pub(in crate::app) fn settings_ui_tab(
             "The tint each spot source wears: the boxes along the bottom of the \
              waterfall, the badges in the SPOTS list and the dots on the world map.",
         );
-        ui.horizontal_wrapped(|ui| {
-            for kind in SpotKind::ALL {
-                ui.color_edit_button_srgb(&mut cfg.spot_colors[kind.index()])
-                    .on_hover_text(format!("Colour for {} spots", kind.label()));
-                let [r, g, b] = cfg.spot_colors[kind.index()];
-                // Tinted with what was just picked, so the row is its own
-                // preview — a colour that vanishes into the panel here would
-                // vanish into the waterfall too.
-                ui.label(
-                    RichText::new(kind.label())
-                        .size(11.0)
-                        .strong()
-                        .color(crate::theme::data_ink((r, g, b))),
-                );
-                ui.add_space(6.0);
-            }
-            if ui
-                .button("Reset")
-                .on_hover_text("Put every spot colour back to its default")
-                .clicked()
-            {
+        // Wrapped inside a column, not straight in the grid cell: laid out
+        // directly in the cell, a row that wraps onto a second line is not
+        // given that line's full height, and its Reset button ran into the
+        // picker in the row below.
+        ui.vertical(|ui| {
+            ui.horizontal_wrapped(|ui| {
                 for kind in SpotKind::ALL {
-                    let (r, g, b) = kind.default_color();
-                    cfg.spot_colors[kind.index()] = [r, g, b];
+                    ui.color_edit_button_srgb(&mut cfg.spot_colors[kind.index()])
+                        .on_hover_text(format!("Colour for {} spots", kind.label()));
+                    let [r, g, b] = cfg.spot_colors[kind.index()];
+                    // Tinted with what was just picked, so the row is its own
+                    // preview — a colour that vanishes into the panel here would
+                    // vanish into the waterfall too.
+                    ui.label(
+                        RichText::new(kind.label())
+                            .size(11.0)
+                            .strong()
+                            .color(crate::theme::data_ink((r, g, b))),
+                    );
+                    ui.add_space(6.0);
                 }
-            }
+                if ui
+                    .button("Reset")
+                    .on_hover_text("Put every spot colour back to its default")
+                    .clicked()
+                {
+                    for kind in SpotKind::ALL {
+                        let (r, g, b) = kind.default_color();
+                        cfg.spot_colors[kind.index()] = [r, g, b];
+                    }
+                }
+            });
         });
         ui.end_row();
 
@@ -306,29 +312,31 @@ pub(in crate::app) fn settings_ui_tab(
              semi-transparent over the waterfall, so they land darker there \
              than in the swatch here.",
         );
-        ui.horizontal_wrapped(|ui| {
-            for kind in BandplanKind::ALL {
-                ui.color_edit_button_srgb(&mut cfg.bandplan_colors[kind.index()])
-                    .on_hover_text(format!("Colour for {} allocations", kind.label()));
-                let [r, g, b] = cfg.bandplan_colors[kind.index()];
-                ui.label(
-                    RichText::new(kind.label())
-                        .size(11.0)
-                        .strong()
-                        .color(crate::theme::data_ink((r, g, b))),
-                );
-                ui.add_space(6.0);
-            }
-            if ui
-                .button("Reset")
-                .on_hover_text("Put every band-plan colour back to its default")
-                .clicked()
-            {
+        ui.vertical(|ui| {
+            ui.horizontal_wrapped(|ui| {
                 for kind in BandplanKind::ALL {
-                    let (r, g, b) = kind.default_color();
-                    cfg.bandplan_colors[kind.index()] = [r, g, b];
+                    ui.color_edit_button_srgb(&mut cfg.bandplan_colors[kind.index()])
+                        .on_hover_text(format!("Colour for {} allocations", kind.label()));
+                    let [r, g, b] = cfg.bandplan_colors[kind.index()];
+                    ui.label(
+                        RichText::new(kind.label())
+                            .size(11.0)
+                            .strong()
+                            .color(crate::theme::data_ink((r, g, b))),
+                    );
+                    ui.add_space(6.0);
                 }
-            }
+                if ui
+                    .button("Reset")
+                    .on_hover_text("Put every band-plan colour back to its default")
+                    .clicked()
+                {
+                    for kind in BandplanKind::ALL {
+                        let (r, g, b) = kind.default_color();
+                        cfg.bandplan_colors[kind.index()] = [r, g, b];
+                    }
+                }
+            });
         });
         ui.end_row();
 
