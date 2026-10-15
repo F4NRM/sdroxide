@@ -160,6 +160,29 @@ const SETTINGS_GROUPS: &[(&str, &[(SettingsTab, &str)])] = &[
 const MENU_WIDTH: f32 = 180.0;
 const MENU_MIN_WIDTH: f32 = 620.0;
 
+/// A page's **Apply / reconnect**: reopen the radio with what this page says.
+///
+/// Its own type, and that is the whole point of it. Every settings flag is a
+/// `&mut bool`, so passing the wrong one compiles perfectly and the page's Apply
+/// then does something else entirely — which is exactly what happened on the
+/// ATS Mini's: its `apply` parameter was handed `audio_rescan`, so **Apply /
+/// reconnect** re-asked the machine for its sound-card list and reopened nothing,
+/// while the hover promised "Reopen the radio with these settings — no restart".
+/// A type is the cheapest way to make that mistake impossible rather than merely
+/// unlikely.
+#[derive(Default)]
+pub(in crate::app) struct ApplyInterface(bool);
+
+impl ApplyInterface {
+    /// The button was pressed.
+    fn request(&mut self) {
+        self.0 = true;
+    }
+    fn is_requested(&self) -> bool {
+        self.0
+    }
+}
+
 /// Whether a window this wide gets the menu or the strip.
 ///
 /// A free function so the threshold is testable: the number that decides it is
@@ -331,7 +354,7 @@ pub(in crate::app) struct SettingsIo<'a> {
     pluto_test: &'a mut bool,
     /// Copy the last PlutoSDR session's protocol trace to the clipboard.
     pluto_copy_report: &'a mut bool,
-    apply_iface: &'a mut bool,
+    apply_iface: &'a mut ApplyInterface,
     ui_edit: &'a mut sdroxide_types::UiSettings,
     /// The saved window arrangements (SDRuno's workspaces), edited on the UI tab
     /// and handed back to be persisted by the caller.
@@ -1240,7 +1263,7 @@ impl SdroxideApp {
         let mut pluto_discover = false;
         let mut pluto_test = false;
         let mut pluto_copy_report = false;
-        let mut apply_iface = false;
+        let mut apply_iface = ApplyInterface::default();
         let mut radio_edit = self.radio_cfg.clone();
         let mut converter_hz = self.converter_edit_hz;
         let mut ranges = self.range_edit.clone();
@@ -1838,7 +1861,7 @@ impl SdroxideApp {
                 self.ask_device(ctx, P::RadioAudio);
             }
         }
-        if apply_iface {
+        if apply_iface.is_requested() {
             // The fields that wait for this moment, so the radio is never
             // reopened on a partly-typed offset or a half-written range.
             if let (Some(cfg), Some(hz)) = (radio_edit.as_mut(), converter_hz) {
@@ -2473,6 +2496,8 @@ impl SdroxideApp {
                     io.audio_pick,
                     io.routing_pick,
                     io.radio_edit,
+                    io.can_probe,
+                    io.audio_rescan,
                     io.recordings_choose,
                     io.recordings_reset,
                 );
@@ -3051,14 +3076,7 @@ impl SdroxideApp {
                     Backend::AtsMini => settings_atsmini_tab(
                         ui,
                         io.radio_edit,
-                        // Carries the tab's "Apply / reconnect" button, and it
-                        // has always been handed the *audio rescan* flag. Both
-                        // are `&mut bool`, so the types never caught it: the
-                        // button re-asks for device lists rather than reopening
-                        // the radio. Left exactly as it was — fixing it belongs
-                        // with whoever changes this path, not inside a settings
-                        // refactor.
-                        io.audio_rescan,
+                        io.apply_iface,
                         self.atsmini_memories.as_deref(),
                         cmds,
                     ),
@@ -3277,7 +3295,7 @@ impl SdroxideApp {
                         })
                         .clicked()
                     {
-                        *io.apply_iface = true;
+                        io.apply_iface.request();
                     }
                     // Labels in a horizontal row default to Extend; wrap so a
                     // narrow window doesn't push this under the scrollbar.
@@ -5301,5 +5319,44 @@ mod settings_menu_tests {
         let page_at_floor = 380.0 - super::MENU_WIDTH;
         assert!(page_at_threshold >= 400.0, "a page of {page_at_threshold} pt is too narrow to read");
         assert!(page_at_floor < 260.0, "which is why the floor keeps the strip");
+    }
+}
+
+#[cfg(test)]
+mod apply_interface_tests {
+    use super::ApplyInterface;
+
+    /// **The interface apply is not a bool, and that is the guard.**
+    ///
+    /// The ATS Mini's **Apply / reconnect** was wired to `audio_rescan`: every
+    /// settings flag is a `&mut bool`, the two were interchangeable to the
+    /// compiler, and the press re-asked the machine for its sound-card list and
+    /// reopened nothing — under a hover promising "Reopen the radio with these
+    /// settings — no restart". A control that does something other than what it
+    /// says is the fault this fork treats as a bug rather than as tidiness.
+    ///
+    /// There is no click test here, and that is deliberate: the fault was in
+    /// which flag the call site passed, so a test has to drive a real click to
+    /// see it, and a stand-in for one asserts only that the stand-in ran. The
+    /// guarantee is the type instead — `ApplyInterface` is not a `bool`, so
+    /// passing the rescan flag where an apply belongs **does not compile**. A
+    /// wrong flag is now a build failure rather than a button that lies.
+    #[test]
+    fn an_apply_is_a_request_of_its_own_and_not_a_rescan() {
+        let mut apply = ApplyInterface::default();
+        assert!(!apply.is_requested(), "nothing pressed, nothing asked for");
+
+        // The sound-card rescan is a separate `bool`, and raising one does not
+        // raise the other — which is the whole of what went wrong.
+        let rescan = true;
+        assert!(rescan, "the rescan flag stands on its own");
+        assert!(
+            !apply.is_requested(),
+            "a rescan must never be read as an apply"
+        );
+
+        apply.request();
+        assert!(apply.is_requested());
+        assert!(rescan, "and the rescan is untouched by it");
     }
 }
