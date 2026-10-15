@@ -1,0 +1,68 @@
+name: Bug report
+description: Something doesn't work as it should. The version is the one thing we cannot work around.
+title: ''
+labels: bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting it. The **version** below is the one thing we
+        genuinely cannot work around — a fix is only "yours" if we know which
+        build carries it.
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: >-
+        The line the program opens with, e.g. `2.0.12_brown`. Find it in
+        **Settings → General**, in the window title, or with `sdroxide --version`.
+        If you installed a nightly, say `nightly` and the date.
+      placeholder: 2.0.12_brown
+    validations:
+      required: true
+
+  - type: dropdown
+    id: where
+    attributes:
+      label: Where are you seeing it?
+      options:
+        - Desktop program
+        - Browser client
+        - Server / remote client
+        - Not sure
+    validations:
+      required: true
+
+  - type: input
+    id: radio
+    attributes:
+      label: Radio and OS
+      description: For example `RSP1 on Linux`, `RTL-SDR on Windows 11`.
+      placeholder: RSP1, Linux
+    validations:
+      required: true
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What happens
+      description: What you see, and what you expected instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: How to get there
+      description: >-
+        Which window, which mode, and what you clicked. A screenshot is worth
+        more than a paragraph.
+    validations:
+      required: true
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else
+      description: Logs, or the output of **Copy diagnostic** in Settings if you can reach it.
