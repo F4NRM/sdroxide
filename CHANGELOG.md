@@ -23,6 +23,7 @@ and the [README](https://github.com/madmedicnl/sdroxide-brown#readme).
 - **Device rows on the Audio page are a label above a control**, not a two-column grid, and the controls are wide enough for a sound card's whole name.
 
 ### Fixed
+- **The silent-microphone warning points at the page the microphone is on** — it still said General after the sound devices moved to Audio.
 - **The current page's name is visible in the Settings menu** — it was drawn in the ordinary text colour over the selection colour, so the highlighted row had nothing written on it.
 - **A description on a settings page no longer paints itself over the Apply button** — 53 of them wrapped to two lines while reserving one.
 - **The SPOTS window's KML result no longer shoves the ⚙ SETUP button aside** — it is a yellow bar of its own with a ✕, instead of a line of text among the chips.

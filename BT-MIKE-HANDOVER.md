@@ -127,13 +127,21 @@ What it buys, and this is why it is worth more than the mike:
 
 ## What is NOT verified, and must not be claimed
 
-- **Whether sdroxide's "Your audio → Input" is used for voice transmit at all.**
-  The picker exists and is wired to `set_audio_device`, but whether the transmit
-  path consumes it is unread. **The operator has no radio to test with**, so this is
-  open by circumstance, not by choice. If it turns out the input is only metered,
-  the real work is in the engine's transmit path and has nothing to do with
-  Bluetooth — and that is the thing to check *first*, because it decides whether
-  any of the above is worth doing.
+- ~~**Whether sdroxide's "Your audio → Input" is used for voice transmit at
+  all.**~~ **ANSWERED 2026-10-15: yes, it is.** The engine holds one `mic`
+  handle, drains it into `mic_fifo`, and `fill_tx_audio_fifo_depth` is what feeds
+  the transmit block — so the chosen input is the voice transmit source and this
+  project has a destination. It also already notices when it goes out silent:
+  `report_silent_microphone` raises a notice naming whether the input sent
+  nothing, there was no microphone open, or the TCI client sent none.
+
+  **One thing came out of checking it.** That notice pointed at **Settings →
+  General**, which is where the microphone used to be: the sound devices moved to
+  **Settings → Audio**, and the message went on naming the old page. A message
+  that sends the operator to the wrong room to fix a wrong setting is this fork's
+  own bug class, and it was introduced by the Audio page the same day. Fixed, and
+  the wording now lives in one free function (`silent_mic_notice`) so a test can
+  call it rather than assembling a copy beside it.
 - **HFP round-trip quality and latency** through the mike: unmeasured. Expected
   8 kHz CVSD or 16 kHz mSBC, 50–150 ms. Fine for CB voice; irrelevant for digital
   modes, which would keep using the radio's own audio.

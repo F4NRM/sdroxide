@@ -5580,6 +5580,19 @@ fn dab_audio_ready(fifo_len: usize, block: usize, fifo_r_len: usize) -> bool {
     fifo_len >= block + DAB_PRIME_SAMPLES && fifo_r_len >= block + DAB_PRIME_SAMPLES
 }
 
+/// The notice an over that transmitted nothing raises, and the one place its
+/// wording lives.
+///
+/// A free function rather than an inline `format!` because this sentence sends
+/// the operator to a page to fix a setting: the microphone moved from **General**
+/// to **Audio** and the message went on naming General, which is a message that
+/// sends somebody to the wrong room. Tests call this rather than rebuilding the
+/// string, because a test that assembles its own copy of a message passes
+/// whether or not the program still says it.
+fn silent_mic_notice(what: &str) -> String {
+    format!("That over went out with no audio — {what}. Pick the right input under Settings → Audio.")
+}
+
 impl Engine {
     fn run_audio(&mut self, iq: &[Complex32]) {
         let want_rec_main = self.recorder.is_some() && !self.caps.rx_audio_external;
@@ -13208,10 +13221,7 @@ impl Engine {
             "there is no microphone open"
         };
         warn!(peak, blocks, "voice over with a silent microphone");
-        let _ = self.event_tx.send(RadioEvent::Notice(Some(format!(
-            "That over went out with no audio — {what}. Pick the right input under \
-             Settings → General."
-        ))));
+        let _ = self.event_tx.send(RadioEvent::Notice(Some(silent_mic_notice(what))));
     }
 
     /// End a TCI-driven over: stop sourcing from the client, discard what it
@@ -21790,5 +21800,43 @@ mod udp_audio_tests {
         assert!(UdpAudio::new("not an address").is_none());
         assert!(UdpAudio::new("127.0.0.1").is_none(), "a port is required");
         assert!(UdpAudio::new("127.0.0.1:7355").is_some(), "the useful form works");
+    }
+}
+
+#[cfg(test)]
+mod mic_input_tests {
+    use super::silent_mic_notice;
+
+    /// **The message that says the microphone sent nothing must name the page
+    /// that holds the microphone.**
+    ///
+    /// It said **Settings → General**, which is where the microphone used to be
+    /// and no longer is: the sound devices moved to **Settings → Audio**. A
+    /// message that sends someone to the wrong page to fix a wrong setting is
+    /// this fork's own bug class, and nothing else here can see it.
+    ///
+    /// The test calls the function that builds the message rather than
+    /// assembling a copy of its own: a test that spells out the expected string
+    /// beside the real one passes whether or not the program still says it.
+    #[test]
+    fn the_silent_mic_warning_names_the_page_that_holds_the_microphone() {
+        let msg = silent_mic_notice("the microphone sent nothing");
+        assert!(
+            msg.contains("Settings → Audio"),
+            "the warning must point at the page the microphone is on: {msg}"
+        );
+        assert!(
+            !msg.contains("Settings → General"),
+            "and must not still point at the page it was moved off: {msg}"
+        );
+    }
+
+    /// The wording the operator is shown when the over was silent, so a change
+    /// to it is a decision rather than an accident.
+    #[test]
+    fn the_silent_mic_warning_says_what_was_silent_and_what_to_do() {
+        let msg = silent_mic_notice("there is no microphone open");
+        assert!(msg.starts_with("That over went out with no audio"), "{msg}");
+        assert!(msg.contains("there is no microphone open"), "{msg}");
     }
 }
