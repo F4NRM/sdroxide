@@ -13,6 +13,10 @@ and the [README](https://github.com/madmedicnl/sdroxide-brown#readme).
 
 ## [Unreleased]
 
+### Added
+- **PSTRotator over its own UDP port**, in the rotator settings beside the rotctld and serial transports.
+- **The version sits in the window title**, so a screenshot says which build it came from.
+
 ### Fixed
 - **Coming back to DAB brings the radio back to the DAB channel** — after 6 m (50.150) it stayed there, silent; picking a station now retunes too.
 - **The S-meter calibration dropdown is gone** — it was built on a reading taken against the wrong build, so the whole premise was never established.
