@@ -34,6 +34,26 @@ feature requests **this fork** may pick up, not a promise to upstream.
    `pulse:<node>` is accepted by ALSA but cpal cannot open what the host did not
    enumerate — so the fix is not obviously "open it a different way".
 
+   **The intended behaviour, settled by the operator (2026-10-15):** *"for the
+   Bluetooth I understand and it was mentioned, because otherwise it would not
+   see the device — but for the other devices it's too drastic."*
+
+   So there are **two cases and they are not the same**, and the fix must not
+   treat them alike:
+   - **A sound-server node** (a Bluetooth headset, a virtual sink) — taking the
+     machine's default is the only route that exists, because PipeWire has no
+     per-application capture source. It stays, and it stays **warned about**.
+   - **An ordinary sound card** — the card must keep working for everything
+     else. It is shared through the sound server, and it must **not** disappear
+     from the machine's own sound settings while the program runs. Reaching past
+     the server to the hardware is the fault here, and there is no reason for it:
+     the card is the sound server's to hand out.
+
+   So the shape of the fix is "open the card **through** the sound server, and
+   keep the hardware name only as the label the operator picks by" — not "open
+   it a different way" in general. Verified against a plain USB card on the bench,
+   which is what caught it.
+
    **What to establish first, before changing anything:**
    - `cat /proc/asound/card*/pcm*/sub*/status` with sdroxide running and stopped —
      does the PCM show `RUNNING` while open, and does it release on exit?
