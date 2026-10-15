@@ -9,6 +9,7 @@ mod ais;
 mod ale;
 mod alert;
 mod aprs;
+pub mod synop;
 mod atchat;
 pub mod atsmini;
 mod audio;

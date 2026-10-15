@@ -14,6 +14,9 @@ and the [README](https://github.com/madmedicnl/sdroxide-brown#readme).
 ## [Unreleased]
 
 ### Added
+- **BETA — SYNOP and SHIP weather reports.** RTTY on 4583, 7646 and 10100.8 kHz carries a coded report from ships and land stations every few hours; this decodes them into wind, pressure, temperature, cloud and sea state. A **WEATHER** chip opens the list when a report has been heard. Still being tried out — please try it and say what you see.
+
+### Added
 - **PSTRotator over its own UDP port**, in the rotator settings beside the rotctld and serial transports.
 - **The version sits in the window title**, so a screenshot says which build it came from.
 

@@ -606,6 +606,26 @@ impl SdroxideApp {
                 cmds.push(Command::DigiAbortTx);
                 cmds.push(Command::DigiTxText(String::new()));
             }
+            // **BETA.** Coded weather reports arrive as RTTY text and are not
+            // messages — the figures mean nothing in a decode list. Gated on
+            // there being some, because a chip that opens an empty window on
+            // every keyboard mode is a control that does nothing.
+            if !self.weather_reports.is_empty() {
+                let n = self.weather_reports.len();
+                if crate::chrome::chip(ui, self.weather.show, &format!(" WEATHER {n} "))
+                    .on_hover_text(
+                        "Decoded SYNOP and SHIP reports heard on this band.\n\n\
+                         They are kept here rather than in the decode list because the \
+                         figures on their own mean nothing — and because the weather at a \
+                         position three hours ago is what you come back for.\n\n\
+                         Still being tried out: the decoder is tested against four real \
+                         messages but has not yet read one off the air.",
+                    )
+                    .clicked()
+                {
+                    self.weather.show = !self.weather.show;
+                }
+            }
             crate::chrome::row_tail(ui, |ui| {
                 self.send_on_return_chip(
                     ui,

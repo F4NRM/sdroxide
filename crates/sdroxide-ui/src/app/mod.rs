@@ -36,6 +36,7 @@ pub(in crate::app) mod hfdl;
 pub(in crate::app) mod ignore;
 pub(in crate::app) mod ism;
 pub(in crate::app) mod known_calls;
+mod weather;
 pub(in crate::app) mod konami;
 pub(in crate::app) mod listen;
 pub(in crate::app) mod logbook;
@@ -706,6 +707,12 @@ pub struct SdroxideApp {
     /// ingress — see [`ignore`] — so a muted station is out of the list, the
     /// alerts, the read-out and auto mode at once.
     session_ignored: ignore::Ignored,
+    /// Coded weather reports (SYNOP / SHIP) seen on the text decode path,
+    /// newest first. Session-only — they are of no use tomorrow, and a stored
+    /// report read on another day is a lie about when it was observed.
+    pub weather_reports: Vec<(i64, sdroxide_types::synop::Report)>,
+    /// The WEATHER window's own open state.
+    pub weather: crate::app::weather::WeatherWindow,
     /// PSK/RTTY outgoing text buffer (UI-owned; streamed to the engine, which
     /// reports back how many characters have been sent so we colour them green).
     text_tx: String,
@@ -1889,6 +1896,8 @@ impl SdroxideApp {
             digi_decode_dials: Vec::new(),
             digi_status: None,
             session_ignored: ignore::Ignored::new(),
+            weather_reports: Vec::new(),
+            weather: Default::default(),
             text_tx: String::new(),
             qso_log: load_qso_log(storage),
             swl_log: load_swl_log(storage),

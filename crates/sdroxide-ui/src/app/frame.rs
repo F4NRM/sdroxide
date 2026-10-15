@@ -1391,6 +1391,7 @@ impl eframe::App for SdroxideApp {
         self.enigma_window(&ctx);
         self.poll_known_calls(&mut cmds);
         self.known_calls_window(&ctx);
+        self.weather_window(&ctx);
         self.poll_playback_list(&mut cmds);
         self.playback_window(&ctx, &mut cmds);
         self.help.ui(&ctx);
@@ -2932,6 +2933,20 @@ impl SdroxideApp {
                 // shows under the dial while it is true.
                 RadioEvent::AtsMiniTuning(on) => self.atsmini_tuning = on,
                 RadioEvent::Ft8Decodes(d) => {
+                    // **A coded weather report is not a message.** SYNOP and
+                    // SHIP arrive on the same RTTY decode path as every other
+                    // line, and a decode list showing `BBXX BRAVO 20123 99252…`
+                    // as text is a decode list that has decoded nothing. They go
+                    // to their own window instead, newest first.
+                    //
+                    // Client-side, so **no wire change**: the report is found
+                    // where the text already arrives rather than on a new event.
+                    for dec in &d {
+                        if let Some(r) = sdroxide_types::synop::parse(&dec.message) {
+                            self.weather_reports.insert(0, (now as i64, r));
+                        }
+                    }
+                    self.weather_reports.truncate(64);
                     // The session ignore list is applied here, at ingress, and
                     // nowhere else. This is the one point every consumer of a
                     // decode passes through — the announcer, the audible
