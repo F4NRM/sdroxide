@@ -2857,6 +2857,88 @@ mod tests {
     ///
     /// Thieu (VERON, contest op), 2.0.9.x: *"when I select a CW spot the tuning
     /// is 600 Hz (my pitch) off; in the upper WIDE window it is right"*. The
+    /// **The received-audio stream is reachable on an SDR too.**
+    ///
+    /// Reported by the operator, who went to set it as instructed and found no
+    /// such row: **"This radio's audio section"** was gated on
+    /// `sound_card_roles`, which answers `None` for every SDR in the list —
+    /// SdrPlay, RTL-SDR, Soapy, Pluto and the rest, which is most of them — so
+    /// the section never drew and the setting could not be reached at all. The
+    /// setting existed, the engine honoured it, and nothing on screen could
+    /// turn it on.
+    ///
+    /// **Why no test caught it, which is the part worth keeping.** The settings
+    /// probe draws a **sound-card radio on purpose** — *"so the pickers and the
+    /// typed field are in the picture"* — and a probe that only ever looks at
+    /// one kind of radio cannot see what the other kind is missing. That is the
+    /// same shape as a `EngineConfig::default()` harness reading like "nothing
+    /// special" while actually being one of two configurations.
+    ///
+    /// Verified failing before the fix: with `Backend::SdrPlay` the row was
+    /// absent, and with `Backend::Cat` it was there.
+    #[test]
+    fn the_audio_stream_row_is_reachable_on_every_backend() {
+        use sdroxide_types::Backend;
+        let _guard = crate::multi::frame_test_lock();
+        let dir = std::env::temp_dir().join(format!("sdroxide-udprow-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        unsafe { std::env::set_var("SDROXIDE_CONFIG_DIR", &dir) };
+
+        for backend in [Backend::SdrPlay, Backend::Cat, Backend::RtlSdr, Backend::AtsMini] {
+            let controller: Box<dyn RadioController> = Box::new(RecordingController::default());
+            let ctx = egui::Context::default();
+            let app = SdroxideApp::new_tab(&ctx, None, None, controller, 0, true);
+            let mut radio_edit =
+                Some(sdroxide_types::RadioConfig { backend, ..Default::default() });
+            let mut audio_pick = None;
+            let mut routing_pick = None;
+            let mut rescan = false;
+            let mut choose = false;
+            let mut reset = false;
+
+            let input = egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(900.0, 2400.0),
+                )),
+                ..Default::default()
+            };
+            let mut texts: Vec<String> = Vec::new();
+            for _ in 0..3 {
+                let out = ctx.run_ui(input.clone(), |ui| {
+                    ui.allocate_ui(egui::vec2(880.0, 2400.0), |ui| {
+                        app.settings_audio_tab(
+                            ui,
+                            &mut audio_pick,
+                            &mut routing_pick,
+                            &mut radio_edit,
+                            false,
+                            &mut rescan,
+                            &mut choose,
+                            &mut reset,
+                        );
+                    });
+                });
+                texts = out
+                    .shapes
+                    .iter()
+                    .filter_map(|cs| match &cs.shape {
+                        egui::Shape::Text(t) => Some(t.galley.text().to_string()),
+                        _ => None,
+                    })
+                    .collect();
+                let mut out = out;
+                out.textures_delta.clear();
+            }
+            assert!(
+                texts.iter().any(|t| t.contains("Send to")),
+                "no way to set the audio stream on {backend:?} — the row is missing, so the \
+                 setting cannot be reached at all"
+            );
+        }
+    }
+
     /// **Nothing a tool window draws may sit in the foreground layer.**
     ///
     /// The two-window harness this repository did not have, and the regression

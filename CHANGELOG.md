@@ -14,6 +14,9 @@ and the [README](https://github.com/madmedicnl/sdroxide-brown#readme).
 ## [Unreleased]
 
 ### Fixed
+- **The audio stream setting is now reachable on an SDR.** "Send the audio out over UDP" was inside the sound-card section, which does not draw for an SDR — so the row could not be found on most radios, and the setting could not be turned on at all.
+
+### Fixed
 - **A tool window's ⇱ button no longer shows through the window you put on top of it.** The button is drawn as an overlay in its title bar, and it was in the foreground layer — which paints above every window whatever the order they are drawn in.
 
 ### Fixed

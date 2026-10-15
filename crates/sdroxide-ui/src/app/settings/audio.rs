@@ -152,6 +152,9 @@ impl SdroxideApp {
     ) {
         self.your_audio(ui, audio_pick, routing_pick);
         self.radios_audio(ui, radio_edit, can_probe, audio_rescan);
+        // After the sound-card rows, and outside them: it is about this radio's
+        // received audio and not about a card.
+        self.stream_audio_out(ui, radio_edit);
         self.recordings(ui, recordings_choose, recordings_reset);
     }
 
@@ -245,6 +248,49 @@ impl SdroxideApp {
         );
     }
 
+    /// **The received audio, streamed out to another program.**
+    ///
+    /// Its own section rather than a row of the sound-card one, because a sound
+    /// card is not what it needs: **every radio has received audio**. An SDR
+    /// demodulates in the program and has plenty; a CAT rig gets it from a
+    /// card. Gating it on `sound_card_roles` made the setting unreachable for
+    /// every SDR in the list — SdrPlay, RTL-SDR, Soapy, Pluto and the rest,
+    /// which is most of them — and it was found by somebody trying to follow the
+    /// instruction to set it. The setting existed, the engine honoured it, and
+    /// nothing on screen could turn it on.
+    ///
+    /// Per radio, because the audio is: two radios here have two streams.
+    fn stream_audio_out(&self, ui: &mut egui::Ui, radio_edit: &mut Option<sdroxide_types::RadioConfig>) {
+        let Some(cfg) = radio_edit.as_mut() else { return };
+        section(
+            ui,
+            "Stream the audio out",
+            "Send what this radio receives to another program over the network \
+             — a decoder, a recorder, a second machine — without going through \
+             a sound card.",
+        );
+        ui.horizontal(|ui| {
+            ui.label(RichText::new("Send to").strong());
+            crate::chrome::field(
+                ui,
+                egui::TextEdit::singleline(&mut cfg.udp_audio)
+                    .desired_width(150.0)
+                    .hint_text("off"),
+            )
+            .on_hover_text(
+                "`host:port`. Mono, 16-bit, at the receive rate, one datagram per audio block, \
+                 and it is the **recording tap's** audio: the AF volume, MUTE and transmitting \
+                 do not affect it, because an external decoder wants the radio and not your \
+                 headphone level.\n\nA numeric address, not a hostname. Empty is off.",
+            );
+        });
+        note(
+            ui,
+            "`127.0.0.1:7355` sends it to another program on this computer; this machine's own \
+             address sends it over the network.",
+        );
+    }
+
     /// This radio's sound card: what comes in from the rig, what goes out to it.
     fn radios_audio(
         &self,
@@ -332,33 +378,6 @@ impl SdroxideApp {
              headphone socket into a sound card's line input. **To the radio** is what the rig \
              listens to for your voice, and is also how the program keys a rig by sound: leave \
              it empty and the rig's own microphone is used, if it has one.",
-        );
-
-        // The received audio, streamed out for another program. It lives with
-        // the radio's audio rather than on the Radio tab's device grid, because
-        // it is an audio output and belongs where the other audio outputs are.
-        ui.add_space(10.0);
-        ui.horizontal(|ui| {
-            ui.label(RichText::new("Stream the audio out").strong());
-            crate::chrome::field(
-                ui,
-                egui::TextEdit::singleline(&mut cfg.udp_audio)
-                    .desired_width(150.0)
-                    .hint_text("off"),
-            )
-            .on_hover_text(
-                "Send the received audio to `host:port` over UDP, so another program can use it \
-                 — a decoder, a recorder, a second machine.\n\nMono, 16-bit, at the receive rate, \
-                 one datagram per audio block, and it is the **recording tap's** audio: the AF \
-                 volume, MUTE and transmitting do not affect it, because an external decoder \
-                 wants the radio and not your headphone level.\n\nA numeric address, not a \
-                 hostname. Empty is off.",
-            );
-        });
-        note(
-            ui,
-            "For an address, `127.0.0.1:7355` sends it to another program on this computer; a \
-             machine's own address sends it over the network.",
         );
     }
 
