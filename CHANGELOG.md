@@ -23,6 +23,7 @@ and the [README](https://github.com/madmedicnl/sdroxide-brown#readme).
 - **Device rows on the Audio page are a label above a control**, not a two-column grid, and the controls are wide enough for a sound card's whole name.
 
 ### Fixed
+- **DAB's VU meter pumps with the music, at any volume** — it stepped a few times a second out of time with the beat, and sank with the volume knob.
 - **Choosing a Bluetooth microphone says it takes over the machine's recording** — it is no longer something you find out afterwards.
 - **The Midland wireless microphone appears in the device list and can be picked** — a Bluetooth headset is now offered by name; picking it makes it the capture default and says what to undo.
 - **The silent-microphone warning points at the page the microphone is on** — it still said General after the sound devices moved to Audio.
