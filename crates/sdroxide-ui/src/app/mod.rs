@@ -3583,6 +3583,76 @@ mod tests {
         assert!(quiet[0] > -2.0, "a loud station lights the column: {quiet:?}");
     }
 
+    /// The station's logo (SPI) is not decoded, so the logo tile shows the
+    /// slideshow's picture in small while the slideshow shows it large — the
+    /// one picture twice, rather than "no logo yet" beside it.
+    #[test]
+    fn the_logo_tile_shows_the_slideshow_picture() {
+        use sdroxide_types::{DabService, DabStatus, Mode};
+        fn walk(s: &egui::Shape, tex: egui::TextureId, n: &mut usize, words: &mut Vec<String>) {
+            match s {
+                egui::Shape::Rect(r) if r.fill_texture_id() == tex => *n += 1,
+                egui::Shape::Mesh(m) if m.texture_id == tex => *n += 1,
+                egui::Shape::Text(t) => words.push(t.galley.text().to_string()),
+                egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, tex, n, words)),
+                _ => {}
+            }
+        }
+        let _guard = crate::multi::frame_test_lock();
+        let dir = std::env::temp_dir().join(format!("sdroxide-dab-logo-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        unsafe { std::env::set_var("SDROXIDE_CONFIG_DIR", &dir) };
+
+        let controller: Box<dyn RadioController> = Box::new(RecordingController::default());
+        let ctx = egui::Context::default();
+        let mut app = SdroxideApp::new_tab(&ctx, None, None, controller, 0, true);
+        app.state.rx[0].mode = Mode::Dab;
+        app.state.dab.channel = "8D".into();
+        app.state.dab.service_id = "F0E1".into();
+        let center = sdroxide_types::DAB_BAND_III.iter().find(|(n, _)| *n == "8D").unwrap().1;
+        app.dab_status = Some(Box::new(DabStatus {
+            ensemble: Some("NANCY 8D6A".into()),
+            services: vec![DabService {
+                service_id: "F0E1".into(),
+                label: "ICI SUD LORRAINE".into(),
+                subchannel: None,
+                bitrate: None,
+                protection: None,
+                pty: None,
+            }],
+            window_center_hz: center,
+            window_rate_hz: 2_500_000.0,
+            playing: Some("F0E1".into()),
+            ..Default::default()
+        }));
+        let img = egui::ColorImage::new([320, 240], vec![egui::Color32::RED; 320 * 240]);
+        let slide = ctx.load_texture("slide", img, Default::default());
+        let tex = slide.id();
+        app.dab_slide = Some(slide);
+
+        let mut last = None;
+        for i in 0..3 {
+            let input = egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(2000.0, 900.0),
+                )),
+                time: Some(10.0 + i as f64 / 30.0),
+                ..Default::default()
+            };
+            last = Some(ctx.run_ui(input, |ui| {
+                app.ui(ui, &mut eframe::Frame::_new_kittest());
+            }));
+        }
+        let (mut n, mut words) = (0, Vec::new());
+        for cs in &last.unwrap().shapes {
+            walk(&cs.shape, tex, &mut n, &mut words);
+        }
+        assert_eq!(n, 2, "the picture is drawn {n} times: once in the tile, once in the slideshow");
+        assert!(!words.iter().any(|w| w == "no logo yet"), "the tile still says there is no logo");
+    }
+
     /// The operator's report (2026-10-12): a phone's WFALL tab drew the
     /// waterfall alone, with the whole screen below the readout to spare. It
     /// draws the spectrum above it now, as every other window does — read here

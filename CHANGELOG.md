@@ -14,6 +14,7 @@ and the [README](https://github.com/madmedicnl/sdroxide-brown#readme).
 ## [Unreleased]
 
 ### Added
+- **DAB's logo tile shows the station's slideshow picture** — in small, while the slideshow shows it large; the station logo itself (SPI) is not decoded.
 - **A Settings → Audio page** — your speakers and microphone, this radio's sound card, and where recordings are written, in one place instead of four pages under four names.
 - **Device pickers you can type into** — a sound server can offer a device the host API does not enumerate, and the name can now be typed when it is not on the list.
 - **A Rescan for the radio's sound cards, on the Audio page** — where the pickers are, rather than at the foot of the Radio tab.
