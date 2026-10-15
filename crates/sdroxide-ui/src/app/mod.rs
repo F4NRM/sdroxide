@@ -2857,6 +2857,71 @@ mod tests {
     ///
     /// Thieu (VERON, contest op), 2.0.9.x: *"when I select a CW spot the tuning
     /// is 600 Hz (my pitch) off; in the upper WIDE window it is right"*. The
+    /// **Nothing a tool window draws may sit in the foreground layer.**
+    ///
+    /// The two-window harness this repository did not have, and the regression
+    /// test for the ⇱ chip (`3f877e30`).
+    ///
+    /// **What went wrong, because the shape of the bug is the shape of the
+    /// guard.** The chip is an `egui::Area` over a tool window's title bar —
+    /// egui offers no hook into its own title bar, so an overlay is the only
+    /// way to reach one — and it was ordered `Order::Foreground`. That order
+    /// paints above **every** window whatever order they are drawn in, so with
+    /// two tool windows overlapping, the lower one's chip showed through the
+    /// upper one's body while the rest of its title bar was correctly hidden.
+    /// One window, half hidden: which is why reading the draw order and
+    /// reading the screenshot disagreed with each other and were both right.
+    ///
+    /// So the property is not "the chip is under the right window", which needs
+    /// a real pointer and a compositor to mean anything. It is the mechanism
+    /// underneath it: **a tool window may not paint above the window stack.**
+    /// That is checkable from the frame's own layer list, and it fails the
+    /// moment anyone reaches for `Foreground` again.
+    #[test]
+    fn a_tool_window_does_not_paint_above_the_window_stack() {
+        let _guard = crate::multi::frame_test_lock();
+        let dir = std::env::temp_dir().join(format!("sdroxide-foreground-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        unsafe { std::env::set_var("SDROXIDE_CONFIG_DIR", &dir) };
+
+        let controller: Box<dyn RadioController> = Box::new(RecordingController::default());
+        let ctx = egui::Context::default();
+        let mut app = SdroxideApp::new_tab(&ctx, None, None, controller, 0, true);
+
+        // Two tool windows at once, which is the reported situation: the fault
+        // only shows when one can be raised over another.
+        app.known_calls.show = true;
+        app.weather.show = true;
+
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(1280.0, 800.0),
+            )),
+            ..Default::default()
+        };
+        // Two frames: egui sizes a window on its first pass and places it on the
+        // second, so a one-frame run tests a window that has not settled.
+        for _ in 0..2 {
+            let mut out = ctx.run_ui(input.clone(), |ui| {
+                eframe::App::ui(&mut app, ui, &mut eframe::Frame::_new_kittest());
+            });
+            out.textures_delta.clear();
+        }
+
+        let above_the_stack: Vec<egui::LayerId> = ctx
+            .memory(|m| m.areas().visible_layer_ids())
+            .into_iter()
+            .filter(|l| matches!(l.order, egui::Order::Foreground | egui::Order::Tooltip | egui::Order::Debug))
+            .collect();
+        assert!(
+            above_the_stack.is_empty(),
+            "a tool window is painting above the whole window stack, so it will show through \
+             whatever the operator puts on top of it: {above_the_stack:?}"
+        );
+    }
+
     /// SPOTS list used the default while the skimmer overlay used his cursor.
     #[test]
     fn a_cw_spot_is_tuned_on_the_operators_own_pitch() {

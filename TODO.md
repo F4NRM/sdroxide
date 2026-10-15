@@ -8,14 +8,14 @@ upstream feature requests **this fork** may pick up, not a promise to upstream.
 
 ## Now — pick one
 
-1. **The two-window render harness.** The ⇱ chip is **fixed** (`3f877e30`,
-   `Order::Middle` instead of `Foreground`) but has **no regression test**, and
-   one cannot be written without this. Pinning *"two overlapping tool windows
-   leave nothing of the lower one visible outside its own rect"* needs a harness
-   that drives two tool windows at known rects and dumps every painted shape in
-   paint order. It is the guard for the class, not for the instance, and it is
-   the only thing standing between this fix and a future regression. **Build
-   this first** — it is self-contained and it unlocks the test.
+1. ~~**The two-window render harness.**~~ **DONE.** `a_tool_window_does_not_paint_above_the_window_stack`
+   drives two tool windows at once and asserts **no layer above the window
+   stack exists**, which is the mechanism the ⇱ bug lived in. Verified failing
+   on the old code, naming both chips: `[Foreground …weather…title-btn,
+   Foreground …known-calls…title-btn]`. The property is the mechanism rather
+   than 'the lower window is hidden', because the latter needs a real pointer
+   and a compositor to mean anything; this fails the moment anyone reaches for
+   `Order::Foreground` in a window again.
 2. **UDP audio out (#594)** — built, socket-tested, **never listened to**. Stream
    it to `aplay` on the bench and confirm it is audio and not a crackle. The
    operator's machine, two minutes.
