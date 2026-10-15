@@ -5569,6 +5569,16 @@ fn dab_degraded_message(sample_rate: f64) -> Option<String> {
 /// step the producer ever makes, so it is the whole of the jitter.
 const DAB_PRIME_SAMPLES: usize = 1152;
 
+/// The gain DAB audio is played at, for the volume knob and the DAB volume.
+///
+/// The knob is squared, as every other receiver squares it (`RxChain`, the
+/// voice modes), so its travel follows the ear. DAB took it straight: a
+/// broadcast station is full-scale PCM, and 5 % on a straight knob is only
+/// 26 dB down — near full loudness in the speakers.
+fn dab_volume_gain(volume: f32, muted: bool, dab_volume: f32) -> f32 {
+    if muted { 0.0 } else { volume * volume * dab_volume }
+}
+
 /// May the speaker path start playing DAB audio yet?
 ///
 /// Split out so the priming rule can be pinned without an [`Engine`]: the
@@ -18061,7 +18071,7 @@ impl Engine {
             return false;
         }
         let rx0 = &self.state.rx[0];
-        let vol = if rx0.muted { 0.0 } else { rx0.volume } * self.state.dab.volume;
+        let vol = dab_volume_gain(rx0.volume, rx0.muted, self.state.dab.volume);
         self.main_play.clear();
         self.main_play_r.clear();
         self.main_play.extend(self.dab_fifo_l.drain(..take));
@@ -19645,6 +19655,20 @@ mod rig_mode_class_tests {
         // The cushion is one AU, so it covers the producer's largest single step
         // — the whole of the jitter it has to absorb.
         assert_eq!(DAB_PRIME_SAMPLES, 1152, "one Access Unit per channel at 48 kHz");
+    }
+
+    /// DAB's volume follows the same curve as every other receiver's: at 5 %
+    /// on the knob a full-scale station is as quiet as the demodulator's audio
+    /// would be, not near full loudness (a report: 5 % sounded like 80 %).
+    #[test]
+    fn dab_volume_follows_the_receivers_curve() {
+        let db = |g: f32| 20.0 * g.log10();
+        let at_5 = db(dab_volume_gain(0.05, false, 1.0));
+        assert!(at_5 <= -50.0, "5 % on the knob plays DAB at only {at_5:.1} dB");
+        assert!((db(dab_volume_gain(0.5, false, 1.0)) + 12.04).abs() < 0.1, "half is -12 dB");
+        assert_eq!(dab_volume_gain(1.0, false, 1.0), 1.0, "full volume is unity");
+        assert_eq!(dab_volume_gain(0.8, true, 1.0), 0.0, "a mute is silence");
+        assert_eq!(dab_volume_gain(1.0, false, 0.5), 0.5, "the DAB volume still applies");
     }
 
     /// 2.5 Msps is the DAB reference (confirmed on a Pluto, Kevin 2.0.7.3):

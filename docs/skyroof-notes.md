@@ -62,11 +62,32 @@ We already do a lot of it — checked before treating any of this as new work:
     300 for HF) and `sdroxide-ax25::hdlc` is the bit level — flags, zero-bit
     stuffing, NRZI and the FCS. ISS telemetry is AX.25-framed, so the bit layer
     is not work.
-  - **The first mission is the ISS**, 145.827 MHz FM, 1200 baud **AFSK-ASCII**,
+  - ~~**The first mission is the ISS**, 145.827 MHz FM, 1200 baud AFSK-ASCII,
     in the AMSAT **AOS**-style format of 16-byte fields that ISS and a good
-    number of cubesats share. Funcube-1 (AO-73) is the counter-example worth
-    noting: its telemetry is **BPSK** at 145.950 MHz, so it belongs with the
-    QO-100 work rather than here.
+    number of cubesats share.~~ **WRONG, and corrected 2026-10-15 — this note
+    was the last thing standing in the way.** Checked against the published
+    sources rather than recalled, and there is no such format for the ISS:
+
+    - **The ISS 145.825/145.827 downlink is AX.25 UI packet** (ARISS: 1200 baud
+      AFSK, path `VIA ARISS`, digipeated as `RS0ISS*`) — every source agrees,
+      AMSAT's own journal article included. It is not a telemetry field format at
+      all.
+    - **"AOS" here is a trap**, exactly as this note half-knew for CCSDS: the
+      16-byte-field `AOS` telemetry belongs to the **AMSAT Fox** missions
+      (AO-73/AO-85/Fox-1), and what carries it is **BPSK** — which is
+      `sdroxide-qo100`'s job, not an AFSK one. AO-27 is a third thing again
+      (FoxTelem whole-orbit-data).
+
+    **So the ISS is not work — it is already done.** The chain is
+    `Ax25Channel::on_rx_audio` → `AfskRx` (Bell 202) → HDLC → AX.25 → the APRS
+    panel, all live, and `sdroxide-digi/tests/packet_interop.rs` proves it
+    against **DireWolf**, the reference TNC: DireWolf reads our 1200 baud
+    transmission and we read DireWolf's, at 300/1200/9600.
+
+    **What is genuinely left** is the *per-mission telemetry* formats — the Fox
+    whole-orbit-data layouts and the cubesats' own. Each is a published table
+    and a real capture, mission by mission, and choosing one is the operator's
+    call rather than something to be started from a guess.
   - **"AOS" means two different things** and the name must not be used without
     saying which: the amateur telemetry format above, and **CCSDS AOS Space Data
     Link Protocol** (732.0-B-4), an unrelated high-rate spacecraft protocol. A
