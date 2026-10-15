@@ -2883,7 +2883,6 @@ impl SdroxideApp {
                     // operator sets it against a signal they are watching, and
                     // it only moves the reading, so there is nothing to reopen.
                     ui.label(RichText::new("S-Meter calib").strong());
-                    smeter_cal_combo(ui, &mut cfg.smeter_cal);
                     ui.end_row();
 
                 });
@@ -4962,46 +4961,6 @@ fn settings_cw_usb(ui: &mut egui::Ui, io: &mut SettingsIo) {
 #[cfg(not(all(not(target_arch = "wasm32"), target_os = "linux")))]
 fn settings_cw_usb(ui: &mut egui::Ui, _io: &mut SettingsIo) {
     ui.label(RichText::new("A USB paddle needs a Linux desktop.").size(10.5).weak());
-}
-
-/// The label one S-meter calibration step is offered under.
-fn smeter_cal_label(steps: i8) -> String {
-    if steps == 0 {
-        return "0 (as measured)".to_string();
-    }
-    // Both units, because operators arrive with different ones: the picker
-    // offers S-units and a reporter comparing against another program quotes dB.
-    let db = i32::from(steps) * sdroxide_types::DB_PER_S_UNIT as i32;
-    format!("{steps:+} S  ({db:+} dB)")
-}
-
-/// The S-Meter calib picker on Settings → Radio: `-15..=+15` S-units, written
-/// straight into the radio's configuration, which is saved and takes effect
-/// at once.
-fn smeter_cal_combo(ui: &mut egui::Ui, cal: &mut i8) {
-    use sdroxide_types::{SMETER_CAL_MAX, SMETER_CAL_MIN};
-    egui::ComboBox::from_id_salt("smeter-cal")
-        .selected_text(smeter_cal_label(*cal))
-        .show_ui(ui, |ui| {
-            for steps in SMETER_CAL_MIN..=SMETER_CAL_MAX {
-                ui.selectable_value(cal, steps, smeter_cal_label(steps));
-            }
-        })
-        .response
-        .on_hover_text(
-            "Corrects this radio's S-meter when it reads too high or too low. \
-             S-units of 6 dB, from -15 to +15 — a span of \u{b1}90 dB, which is \
-             enough for a front end that does not report its gain at all as well \
-             as one that reads a little high.\n\nA negative value lowers the \
-             reading — for a meter that shows too much, a noise floor at S5 where \
-             it should be S2. A positive value raises it. 0 is the meter as \
-             measured.\n\nOnly the \
-             reading moves: the needle, the S and dBm figures, the level a \
-             reception report starts from, and the spoken S-meter. The signal, \
-             the squelch, recording and the decoders are not touched.\n\nSaved \
-             with this radio on the machine it is attached to, and takes effect \
-             at once.",
-        );
 }
 
 #[cfg(test)]

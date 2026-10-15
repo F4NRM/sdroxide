@@ -13,6 +13,9 @@ and the [README](https://github.com/madmedicnl/sdroxide-brown#readme).
 
 ## [Unreleased]
 
+### Fixed
+- **The S-meter calibration dropdown is gone** — it was built on a reading taken against the wrong build, so the whole premise was never established.
+
 ### Added
 - **A Settings → Audio page** — your speakers and microphone, this radio's sound card, and where recordings are written, in one place instead of four pages under four names.
 - **Device pickers you can type into** — a sound server can offer a device the host API does not enumerate, and the name can now be typed when it is not on the list.
