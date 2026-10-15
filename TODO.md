@@ -64,6 +64,18 @@ feature requests **this fork** may pick up, not a promise to upstream.
    it a different way" in general. Verified against a plain USB card on the bench,
    which is what caught it.
 
+   **The clean-exit question is answered, and it removes the cheap half
+   (operator, 2026-10-15):** *"had to test, the card isn't coming back and i have
+   to restart pipewire."*
+
+   So it is **not** a kill artefact and **not** a teardown fault. The card is
+   closed on exit and PipeWire does **not** reclaim the node by itself — a
+   dropped node needs the server restarted, which is its behaviour rather than
+   ours. **Which means "release it properly on exit" is not a fix and must not be
+   attempted as one**: the only fix is to stop taking the card in the first place.
+
+   That makes this the expensive half and nothing else:
+
    **What to establish first, before changing anything:**
    - `cat /proc/asound/card*/pcm*/sub*/status` with sdroxide running and stopped —
      does the PCM show `RUNNING` while open, and does it release on exit?
