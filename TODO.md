@@ -13,10 +13,21 @@ upstream feature requests **this fork** may pick up, not a promise to upstream.
    marks come off or the decoder gets fixed. This is the only item here that is
    blocked on someone else and still worth waiting for.
 2. **The ⇱ chip paints over the window above it.** From the operator's
-   screenshots of 13 Oct. Seven sites draw one; find which, then pin it with a
-   test that two overlapping tool windows leave nothing of the lower one visible
-   outside its own rect. **Do not fix this from the screenshot** — three wrong
-   causes from one picture is the house rule earning itself.
+   screenshots of 13 Oct: *"with LISTEN on top of SCHEDULE, SCHEDULE's
+   open-in-window button still paints over LISTEN's body, at (941, 530), while
+   the rest of its title bar is correctly hidden underneath."*
+   Seven sites draw one; find which, then pin it with a test that two
+   overlapping tool windows leave nothing of the lower one visible outside its
+   own rect.
+   **2026-10-15: the draw order was read and it contradicts the screenshot.**
+   `frame.rs` calls `listen_window` at **1377** and `schedule_window` at
+   **1378**, so egui paints LISTEN *first* and SCHEDULE *second* — which makes
+   SCHEDULE the one on top, not LISTEN. Either the report has the two the wrong
+   way round, or something reorders them at run time.
+   **So the mechanism is not yet known and nothing has been changed**, which is
+   the correct state: three wrong causes from one picture is the house rule
+   earning itself, and a fourth would be no better. **Next: reproduce it**, then
+   read the order the windows actually get drawn in that run.
 3. ~~**#537, the false OPEN alerts**~~ — **FIXED.** The cause was the warm-up
    clock, exactly as the maintainer suspected: `first_watched` is keyed by path
    and survives a band change, while the spots behind it are pruned by age, so
