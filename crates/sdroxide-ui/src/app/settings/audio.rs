@@ -27,6 +27,53 @@ use crate::chrome::StyledCombo as _;
 use crate::app::SdroxideApp;
 use crate::theme::gray;
 
+/// Whether this device belongs to the machine's sound server rather than to a
+/// sound card, and so is chosen by taking the machine's default.
+///
+/// A browser client has no sound server of its own to take over and no ALSA to
+/// ask, so the answer there is always no and the warning never appears — which
+/// is right, because in a browser the page really does own its own capture.
+#[cfg(not(target_arch = "wasm32"))]
+fn is_machine_default_device(name: &str) -> bool {
+    sdroxide_audio::graph::is_graph_node_name(name)
+}
+#[cfg(target_arch = "wasm32")]
+fn is_machine_default_device(_name: &str) -> bool {
+    false
+}
+
+/// What picking a sound-server device costs, said where it is chosen.
+///
+/// The cost is real and unavoidable, and the first version of this feature hid
+/// it in the log, which is the one place an operator never reads. **PipeWire has
+/// no way for one program to record from a source of its own** — playback has a
+/// per-stream target, capture does not — so a Bluetooth headset can only be
+/// used by becoming the machine's default microphone. That moves the desktop's
+/// recording too, and until this note existed the program took over the
+/// machine's microphone and said nothing.
+///
+/// So it says what happened and gives the way back. A control that changes
+/// something outside itself without saying so is this fork's own bug class.
+fn sound_server_takes_over(ui: &mut egui::Ui, what: &str, device: &str, output: bool) {
+    let direction = if output { "playback" } else { "recording" };
+    let text = format!(
+        "**This {what} is a sound-server device, not a sound card.** Using it also makes it the \
+         {direction} device for *everything else* on this computer — other programs will record \
+         from it too. PipeWire has no way for one program to pick its own capture source, so \
+         this is unavoidable. To change it: pick a sound card, or set the machine's default back \
+         (`wpctl set-default <name>`) and rescan."
+    );
+    ui.add(
+        egui::Label::new(
+            RichText::new(format!("⚠  Currently chosen: {device}"))
+                .size(10.5)
+                .color(egui::Color32::from_rgb(220, 170, 40)),
+        )
+        .wrap(),
+    );
+    note(ui, &text);
+}
+
 /// Which sound-card rows this radio has, and which way they run.
 ///
 /// Per backend rather than one shape for everything, and the difference is not
@@ -134,11 +181,17 @@ impl SdroxideApp {
         };
 
         let mut out = devs.selected_output.clone();
+        let out_chosen = out.clone();
         field(ui, "Speakers", |ui| {
             device_field(ui, "a-your-out", &devs.outputs, &mut out, "your speakers");
         });
         if out != devs.selected_output {
             *audio_pick = Some((true, out));
+        }
+        if let Some(chosen) = out_chosen.as_deref() {
+            if is_machine_default_device(chosen) {
+                sound_server_takes_over(ui, "speakers", chosen, true);
+            }
         }
 
         field(ui, "Channels", |ui| {
@@ -165,8 +218,14 @@ impl SdroxideApp {
         field(ui, "Microphone", |ui| {
             device_field(ui, "a-your-in", &devs.inputs, &mut mic, "your microphone");
         });
+        let mic_chosen = mic.clone();
         if mic != devs.selected_input {
             *audio_pick = Some((false, mic));
+        }
+        if let Some(chosen) = mic_chosen.as_deref() {
+            if is_machine_default_device(chosen) {
+                sound_server_takes_over(ui, "microphone", chosen, false);
+            }
         }
 
         note(
