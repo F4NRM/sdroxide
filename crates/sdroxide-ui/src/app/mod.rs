@@ -4241,4 +4241,276 @@ mod tests {
         assert!((calib.min.x - antenna.min.x).abs() < 1.0, "in the same column");
         assert!(value.min.x > calib.max.x, "the picker beside it shows 0 by default");
     }
+
+    /// Draws Settings → UI's own body at `width` points, over a few frames so
+    /// the grid settles, and hands back every text with where it was painted
+    /// plus the frame's shapes, for the tests and the preview below.
+    fn ui_tab_at(width: f32) -> (Vec<(String, egui::Rect)>, egui::Context, egui::FullOutput) {
+        let (t, c, o, _) = ui_tab_drawn(width);
+        (t, c, o)
+    }
+
+    /// [`ui_tab_at`], plus every texture the frames uploaded — what
+    /// [`render_png`] needs to draw the text.
+    #[allow(clippy::type_complexity)]
+    fn ui_tab_drawn(
+        width: f32,
+    ) -> (
+        Vec<(String, egui::Rect)>,
+        egui::Context,
+        egui::FullOutput,
+        Vec<(egui::TextureId, egui::epaint::ImageDelta)>,
+    ) {
+        let dir = std::env::temp_dir().join(format!("sdroxide-uitab-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        unsafe { std::env::set_var("SDROXIDE_CONFIG_DIR", &dir) };
+        let controller: Box<dyn RadioController> = Box::new(RecordingController::default());
+        let ctx = egui::Context::default();
+        // Built for its side effect: the app installs the program's own fonts
+        // and style on the context, which is what the tab is drawn in.
+        let app = SdroxideApp::new_tab(&ctx, None, None, controller, 0, true);
+        let mut cfg = app.ui_settings;
+        let mut report = sdroxide_types::SwlReportPrefs::default();
+        let pick = std::sync::Arc::new(std::sync::Mutex::new(None));
+        let action = std::cell::Cell::new(None);
+        let input = || egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(width + 40.0, 2400.0),
+            )),
+            ..Default::default()
+        };
+        let mut last = None;
+        let mut textures = Vec::new();
+        for _ in 0..4 {
+            let out = ctx.run_ui(input(), |ui| {
+                ui.allocate_ui(egui::vec2(width, 2400.0), |ui| {
+                    ui.set_width(width);
+                    crate::app::settings::ui_tab::settings_ui_tab(
+                        ui,
+                        &mut cfg,
+                        None,
+                        None,
+                        &action,
+                        None,
+                        None,
+                        &mut report,
+                        &pick,
+                    );
+                });
+            });
+            for (id, deltas) in out.textures_delta.set.iter() {
+                textures.extend(deltas.iter().map(|d| (*id, d.clone())));
+            }
+            if let Some(o) = last.replace(out) {
+                o.drop_without_applying_deltas();
+            }
+        }
+        let out = last.unwrap();
+        let texts = out
+            .shapes
+            .iter()
+            .filter_map(|cs| match &cs.shape {
+                egui::Shape::Text(t) => {
+                    Some((t.galley.text().to_string(), t.visual_bounding_rect()))
+                }
+                _ => None,
+            })
+            .collect();
+        (texts, ctx, out, textures)
+    }
+
+    /// The drawn box around a text: the smallest painted shape, other than
+    /// text, that holds the text's centre — a button's or a picker's frame.
+    fn frame_around(out: &egui::FullOutput, text: egui::Rect) -> egui::Rect {
+        out.shapes
+            .iter()
+            .filter(|cs| !matches!(cs.shape, egui::Shape::Text(_)))
+            .map(|cs| cs.shape.visual_bounding_rect())
+            .filter(|r| r.is_finite() && r.contains(text.center()) && r.area() > text.area())
+            .min_by(|a, b| a.area().total_cmp(&b.area()))
+            .unwrap_or(text)
+    }
+
+    /// Draws a frame's shapes into a PNG, in software: egui's own tessellation,
+    /// then each triangle filled with its vertex colours and texture — the same
+    /// triangles the GPU would get. For looking at a layout, not for its
+    /// colours to the last bit. `crop` is in points.
+    fn render_png(
+        ctx: &egui::Context,
+        out: &egui::FullOutput,
+        textures: &[(egui::TextureId, egui::epaint::ImageDelta)],
+        crop: egui::Rect,
+        ppp: f32,
+        path: &std::path::Path,
+    ) {
+        use std::collections::HashMap;
+        let mut tex: HashMap<egui::TextureId, (usize, usize, Vec<egui::Color32>)> = HashMap::new();
+        for (id, delta) in textures {
+            let egui::ImageData::Color(img) = &delta.image;
+            match delta.pos {
+                None => {
+                    tex.insert(*id, (img.size[0], img.size[1], img.pixels.clone()));
+                }
+                Some([x0, y0]) => {
+                    if let Some((w, _, px)) = tex.get_mut(id) {
+                        for y in 0..img.size[1] {
+                            for x in 0..img.size[0] {
+                                px[(y0 + y) * *w + x0 + x] = img.pixels[y * img.size[0] + x];
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        let w = (crop.width() * ppp).round() as usize;
+        let h = (crop.height() * ppp).round() as usize;
+        let bg = ctx.global_style().visuals.window_fill;
+        let mut img = vec![[bg.r() as f32, bg.g() as f32, bg.b() as f32]; w * h];
+        let prims = ctx.tessellate(out.shapes.clone(), ppp);
+        for prim in prims {
+            let egui::epaint::Primitive::Mesh(mesh) = prim.primitive else { continue };
+            let Some((tw, th, tpx)) = tex.get(&mesh.texture_id) else { continue };
+            let clip = prim.clip_rect.intersect(crop);
+            let to_px =
+                |p: egui::Pos2| egui::pos2((p.x - crop.min.x) * ppp, (p.y - crop.min.y) * ppp);
+            let (cx0, cy0) = (to_px(clip.min).x.max(0.0), to_px(clip.min).y.max(0.0));
+            let (cx1, cy1) = (to_px(clip.max).x.min(w as f32), to_px(clip.max).y.min(h as f32));
+            for tri in mesh.indices.chunks_exact(3) {
+                let v = [
+                    mesh.vertices[tri[0] as usize],
+                    mesh.vertices[tri[1] as usize],
+                    mesh.vertices[tri[2] as usize],
+                ];
+                let p = [to_px(v[0].pos), to_px(v[1].pos), to_px(v[2].pos)];
+                let area =
+                    (p[1].x - p[0].x) * (p[2].y - p[0].y) - (p[2].x - p[0].x) * (p[1].y - p[0].y);
+                if area.abs() < 1e-6 {
+                    continue;
+                }
+                let x0 = p.iter().map(|q| q.x).fold(f32::MAX, f32::min).max(cx0).floor() as i32;
+                let x1 = p.iter().map(|q| q.x).fold(f32::MIN, f32::max).min(cx1).ceil() as i32;
+                let y0 = p.iter().map(|q| q.y).fold(f32::MAX, f32::min).max(cy0).floor() as i32;
+                let y1 = p.iter().map(|q| q.y).fold(f32::MIN, f32::max).min(cy1).ceil() as i32;
+                for y in y0.max(0)..y1.min(h as i32) {
+                    for x in x0.max(0)..x1.min(w as i32) {
+                        let (px, py) = (x as f32 + 0.5, y as f32 + 0.5);
+                        let w0 =
+                            ((p[1].x - px) * (p[2].y - py) - (p[2].x - px) * (p[1].y - py)) / area;
+                        let w1 =
+                            ((p[2].x - px) * (p[0].y - py) - (p[0].x - px) * (p[2].y - py)) / area;
+                        let w2 = 1.0 - w0 - w1;
+                        if w0 < 0.0 || w1 < 0.0 || w2 < 0.0 {
+                            continue;
+                        }
+                        let u = w0 * v[0].uv.x + w1 * v[1].uv.x + w2 * v[2].uv.x;
+                        let vv = w0 * v[0].uv.y + w1 * v[1].uv.y + w2 * v[2].uv.y;
+                        let tx = ((u * *tw as f32) as usize).min(tw - 1);
+                        let ty = ((vv * *th as f32) as usize).min(th - 1);
+                        let t = tpx[ty * tw + tx];
+                        let mut c = [0.0f32; 4];
+                        for (k, cv) in c.iter_mut().enumerate() {
+                            let vc = w0 * v[0].color[k] as f32
+                                + w1 * v[1].color[k] as f32
+                                + w2 * v[2].color[k] as f32;
+                            *cv = vc * t[k] as f32 / 255.0;
+                        }
+                        let a = c[3] / 255.0;
+                        let d = &mut img[y as usize * w + x as usize];
+                        for k in 0..3 {
+                            d[k] = c[k] + d[k] * (1.0 - a);
+                        }
+                    }
+                }
+            }
+        }
+        let bytes: Vec<u8> =
+            img.iter().flat_map(|p| p.iter().map(|c| c.clamp(0.0, 255.0) as u8)).collect();
+        image::RgbImage::from_raw(w as u32, h as u32, bytes)
+            .expect("an image of the size asked for")
+            .save(path)
+            .expect("the preview is written");
+    }
+
+    /// Not a check — a picture. Draws Settings → UI's colour and font rows at
+    /// `SDROXIDE_PREVIEW_WIDTH` points (default 700) into the PNG at
+    /// `SDROXIDE_PREVIEW_PNG`, so a layout change can be looked at before it
+    /// ships.
+    #[test]
+    #[ignore]
+    fn preview_settings_ui_colour_rows() {
+        let _guard = crate::multi::frame_test_lock();
+        let Ok(path) = std::env::var("SDROXIDE_PREVIEW_PNG") else { return };
+        let width: f32 = std::env::var("SDROXIDE_PREVIEW_WIDTH")
+            .ok()
+            .and_then(|w| w.parse().ok())
+            .unwrap_or(700.0);
+        let (texts, ctx, out, textures) = ui_tab_drawn(width);
+        let find = |name: &str| texts.iter().find(|(t, _)| t == name).map(|(_, r)| *r);
+        let top = find("Spectrum background").expect("the row above the colours").min.y - 10.0;
+        let bottom =
+            find("Waterfall / spectrum font size").expect("the row under them").max.y + 20.0;
+        let crop = egui::Rect::from_min_max(egui::pos2(0.0, top), egui::pos2(width, bottom));
+        render_png(&ctx, &out, &textures, crop, 2.0, std::path::Path::new(&path));
+        out.drop_without_applying_deltas();
+    }
+
+    /// Settings → UI: a colour row that wraps onto a second line — the band
+    /// plan's CB swatch and its Reset — must end above the row under it, not
+    /// under the Skimmer font size picker. At several widths, because where
+    /// the row wraps depends on the width of the settings box.
+    #[test]
+    fn the_colour_rows_do_not_run_into_the_font_size_rows() {
+        let _guard = crate::multi::frame_test_lock();
+        for width in [700.0, 870.0, 1000.0, 1200.0] {
+            let (texts, _ctx, out) = ui_tab_at(width);
+            let find = |name: &str| texts.iter().find(|(t, _)| t == name).map(|(_, r)| *r);
+            let skim = find("Skimmer font size").expect("the skimmer font row");
+            // The band plan's swatches: CB is its last, and its Reset is the
+            // last one above the font rows (the spot row has one too).
+            let cb = find("CB").expect("the band plan's CB swatch label");
+            let reset = texts
+                .iter()
+                .filter(|(t, r)| t == "Reset" && r.min.y < skim.min.y)
+                .map(|(_, r)| *r)
+                .max_by(|a, b| a.min.y.total_cmp(&b.min.y))
+                .expect("its Reset button");
+            let picker = texts
+                .iter()
+                .filter(|(t, r)| t == "Medium" && r.min.y >= skim.min.y - 6.0)
+                .map(|(_, r)| *r)
+                .next()
+                .expect("the skimmer font picker");
+            // Each label reads level with the first line of its swatches.
+            for (label, first) in [("Spot label colours", "DX"), ("Band plan colours", "Ham")] {
+                let label = find(label).expect("the colour row's label");
+                let first = texts
+                    .iter()
+                    .filter(|(t, r)| t == first && r.min.y >= label.min.y - 20.0)
+                    .map(|(_, r)| *r)
+                    .min_by(|a, b| a.min.y.total_cmp(&b.min.y))
+                    .expect("the row's first swatch label");
+                assert!(
+                    (label.center().y - first.center().y).abs() <= 1.5,
+                    "at {width} pt the label (centre {:.1}) is not level with its first line \
+                     of colours (centre {:.1})",
+                    label.center().y,
+                    first.center().y,
+                );
+            }
+            let reset_box = frame_around(&out, reset);
+            let picker_box = frame_around(&out, picker);
+            let row_end = reset_box.max.y.max(cb.max.y);
+            eprintln!("w {width}: reset box {reset_box:?} picker box {picker_box:?}");
+            out.drop_without_applying_deltas();
+            assert!(
+                picker_box.min.y >= row_end + 4.0,
+                "at {width} pt the Skimmer font size picker (top {:.1}) runs into the band-plan \
+                 row's CB / Reset (bottom {:.1})",
+                picker_box.min.y,
+                row_end,
+            );
+        }
+    }
 }
