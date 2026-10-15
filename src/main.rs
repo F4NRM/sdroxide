@@ -1156,21 +1156,6 @@ fn print_caps(caps: &sdroxide_types::DeviceCaps) {
     }
 }
 
-/// Where to open instead, when a start frequency was refused (issue #72).
-///
-/// `Some(last_good)` only when there **is** a previous centre, it is a real
-/// frequency, and it differs from the one that failed — falling back to the
-/// frequency that just failed would be a retry that cannot succeed, and a
-/// comparison to within a hertz avoids a pointless second open after a rounding
-/// difference.
-///
-/// A free function because it is the whole of the decision and it is worth
-/// testing: the code that *uses* it needs a radio and a configuration file.
-fn fallback_center(asked_hz: f64, last_good_hz: f64) -> Option<f64> {
-    let usable = last_good_hz.is_finite() && last_good_hz > 0.0;
-    (usable && (last_good_hz - asked_hz).abs() > 1.0).then_some(last_good_hz)
-}
-
 fn open_source(cli: &Cli, settings: &Settings) -> anyhow::Result<(Box<dyn IqSource>, DeviceCaps)> {
     let rate = cli.rate.unwrap_or(settings.sample_rate);
 
@@ -1219,7 +1204,15 @@ fn open_source(cli: &Cli, settings: &Settings) -> anyhow::Result<(Box<dyn IqSour
             // keeps refusing to ship; the notice names both numbers, so the
             // operator can put the right one back.
             let last = sdroxide_config::load_session().last_good_vfo_hz;
-            if let Some(last) = fallback_center(cli.center_hz(), last) {
+            let asked = cli.center_hz();
+            // The same decision the engine makes when the link button or the
+            // background reconnect opens a replacement, from the same helper —
+            // so the three paths that open a radio cannot disagree about when
+            // to fall back, which is what left the button doing nothing on
+            // 2.0.12 while the startup path appeared to work (#72).
+            let fallback =
+                sdroxide_types::reopen::fallback_open_hz(asked, Some(asked), last);
+            if let Some(last) = fallback {
                 let mut c = cli.clone();
                 c.freq = Some(last);
                 if let Ok(pair) = open_converted_source(&radio, &c, settings) {
@@ -3225,39 +3218,3 @@ mod tests {
     }
 }
 
-#[cfg(test)]
-mod fallback_center_tests {
-    use super::fallback_center;
-
-    /// **The frequency that just failed is never the answer.** Retrying the same
-    /// number would be an open that cannot succeed, and the operator would see
-    /// the radio fail twice for no reason.
-    #[test]
-    fn the_refused_frequency_is_never_the_fallback() {
-        assert_eq!(fallback_center(6_000_000_000.0, 6_000_000_000.0), None);
-        // Within a hertz is the same frequency for this purpose: a file that
-        // stored 145_000_000.4 should not cause a second open.
-        assert_eq!(fallback_center(145_000_000.0, 145_000_000.4), None);
-        assert_eq!(fallback_center(145_000_000.4, 145_000_000.0), None);
-    }
-
-    /// A previous centre that is real is used, and it is the one that was stored
-    /// — not clamped, not rounded, because it is a frequency the hardware has
-    /// already tuned.
-    #[test]
-    fn a_real_previous_centre_is_used_unchanged() {
-        assert_eq!(fallback_center(6_000_000_000.0, 145_000_000.0), Some(145_000_000.0));
-        assert_eq!(fallback_center(50_000.0, 7_074_000.0), Some(7_074_000.0));
-    }
-
-    /// Nothing tuned yet, or a damaged file, is **no fallback** rather than a
-    /// fallback to zero or to a NaN — either would ask the hardware for
-    /// something absurd and fail a second time.
-    #[test]
-    fn nothing_known_is_no_fallback() {
-        assert_eq!(fallback_center(6_000_000_000.0, 0.0), None, "a first run");
-        assert_eq!(fallback_center(6_000_000_000.0, -1.0), None, "a negative frequency");
-        assert_eq!(fallback_center(6_000_000_000.0, f64::NAN), None, "a damaged file");
-        assert_eq!(fallback_center(6_000_000_000.0, f64::INFINITY), None);
-    }
-}

@@ -66,6 +66,7 @@ mod rds;
 pub mod recording;
 mod region;
 mod relay;
+pub mod reopen;
 mod repeater;
 mod rifp;
 mod rigctld;

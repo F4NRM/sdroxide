@@ -3250,7 +3250,29 @@ struct Engine {
     /// The active VFO as of the last tune the front end accepted. A tune it
     /// refuses puts the dial back here rather than leaving the operator on a
     /// frequency the radio cannot receive (see [`Engine::tune_refused`]).
+    ///
+    /// Zero means **nothing has tuned yet on this run** — which is what a
+    /// front end that never opened starts as, because the centre it was asked
+    /// for is not a frequency anything received. The two readers are
+    /// [`Engine::tune_refused`] and the session written on the way out, and both
+    /// have to treat zero as "no record" rather than as a frequency.
     good_vfo_hz: f64,
+    /// The centre an open attempt on this radio failed at, and which a later
+    /// attempt should therefore not simply repeat.
+    ///
+    /// Cleared by the first successful open, so it only ever describes a front
+    /// end that is currently down. This is what lets the link button and the
+    /// background reconnect try a frequency the radio has already tuned instead
+    /// of the dial it was handed — the case where a start frequency the tuner
+    /// cannot reach is what the dial still holds (#72).
+    refused_center_hz: Option<f64>,
+    /// The dial, and the frequency it was stood in for, on the background
+    /// attempt now in flight. Set where the attempt is spawned and read where
+    /// it answers, because the worker only reports the source it opened — and
+    /// telling the operator that the radio came up somewhere other than where
+    /// they left it needs both numbers.
+    retry_asked_hz: f64,
+    retry_fell_back_to: Option<f64>,
     /// What each VFO was left listening in, indexed by [`Vfo::index`]: the mode
     /// and the passband that went with it.
     ///
@@ -4132,6 +4154,31 @@ fn engine_thread(
         engine_cfg.remember_session.then(|| engine_cfg.store.load_session_if_present()).flatten();
     let session_restored = restored.is_some();
     let session = engine_cfg.remember_session.then(|| restored.unwrap_or_default());
+
+    // **Where the source opened is a frequency it took — unless it never
+    // opened.** A stand-in, which is what the program substitutes when the
+    // configured interface will not open, reports the centre that was *asked
+    // for*; stamping that as a frequency the hardware tuned writes the
+    // impossible value into the session's record as "last good", and every
+    // later start then reads its own fallback as the very number it was trying
+    // to escape (#72, reported back on 2.0.12: still 6 GHz, still by hand).
+    // So a stand-in starts from what the last run genuinely recorded, which may
+    // be nothing — and "nothing" is the honest answer where a number would be
+    // a frequency the operator might tune by.
+    let seeded_good_vfo_hz = sdroxide_types::reopen::seeded_last_good_hz(
+        !source.needs_reopen(),
+        source_center_hz,
+        // From `session`, not `restored`: it is the same record, and an engine
+        // that is not remembering the session is not writing one either, so
+        // there is nothing for it to fall back to.
+        session.as_ref().map_or(0.0, |s| s.last_good_vfo_hz),
+    );
+    // A stand-in is the record of a refused open: the program is running
+    // precisely because the radio would not come up on what it was handed. So
+    // the first replacement attempt is already the second try, and must not
+    // repeat the first — otherwise the link button's very first press re-asks
+    // for the impossible number and the operator has to press it twice.
+    let seeded_refused_center_hz = source.needs_reopen().then_some(source_center_hz);
     // Held separately from what this front end can carry: a start on a stand-in
     // (a radio switched off, a rig that isn't there yet) must not be the thing
     // that forgets it — see `Engine::want_decimation`.
@@ -4591,8 +4638,14 @@ fn engine_thread(
         retry_join: None,
         retry_at: None,
         retry_every: RETRY_FIRST,
-        // Where the source opened, which is by definition a frequency it took.
-        good_vfo_hz: source_center_hz,
+        // Where the source opened — or, when it never opened, what was last
+        // recorded; see the note where that is worked out.
+        good_vfo_hz: seeded_good_vfo_hz,
+        // Nothing has been refused yet on a front end that opened, so the first
+        // attempt is made at the dial and only its failure arms the fallback.
+        refused_center_hz: seeded_refused_center_hz,
+        retry_asked_hz: 0.0,
+        retry_fell_back_to: None,
         // Both VFOs start on the mode the receiver came up in; the remembered
         // pair is folded in below, once the engine owns them.
         vfo_memory: [initial_vfo_memory.clone(), initial_vfo_memory],
@@ -6482,7 +6535,7 @@ impl Engine {
                 self.state.band = Band::containing(vfo);
                 // Where the hardware demonstrably is, is by definition a
                 // frequency it took.
-                self.good_vfo_hz = vfo;
+                self.note_frequency_taken(vfo);
                 self.reseat_sub_freq();
                 // The windows that are placed against the hardware centre have
                 // to be re-placed against the new one, exactly as
@@ -6753,7 +6806,7 @@ impl Engine {
         self.stream_center_hz = center;
         // Where the hardware demonstrably is, is by definition a frequency it
         // took — this is the dial the rig itself just reported.
-        self.good_vfo_hz = self.state.active_freq_hz();
+        self.note_frequency_taken(self.state.active_freq_hz());
         // The skim window is placed against the hardware centre, so it has to be
         // re-placed against the new one — and re-labelled and cleared if it
         // really moved, so no track straddles the old and new axes (as
@@ -7650,7 +7703,7 @@ impl Engine {
             Vfo::B => self.state.vfo_b_hz = want,
         }
         self.state.band = Band::containing(want);
-        self.good_vfo_hz = want;
+        self.note_frequency_taken(want);
         self.update_tuning();
     }
 
@@ -16356,6 +16409,76 @@ impl Engine {
         self.save_session();
     }
 
+    /// The centre to ask a replacement front end for, and the one it is
+    /// standing in for when that is not simply the dial.
+    ///
+    /// The dial, unless this radio has already refused that exact frequency and
+    /// there is a frequency it has tuned instead — a start frequency the tuner
+    /// cannot reach, which is the reported case (#72). Without this the link
+    /// button and the background reconnect both re-asked for the impossible
+    /// number on every press, which is what left the operator correcting it by
+    /// hand each start.
+    fn reopen_centre(&self) -> (f64, Option<f64>) {
+        let dial = self.state.active_freq_hz();
+        let fallback =
+            sdroxide_types::reopen::fallback_open_hz(dial, self.refused_center_hz, self.good_vfo_hz);
+        (fallback.unwrap_or(dial), fallback)
+    }
+
+    /// An open at `center` failed, so an attempt that would repeat it is
+    /// wasted: record it and let [`Self::reopen_centre`] offer the fallback.
+    fn note_open_refused(&mut self, center: f64) {
+        self.refused_center_hz = Some(center);
+    }
+
+    /// Record a frequency the front end is on, **unless a stand-in is in
+    /// place**.
+    ///
+    /// A stand-in answers every tune with "done" — it has no tuner to refuse —
+    /// so taking its word would put the frequency that was merely *asked for*
+    /// into the record as one the hardware took. That is what kept #72's
+    /// fallback falling back to the very number it was trying to escape: the
+    /// record was repaired at start-up and poisoned again by the first tune.
+    /// While a stand-in is in place we genuinely know nothing, so nothing is
+    /// recorded, and the record left behind is the last real one.
+    fn note_frequency_taken(&mut self, hz: f64) {
+        if self.source.needs_reopen() {
+            return;
+        }
+        self.good_vfo_hz = hz;
+    }
+
+    /// An open worked. Nothing is refused any more, and the centre the front
+    /// end came up on is by definition a frequency it took — so it becomes the
+    /// record the next start reads. Unlike [`Self::note_frequency_taken`] this
+    /// is not gated on a stand-in, because a source that has just been adopted
+    /// is by definition not one.
+    fn note_opened(&mut self, center: f64) {
+        self.refused_center_hz = None;
+        if center > 0.0 {
+            self.good_vfo_hz = center;
+        }
+    }
+
+    /// Say that the radio came up somewhere other than where it was asked to,
+    /// naming both numbers.
+    ///
+    /// Deliberately not silent: the dial will be moved by [`Self::adopt_source`]
+    /// to where the hardware actually is, and a dial reading a frequency
+    /// nobody chose is how someone ends up chasing a signal that is not there.
+    /// One line, and the number on screen is never a surprise.
+    fn note_opened_elsewhere(&self, asked_hz: f64, at_hz: f64) {
+        let msg = format!(
+            "This radio would not open on {:.6} MHz, which it cannot reach, so it opened on \
+             {:.6} MHz — the last frequency it tuned. Put a frequency it can tune in the \
+             start-frequency field to stop this.",
+            asked_hz / 1e6,
+            at_hz / 1e6,
+        );
+        warn!("{msg}");
+        let _ = self.event_tx.send(RadioEvent::Notice(Some(msg)));
+    }
+
     /// Rebuild the IQ front-end at runtime (backend / CAT audio / HPSDR-TCI
     /// address changed). Opens the new source via the [`ReopenFn`] factory and
     /// only swaps on success, so a bad config leaves the current interface
@@ -16364,7 +16487,8 @@ impl Engine {
     /// [`IqSource::release`]) is stood down first and takes the failure case
     /// with it: it goes dark, and [`Engine::poll_reconnect`] picks it up.
     fn reopen_source(&mut self) {
-        let center = self.state.active_freq_hz();
+        let (center, fallback) = self.reopen_centre();
+        let asked = self.state.active_freq_hz();
         let Some(factory) = self.reopen.clone() else {
             warn!("runtime interface switching unavailable in this build");
             return;
@@ -16391,8 +16515,21 @@ impl Engine {
         self.retry_at = None;
         self.retry_every = RETRY_FIRST;
         match opened {
-            Ok((source, caps)) => self.adopt_source(source, caps),
+            Ok((source, caps)) => {
+                // Where it came up is the record; the dial follows it in
+                // `adopt_source`, so both are moved by the front end's own
+                // answer rather than by what was asked for.
+                let at = source.center_hz();
+                self.note_opened(at);
+                self.adopt_source(source, caps);
+                if let Some(fell_back_to) = fallback {
+                    self.note_opened_elsewhere(asked, fell_back_to);
+                }
+            }
             Err(e) => {
+                // The dial is what was asked for and did not work, so an attempt
+                // that repeats it is the attempt that just failed.
+                self.note_open_refused(asked);
                 warn!("interface change failed: {e}");
                 let _ = self
                     .event_tx
@@ -16446,9 +16583,19 @@ impl Engine {
                     self.retry_every = RETRY_FIRST;
                     self.retry_at = None;
                     info!(source = %source.describe(), "radio interface connected");
+                    let (asked, fell_back_to) = (self.retry_asked_hz, self.retry_fell_back_to.take());
+                    let at = source.center_hz();
+                    self.note_opened(at);
                     self.adopt_source(source, caps);
+                    if let Some(at) = fell_back_to {
+                        self.note_opened_elsewhere(asked, at);
+                    }
                 }
                 Ok(Err(e)) => {
+                    // The attempt asked for the dial and the radio would not
+                    // open on it, so the next one must not simply repeat it.
+                    self.note_open_refused(self.retry_asked_hz);
+                    self.retry_fell_back_to = None;
                     // Back off: a rig that isn't there yet is the normal case
                     // here, so this must not turn into a busy retry loop.
                     self.retry_every = (self.retry_every * 2).min(RETRY_MAX);
@@ -16496,7 +16643,9 @@ impl Engine {
         // and the stream could never recover on its own.
         self.source.release();
 
-        let center = self.state.active_freq_hz();
+        let (center, fallback) = self.reopen_centre();
+        self.retry_asked_hz = self.state.active_freq_hz();
+        self.retry_fell_back_to = fallback;
         let (tx, rx) = crossbeam_channel::bounded(1);
         let spawned =
             std::thread::Builder::new().name("sdroxide-reconnect".into()).spawn(move || {
@@ -16617,7 +16766,7 @@ impl Engine {
         // The frequency a refused tune goes back to belongs to the front end
         // that is on the air now: the old one's dial may be nowhere this one can
         // go, and `keep_vfo_in_span` below is about to judge exactly that.
-        self.good_vfo_hz = self.state.active_freq_hz();
+        self.note_frequency_taken(self.state.active_freq_hz());
         // The tuning is fresh, but the antenna is a property of the station's
         // coax rather than of the front end: a radio that dropped out and came
         // back has to return to the port it was receiving on. The gain stages
@@ -16784,7 +16933,7 @@ impl Engine {
                 // The rig took the dial: this is where a refused tune goes back
                 // to. Tracked here rather than in `keep_vfo_in_span`, which a
                 // CAT rig never reaches.
-                self.good_vfo_hz = dial;
+                self.note_frequency_taken(dial);
             }
             self.update_display_center();
             return;
@@ -18773,10 +18922,10 @@ impl Engine {
         if (self.state.center_hz - (vfo + self.lo_offset_hz())).abs() >= 0.5 {
             if self.retune_for_vfo(vfo) {
                 // What a refused tune goes back to is a dial, not a VFO.
-                self.good_vfo_hz = dial;
+                self.note_frequency_taken(dial);
             }
         } else {
-            self.good_vfo_hz = dial;
+            self.note_frequency_taken(dial);
         }
     }
 
@@ -18814,7 +18963,7 @@ impl Engine {
         } else {
             // In span on the centre the hardware is already on, so this dial is
             // one the front end is known to be able to receive.
-            self.good_vfo_hz = vfo;
+            self.note_frequency_taken(vfo);
         }
     }
 
@@ -18936,7 +19085,7 @@ impl Engine {
         if !self.retune_named(center, vfo_hz) {
             return false;
         }
-        self.good_vfo_hz = vfo_hz;
+        self.note_frequency_taken(vfo_hz);
         true
     }
 
@@ -19010,14 +19159,29 @@ impl Engine {
     /// A tune the front end would not or did not take: put the dial back on the
     /// last frequency it accepted and say why.
     ///
-    /// The centre is untouched by a refused tune, so the dial that went with it
-    /// is still one this front end can receive — going back there leaves a
+    /// **Or, when nothing has tuned yet on this run, leave the dial alone.** A
+    /// front end that never opened has no accepted frequency to go back to, and
+    /// putting the dial on the remembered zero would clamp it to the bottom of
+    /// the range and send the radio there — the very thing this avoids. The
+    /// centre is untouched by a refused tune, so the dial that went with it is
+    /// still one this front end can receive — going back there leaves a
     /// working radio rather than a receiver pointed somewhere it cannot hear.
     /// This is a notice and not a [`RadioEvent::ConnectionLost`]: the session is
     /// intact, and a fatal-looking error would leave every attached UI showing
     /// a dead radio that is in fact still streaming.
     fn tune_refused(&mut self, why: String) {
         let good = self.good_vfo_hz;
+        if !(good.is_finite() && good > 0.0) {
+            // Nothing has tuned, so there is nowhere to go back to. Say what the
+            // operator has to do instead, rather than naming a number nothing
+            // ever received.
+            warn!("{why}; no frequency has tuned yet on this run");
+            let _ = self.event_tx.send(RadioEvent::Notice(Some(format!(
+                "{why}. Set a frequency this radio can tune — in the start-frequency field or \
+                 on the dial — and it will come up on that."
+            ))));
+            return;
+        }
         warn!("{why}; dial back to {:.6} MHz", good / 1e6);
         match self.state.active_vfo {
             Vfo::A => self.state.vfo_a_hz = good,

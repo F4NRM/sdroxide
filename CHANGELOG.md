@@ -13,6 +13,9 @@ and the [README](https://github.com/madmedicnl/sdroxide-brown#readme).
 
 ## [Unreleased]
 
+### Fixed
+- **The link button opens the radio where it last tuned** — a start frequency the tuner cannot reach no longer has to be corrected by hand on every start (#72).
+
 ## [2.0.12_brown] - 2026-10-15
 
 A start frequency the radio cannot reach now falls back to one it can, and the
