@@ -1,7 +1,7 @@
 # TODO — SDR Oxide Brown
 
 What this fork is working on. Kept here so it survives a session and is visible
-to everyone on the repo. Last updated **2026-10-14**.
+to everyone on the repo. Last updated **2026-10-15**.
 
 Upstream issues are the *maintainer's* queue; the items below marked `#NNN` are
 upstream feature requests **this fork** may pick up, not a promise to upstream.
@@ -21,10 +21,10 @@ upstream feature requests **this fork** may pick up, not a promise to upstream.
 - **Replied on #69 and #14**; recorded **DiamondRadio** in AGENTS.md (freeware,
   source private — RadioScript's answer again, and the case is thin for the same
   board and the same no-I/Q ceiling).
-- **`BT-MIKE-HANDOVER.md`** — the Midland Bluetooth mike. The Bluetooth half is
-  solved (HFP headset, endpoints live); it is blocked on **sdroxide enumerating
-  ALSA while the devices live in PipeWire**. One thing to check before any of it:
-  whether *Your audio → Input* is used for voice transmit at all.
+- **`BT-MIKE-HANDOVER.md`** — the Midland Bluetooth mike, **solved on main**: a
+  PipeWire/Bluetooth device now appears in Settings → Audio by name and can be
+  picked, with a warning saying it takes over the machine's recording. Verified
+  on the operator's DUALMIKE. In tonight's nightly, not yet in a release.
 
 ## Done 2026-10-13
 
@@ -61,10 +61,18 @@ upstream feature requests **this fork** may pick up, not a promise to upstream.
   audio and not a crackle — the format is tested over a real socket, that it
   *sounds* right is not.
 
-- **#77 SYNOP / SHIP weather decoder** — asked by Kevin (F4NRM) on 2026-10-14: coded
-  weather reports broadcast on HF in RTTY, Baudot at 50 baud, every three hours.
-  A real decoder with a listener audience, and it fits this fork. **The next
-  project** — the operator wants the satellite side in a release first.
+- ~~**#77 SYNOP / SHIP weather decoder**~~ — **BUILT, BETA** (`d1d9bc8c`), asked
+  for by Kevin (F4NRM) on 2026-10-14. RTTY on 4583 / 7646 / 10100.8 kHz, SHIP at
+  02:00 and 07:35 UTC, SYNOP at 00:35 and 12:10. A **WEATHER** chip opens the
+  list when a report has been heard; the window shows the raw line beside the
+  decoded groups. Client-side detection, **no wire change**. Gate silent, 892 UI
+  and 733 types tests green.
+  **Verification is the open item**, and issue **#88** asks Kevin for it: the
+  decoder is tested against four *real published* messages (HKO, CTOM Oman,
+  tutiempo.net, AWI) and decodes all four, but **no report has been decoded off
+  the air**. When he reports, either the BETA marks come off or the decoder is
+  fixed. Design and the six wrong readings that shaped it are in
+  `docs/synop-notes.md`.
 - **#75 the satellite picker lists the whole catalogue** — drdatapi, 2026-10-14.
   **BUILT** (`04032baf`): an **all satellites** checkbox, off by default, sharing
   one `satellite_is_workable` test with the PASSES tab so the two cannot drift.
