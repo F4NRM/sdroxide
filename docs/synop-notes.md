@@ -86,6 +86,65 @@ And the structural fault behind the failing tests:
    not enough" rule the SHIP groups obey, since `1` opens both a temperature
    group and a sea-wave group.
 
+## Real messages, found online — and what they correct
+
+**No capture needed.** Real published examples, with worked explanations, from
+Hong Kong Observatory, Oman (CTOM), tutiempo.net and the Alfred Wegener
+Institute. **These correct two of the "fixes" above, and both corrections were
+mine.**
+
+### `BBXX BRAVO 20123 99252 10595 41494 81412 10285 20269 40100 53012 79586 8597/ 22265 00280 20405 31705 40506 50407=`
+*(CTOM, Oman — every group explained)*
+
+| Group | Read as |
+|---|---|
+| `20123` | day **20**, **12** UTC, wind in **knots** |
+| `99252` | 25.2° **N** |
+| `10595` | quadrant **1** (NE), **059.5°** E |
+| `41494` | precipitation omitted; **14** = cloud base 1400-1900 ft; **94** = 1 km |
+| `81412` | overcast; wind **140° at 12 kt** |
+| `10285` | air **28.5 °C** |
+| `40100` | **1010.0 hPa** |
+| `53012` | pressure **decreasing**, **1.2 hPa** over 3 h |
+| `79586` | thunderstorm with rain |
+| `8597/` | 5 oktas low; CL **9** cumulonimbus, CM **7** altocumulus, CH **/** |
+| `22265` | course west; speed **21-25 kt** |
+| `00280` | sea **28.0 °C** |
+| `20405` | wind waves 4 s, 2.5 m |
+| `31705` / `40506` / `50407` | two swell systems |
+
+### Three corrections the real messages force
+
+1. **`YYGGiw` is FIVE digits** — `20123`, not six. So **`iw` is one figure**
+   after all, and my "two-figure code" fix was **wrong**. One source (a wiki)
+   renders it spaced out as `i w` and I read the spacing as two digits. The
+   Oman and HKO examples agree with each other and against me.
+2. **`QcLoLoLoLo` is FIVE digits** — `10595`, quadrant plus **four**. So my
+   "nine figures" fix was **also wrong**, and the original five-digit reading was
+   right. One source illustrates it as `10109` = 10.9° E, which is a
+   simplification, not the transmission.
+3. **Missing data is a SLASH, and a real report is full of them** — `8597/`,
+   `41/97`, `43///`, `/1500`, `1////`, `46///`. **The draft returned early on a
+   non-digit and so dropped every one of those groups**, including the cloud
+   group in the example above. A slash is `not reported`, a distinct value from
+   zero, and it has to survive the parse as such.
+
+Also: the report is terminated by **`=`**.
+
+### Four fixtures, to test against instead of inventing one
+
+```
+BBXX BRAVO 20123 99252 10595 41494 81412 10285 20269 40100 53012 79586 8597/ 22265 00280 20405 31705 40506 50407=
+BBXX VRUY5 23013 99219 11148 41692 80506 10190 20188 40198 51018 74554 8/000 22253 00180 21001 307// 41002 8//// ICE 0////
+BBXX KS007 01184 99476 71224 43/// /1500 10150 40277 22200 00124=
+BBXX 4ED7Y3T 27161 99540 10109 46/// ///// 1//// 2//// 40084 5//// 222// 0////=
+```
+
+Sources: hko.gov.hk ship code sheet · CTOM Oman "Ship Weather reports & Met
+Station Models" · tutiempo.net Ejemplos de Synops · soop-wiki.awi.de FM13.
+The authoritative reference is **WMO-No. 306, Manual on Codes**; DARC's DG5CW
+page also points at a two-page **VOS Ship Code Card** kept by the radio.
+
 ## Why it stopped here
 
 **The test fixture was invented.** `BBXX GBRY 151204 99545 100023 …` was written
@@ -101,11 +160,13 @@ session rather than rewritten, since the code tables in it are sound.
 
 ## What is left, in order
 
-1. **Capture a real broadcast.** 4583 or 7646 kHz at 02:00 UTC (SHIP) or
-   00:35 UTC (SYNOP). That single recording is worth more than any amount of
-   reading — it settles the framing, the line terminator, whether a callsign
-   appears, and how much of a report survives at HF.
-2. **Fix the dispatch** — group identification by length and position, the two
-   bugs above, and the shared leading digits (`1`, `2`, `4` open more than one
-   group).
-3. **Then** the rest: RTTY wiring, a window, the manual, a quick-start.
+1. **Revert my two "fixes" and rebuild the dispatch against the fixtures
+   above** — by length and position, with `iw` one digit and the quadrant group
+   five, and with **slashes carried through as "not reported"** rather than
+   dropping the group.
+2. **Test against the four real messages**, not an invented one. That is the
+   whole lesson of this attempt.
+3. **A live capture is still worth having** — it settles what survives at HF and
+   how the RTTY framing behaves — but it is a nice-to-have now, not the blocker.
+   It was never a blocker; I should have looked for real examples first.
+4. **Then** the rest: RTTY wiring, a window, the manual, a quick-start.
