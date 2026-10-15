@@ -7466,11 +7466,25 @@ look like.
 
 Everything that configures sdroxide lives in one window, opened with the
 **⚙ SETTINGS** button in the System module (the **⚙ SETUP** button in the SPOTS
-window opens the same dialog on its Spots tab). Fourteen tabs run across the top:
+window opens the same dialog on its Spots tab).
 
-| Tab | What it holds |
+The pages run down the **left**, in four groups, and the page you pick is on the
+right. On a window too narrow for a column — a phone, or a settings box dragged
+right down — they run across the top as a tab strip instead, which wraps rather
+than cutting labels off.
+
+| Group | Pages |
 | --- | --- |
-| **General** | Which version this is, your callsign, grid, IARU region and channel plan (11M/CB), the sound devices, and who may connect remotely. [6.1](#61-general-station-audio-and-remote-access) |
+| **Station** | [General](#61-general-station-audio-and-remote-access) · [Radio](#62-radio-choosing-and-configuring-the-rig) · [Audio](#613-audio-your-sound-the-radios-and-recordings) · CW (the key and the keyer) · [UI](#63-ui-display-preferences-and-voice-announcements) |
+| **Radio work** | [Spots](#65-spots-spot-feeds) · [FreeDV](#66-freedv-freedv-reporter) · [T/R switch](#611-tr-switch-protecting-the-receiver-on-transmit) · [Profiles](#612-profiles-saved-station-setups) |
+| **Sending** | [Uploads](#67-uploads-callsign-lookup-and-qsl-services) · [Winlink](#68-winlink-radio-email-account) · [Servers](#69-servers-letting-other-programs-drive-the-radio) |
+| **Setup** | [Alerts](#audible-alerts) · [Controls](#64-controls-keyboard-mouse-and-midi) · [TLE](#610-tle-satellites-and-their-frequencies) |
+
+| Page | What it holds |
+| --- | --- |
+| **General** | Which version this is, your callsign, grid, IARU region and channel plan (11M/CB), and who may connect remotely. [6.1](#61-general-station-audio-and-remote-access) |
+| **Radio** | Which rig sdroxide talks to, and how. [6.2](#62-radio-choosing-and-configuring-the-rig) |
+| **Audio** | Your speakers and microphone, this radio's sound card, and where recordings are written. [6.13](#613-audio-your-sound-the-radios-and-recordings) |
 | **Radio** | Which rig sdroxide talks to, and how. [6.2](#62-radio-choosing-and-configuring-the-rig) |
 | **UI** | Frame rate, waterfall palette, spectrum background, spot label colours, 3D cloud rendering, and the spoken announcements. [6.3](#63-ui-display-preferences-and-voice-announcements) |
 | **Alerts** | Sounds that ring when a decode matters: a station calling you, a new DXCC entity or grid. [Audible alerts](#audible-alerts) |
@@ -7761,39 +7775,10 @@ TCI. On anything
 that never sends a figure (any IQ radio: HackRF, Pluto, RTL-SDR, an HPSDR
 board) the setting is simply inert, which is why it costs nothing to leave on.
 
-**Your audio (speakers / microphone)** — the devices sdroxide uses for *you*,
-separate from any sound card wired to a radio:
-
-- **Output** — where receive audio is played.
-- **Input** — your microphone for voice transmit.
-
-Both default to **System default** and can be changed live. In `config.toml`
-they are `audio_output` and `audio_input`.
-
-The microphone is opened in the background — at startup and whenever you change
-the selection. A capture device the system's sound server cannot deliver can take
-half a minute to say so (the classic case is a default input that is a *monitor*
-of the very sound card sdroxide has just claimed for a radio), and neither
-startup nor the window waits that out: the radio comes up, and the microphone
-joins it when its open finishes. If the open fails, transmit carries silence and
-the log says which device refused.
-
-> **The radio's own sound card is not here.** *Radio audio (sound card)* and
-> *Receive audio gain* used to sit on this page and moved to the **Radio** tab
-> in 1.6.9, beside the rest of the interface's settings
-> ([6.2.2](#622-cat-radios-serial-control--usb-audio)). They belong to a radio,
-> not to the station: with two rigs running at once there are two sound cards in
-> use at once, and one pair of pickers on a shared page could only ever describe
-> one of them (issue #474). Nothing in `radio.json` changed — they were always
-> stored per radio, and only the page they were edited on was wrong.
-
-**Recordings** — the folder the MP3 recordings, the scheduled recordings and the
-raw I/Q captures are written to, with **CHOOSE…** to pick another and **DEFAULT**
-to go back to the music folder (`<Music>/sdroxide`, or the config directory's
-`recordings` where the system exposes no music folder). It is a path on the
-machine the radio is attached to, so it is shown only where the engine is in this
-process — a remote client sets it at the shack, not on its own laptop. In
-`config.toml` it is `recordings_dir`.
+**Your audio, the radio's sound card and recordings** now have a page of their
+own — [§ 6.3 Audio](#613-audio-your-sound-the-radios-and-recordings) — because
+they used to sit here under one heading and then, for the radio's own half, on
+the Radio tab as well.
 
 **Remote access** — the **Username** and **Password** a remote client has to
 give before this station will let it operate: the browser page, another sdroxide
@@ -13883,6 +13868,78 @@ them, as editing them does.
 Profiles are kept in `profiles.json` on the machine the radio engine runs on
 ([§13](#13-configuration-files)), shared by every radio of the station, and a
 remote or browser client sees, saves and applies the same list.
+
+### 6.13 Audio: your sound, the radio's, and recordings
+
+Sound used to be in four places under four names: your speakers and microphone
+on **General**, the rig's sound card on **Radio** — and differently again on each
+interface — speech on **UI** and the alert tones on **Alerts**. None of that was
+wrong; it just could not be found as one thing. This page is one thing, and the
+organising idea is **whose audio it is** rather than which file it is saved in.
+
+**Your audio** — the speakers you listen on and the microphone your voice goes
+out through:
+
+- **Speakers** — where receive audio is played.
+- **Channels** — which speaker channel(s) the audio reaches. **Left** or
+  **right** silences the other, for hearing on one side only.
+- **Microphone** — what carries your voice out when the rig is keyed by sound
+  (MCW) or by VOX. If your rig keys itself from CAT instead, the microphone is
+  not used for transmit at all and this row changes nothing.
+
+These belong to this machine and to you, not to any radio, so they are the same
+whichever radio you are working. Both device rows default to **System default**
+and can be changed live. In `config.toml` they are `audio_output`,
+`audio_routing` and `audio_input`.
+
+> **In a browser the page says so.** A browser tab has no device list to offer —
+> the page asks your browser for the speakers and the microphone, and the choices
+> live in the browser's own site settings. The radio's sound card, further down
+> this page, still applies.
+
+**This radio's audio** — the sound card between this radio and this computer:
+
+- **From the radio** — what your rig sends out: a USB sound output, or a
+  receiver's headphone socket into a sound card's line input. Everything on the
+  panadapter and in the decoders arrives here.
+- **To the radio** — what the rig listens to for your voice, and also how the
+  program keys a rig by sound. Leave it empty and the rig's own microphone is
+  used, if it has one.
+- **Receive audio gain** — extra gain on everything this radio sends to the
+  speakers. Leave it at **0 dB** unless the radio is quiet at full volume.
+- **Stream the audio out** — a `host:port` that receives the audio over UDP, so
+  another program can use it.
+
+A receive-only radio (the ATS Mini) is offered no transmit row, and
+an SDR is offered no sound card at all: neither has one, and a row that cannot
+do the thing is worse than no row.
+
+> **These are per radio, and they always were.** Two rigs running at once use
+> two sound cards at once, so these rows edit the radio you opened Settings from
+> — the one on the tab you opened it from. They moved off the **General** page
+> in 1.6.9 for that reason (issue #474) and are here now because this page
+> gathers sound in one place; `radio.json` never changed.
+
+> **You can type a device name.** Every picker is a list *and* a text field. The
+> list is what the host's audio API enumerates, and a sound server can hold
+> devices it does not report — a PipeWire node is the case this fork knows about,
+> and enumerating those is the open half of the Bluetooth microphone work. A
+> picker that can only be pointed at leaves you with no way to name a device you
+> can hear. Type the exact name the sound server uses; an empty field is the
+> system default.
+
+**Recording** — the folder the MP3 recordings, the scheduled recordings and the
+raw I/Q captures are written to, with **CHOOSE…** to pick another and **DEFAULT**
+to go back to the music folder (`<Music>/sdroxide`, or the config directory's
+`recordings` where the system exposes no music folder). It is a path on the
+machine the radio is attached to, so it is shown only where the engine is in this
+process. In `config.toml` it is `recordings_dir`.
+
+The rest of the recording controls are not here on purpose: **Quick clip**,
+**Stop after** and **Auto-record** answer a question about *this* session, so
+they live on the **REC** chip where you press them rather than becoming a
+setting you have to remember you changed.
+
 
 ## 7. Solar system 3D view
 

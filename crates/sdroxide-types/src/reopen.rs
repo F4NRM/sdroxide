@@ -23,24 +23,41 @@ fn is_frequency(hz: f64) -> bool {
 ///
 /// `refused_hz` is the centre the last attempt at *this* radio failed on, and
 /// `last_good_hz` a frequency the radio is known to have tuned. A substitution
-/// happens only when all three hold:
+/// happens only when the radio has refused this exact centre; what is offered
+/// in its place is, in order:
 ///
-/// - the radio has refused this exact centre — otherwise there is nothing to
-///   correct, and moving the dial off a frequency nobody complained about would
-///   be inventing a fault;
-/// - there is a real recorded frequency to fall back to, so `None` is never
-///   answered with a number that was never tuned; and
-/// - that frequency is not the one being refused, or the fallback would be the
-///   same retry that has just failed.
+/// - the recorded frequency, when it is a real one that is **not** the one being
+///   refused — a fallback to the number that just failed is the retry that has
+///   already failed, which is how a station ended up correcting the same
+///   unreachable start frequency by hand every single morning; and failing
+///   that,
+/// - the first of `memories` that is a real frequency.
+///
+/// **The memories are the operator's own list, and they are the only honest
+/// source left.** A record that is the refused number means the last run never
+/// tuned anything — which is exactly what happens to a station whose start
+/// frequency could not be reached, since the stand-in it runs on answers every
+/// tune with "done". Guessing a band centre there would move a satellite
+/// listener's dial to a frequency nobody chose; their own stored channels are
+/// frequencies they put there on purpose.
 ///
 /// The one-hertz tolerance is a rounding difference, not a difference: an
 /// open at 145.0000004 MHz after a refusal at 145.0 MHz is the same request.
-pub fn fallback_open_hz(asked_hz: f64, refused_hz: Option<f64>, last_good_hz: f64) -> Option<f64> {
+pub fn fallback_open_hz(
+    asked_hz: f64,
+    refused_hz: Option<f64>,
+    last_good_hz: f64,
+    memories: &[f64],
+) -> Option<f64> {
     let refused_it = refused_hz.is_some_and(|r| is_frequency(r) && (r - asked_hz).abs() <= 1.0);
     if !refused_it {
         return None;
     }
-    (is_frequency(last_good_hz) && (last_good_hz - asked_hz).abs() > 1.0).then_some(last_good_hz)
+    let recorded = is_frequency(last_good_hz) && (last_good_hz - asked_hz).abs() > 1.0;
+    if recorded {
+        return Some(last_good_hz);
+    }
+    memories.iter().copied().find(|&hz| is_frequency(hz))
 }
 
 /// Where the "last frequency that actually tuned" record starts out for a
@@ -76,23 +93,49 @@ mod tests {
 
     #[test]
     fn a_refused_centre_falls_back_to_a_frequency_that_tuned() {
-        assert_eq!(fallback_open_hz(IMPOSSIBLE, Some(IMPOSSIBLE), QO100), Some(QO100));
+        assert_eq!(
+            fallback_open_hz(IMPOSSIBLE, Some(IMPOSSIBLE), QO100, &[]),
+            Some(QO100)
+        );
+    }
+
+    #[test]
+    fn a_poisoned_record_falls_back_to_the_operators_own_channel_list() {
+        // His session held the unreachable frequency as the record, so the
+        // fallback had nothing but the number that had just failed. His QO-100
+        // memories were untouched by all of this, and they are frequencies he
+        // put there on purpose.
+        assert_eq!(
+            fallback_open_hz(IMPOSSIBLE, Some(IMPOSSIBLE), IMPOSSIBLE, &[QO100, 435_000_000.0]),
+            Some(QO100),
+            "with the record useless, the first real stored channel is the honest answer"
+        );
+        assert_eq!(
+            fallback_open_hz(IMPOSSIBLE, Some(IMPOSSIBLE), 0.0, &[0.0, QO100]),
+            Some(QO100),
+            "an unusable channel is skipped rather than opened on"
+        );
+        assert_eq!(
+            fallback_open_hz(IMPOSSIBLE, Some(IMPOSSIBLE), IMPOSSIBLE, &[]),
+            None,
+            "no record and no channels means declining, not guessing"
+        );
     }
 
     #[test]
     fn an_ordinary_dial_is_left_where_it_is() {
-        assert_eq!(fallback_open_hz(QO100, Some(IMPOSSIBLE), IMPOSSIBLE), None);
-        assert_eq!(fallback_open_hz(QO100, None, IMPOSSIBLE), None);
+        assert_eq!(fallback_open_hz(QO100, Some(IMPOSSIBLE), IMPOSSIBLE, &[]), None);
+        assert_eq!(fallback_open_hz(QO100, None, IMPOSSIBLE, &[]), None);
     }
 
     #[test]
     fn there_is_no_fallback_to_a_frequency_that_was_never_tuned() {
         // The case the report actually hit: the record held the very frequency
         // that had been refused, so the "fallback" was the same doomed retry.
-        assert_eq!(fallback_open_hz(IMPOSSIBLE, Some(IMPOSSIBLE), IMPOSSIBLE), None);
+        assert_eq!(fallback_open_hz(IMPOSSIBLE, Some(IMPOSSIBLE), IMPOSSIBLE, &[]), None);
         for never in [0.0, -1.0, f64::NAN, f64::INFINITY] {
             assert_eq!(
-                fallback_open_hz(IMPOSSIBLE, Some(IMPOSSIBLE), never),
+                fallback_open_hz(IMPOSSIBLE, Some(IMPOSSIBLE), never, &[]),
                 None,
                 "a record holding {never} is not a frequency to open at"
             );
@@ -101,7 +144,7 @@ mod tests {
 
     #[test]
     fn a_refusal_of_some_other_frequency_does_not_move_this_dial() {
-        assert_eq!(fallback_open_hz(QO100, Some(435_000_000.0), IMPOSSIBLE), None);
+        assert_eq!(fallback_open_hz(QO100, Some(435_000_000.0), IMPOSSIBLE, &[]), None);
     }
 
     #[test]
@@ -110,9 +153,12 @@ mod tests {
         // same request to within a rounding difference, so the fallback still
         // applies — otherwise a refracted dial would read as "nobody refused
         // this one" and the open would be attempted a second time unchanged.
-        assert_eq!(fallback_open_hz(QO100 + 0.4, Some(QO100), IMPOSSIBLE), Some(IMPOSSIBLE));
+        assert_eq!(
+            fallback_open_hz(QO100 + 0.4, Some(QO100), IMPOSSIBLE, &[]),
+            Some(IMPOSSIBLE)
+        );
         // …and a real difference is not the same request.
-        assert_eq!(fallback_open_hz(QO100, Some(QO100 + 400.0), IMPOSSIBLE), None);
+        assert_eq!(fallback_open_hz(QO100, Some(QO100 + 400.0), IMPOSSIBLE, &[]), None);
     }
 
     #[test]
