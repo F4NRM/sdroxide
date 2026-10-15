@@ -16,20 +16,17 @@ upstream feature requests **this fork** may pick up, not a promise to upstream.
    than 'the lower window is hidden', because the latter needs a real pointer
    and a compositor to mean anything; this fails the moment anyone reaches for
    `Order::Foreground` in a window again.
-2. **UDP audio out (#594)** — **the code is right and the format is pinned; only
-   the listening is left, and that needs your ears.**
-   - Read and confirmed 2026-10-15: the tap is
-     `udp.send(&self.rec_main_q[..rec_n])` — **the same audio the recorder
-     takes**, before the volume and before MUTE, which is what the setting
-     promises. Mono `i16` little-endian, one datagram per block.
-   - Pinned by tests: `the_stream_is_mono_i16_little_endian`,
-     `each_block_is_its_own_datagram`, `off_and_unusable_are_both_no_stream`.
-   - **What no test can do is hear it.** On the bench:
-     `nc -u -l -p 7355 | aplay -f S16_LE -c1 -r 48000` (or set
-     `RadioConfig::udp_audio` to `127.0.0.1:7355`, then listen on another
-     machine with `socat -u UDP-RECV:7355 - | aplay -f S16_LE -c1 -r 48000`).
-     A crackle would mean the samples are wrong in a way the byte tests miss —
-     a wrong rate, or a block boundary — and that is what this is for.
+2. ~~**UDP audio out (#594)**~~ — **DONE and heard on the bench.** The operator's
+   verdict: *"perfect replay"*. It took two fixes to get there and both were
+   invisible to the tests:
+   - the row was **unreachable on every SDR** (`c5816a4a`) — it lived inside the
+     sound-card section, which does not draw for an SDR;
+   - the tap behind it was **never filled unless REC was running** (`6e5026a3`)
+     — `want_rec_main` was written as though the recorder were its only
+     consumer, and the stream sent zero bytes.
+   Both now have tests verified failing against the old code, and the guard for
+   the second is a small pure predicate rather than an engine built in a test.
+
 3. **The tool window's ⇱/⇲ and undocked mode (#257).** The SDRuno window set —
    the largest thing here, and in progress.
 4. **`docs/synop-notes.md`** should keep being updated rather than written once
