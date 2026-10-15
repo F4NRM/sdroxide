@@ -1831,8 +1831,13 @@ use sdroxide_types::{
 /// which is local), so 209 was never taken and 210 would have been a hole. The
 /// version a branch reserves has to be re-checked when the branch changes shape,
 /// which is the register working rather than failing.
-pub const PROTO_VERSION: u16 = 209;
-const VERSION_BYTE: u8 = 0x1D;
+///
+/// v210: how the colour under the spectrum trace is shaded. `ClientScreen`
+/// gains `spectrum_fill_style: SpectrumFillStyle` (Fixed / Gradient / Mixed)
+/// at its tail. `PROTO_VERSION` 209 → 210, `VERSION_BYTE` 0x1D → 0x1E. A
+/// downstream (fork) change.
+pub const PROTO_VERSION: u16 = 210;
+const VERSION_BYTE: u8 = 0x1E;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ProtoError {

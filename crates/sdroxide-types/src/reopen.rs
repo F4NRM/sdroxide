@@ -35,11 +35,7 @@ fn is_frequency(hz: f64) -> bool {
 ///
 /// The one-hertz tolerance is a rounding difference, not a difference: an
 /// open at 145.0000004 MHz after a refusal at 145.0 MHz is the same request.
-pub fn fallback_open_hz(
-    asked_hz: f64,
-    refused_hz: Option<f64>,
-    last_good_hz: f64,
-) -> Option<f64> {
+pub fn fallback_open_hz(asked_hz: f64, refused_hz: Option<f64>, last_good_hz: f64) -> Option<f64> {
     let refused_it = refused_hz.is_some_and(|r| is_frequency(r) && (r - asked_hz).abs() <= 1.0);
     if !refused_it {
         return None;
@@ -80,10 +76,7 @@ mod tests {
 
     #[test]
     fn a_refused_centre_falls_back_to_a_frequency_that_tuned() {
-        assert_eq!(
-            fallback_open_hz(IMPOSSIBLE, Some(IMPOSSIBLE), QO100),
-            Some(QO100)
-        );
+        assert_eq!(fallback_open_hz(IMPOSSIBLE, Some(IMPOSSIBLE), QO100), Some(QO100));
     }
 
     #[test]
@@ -117,10 +110,7 @@ mod tests {
         // same request to within a rounding difference, so the fallback still
         // applies — otherwise a refracted dial would read as "nobody refused
         // this one" and the open would be attempted a second time unchanged.
-        assert_eq!(
-            fallback_open_hz(QO100 + 0.4, Some(QO100), IMPOSSIBLE),
-            Some(IMPOSSIBLE)
-        );
+        assert_eq!(fallback_open_hz(QO100 + 0.4, Some(QO100), IMPOSSIBLE), Some(IMPOSSIBLE));
         // …and a real difference is not the same request.
         assert_eq!(fallback_open_hz(QO100, Some(QO100 + 400.0), IMPOSSIBLE), None);
     }
