@@ -658,9 +658,6 @@ impl SdroxideApp {
                         crate::download::save(&name, kml.as_bytes());
                     }
                 }
-                if let Some(note) = self.kml_note.as_deref() {
-                    ui.label(RichText::new(note).size(10.0).color(crate::theme::CYAN_DIM()));
-                }
                 if crate::chrome::chip(ui, false, "⚙ SETUP")
                     .on_hover_text("Feeds, lookup & upload settings")
                     .clicked()
@@ -669,6 +666,27 @@ impl SdroxideApp {
                 }
             });
         });
+        // **The KML result is a line of its own, not a member of the chip row.**
+        //
+        // It was drawn inside the row's right-to-left layout beside the two
+        // buttons, which is where it shoved **⚙ SETUP** out of the window: a
+        // right-to-left row places each widget from the right edge, so a label
+        // of any width pushes the one after it off the left. And because the
+        // label does not wrap, it also laid out past the window's clip — which
+        // is why the text appeared to drop *behind* everything rather than
+        // simply being cut off.
+        if let Some(note) = self.kml_note.clone() {
+            // A **ribbon**, per the operator: a yellow bar of its own with a ✕.
+            // It was a small cyan line among the buttons, and being among them
+            // was the whole of the fault — it pushed ⚙ SETUP sideways and
+            // painted over the chips rather than being cut off, which read as a
+            // rendering fault rather than as a message. A bar has its own line,
+            // so it cannot reach the row above it, and it is dismissed for this
+            // session rather than for ever: the next export says something new.
+            if crate::chrome::ribbon(ui, &note, crate::theme::YELLOW()) {
+                self.kml_note = None;
+            }
+        }
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 5.0;
             ui.label(RichText::new("⌕").color(crate::theme::CYAN_DIM()).size(14.0));
@@ -878,3 +896,17 @@ mod broadcast_dedupe_tests {
         assert_eq!(kept.len(), 3, "a callsign reported three times is three reports");
     }
 }
+
+// No regression test here, and that is a finding rather than an omission.
+//
+// The fault was real and the operator saw it twice — docked and in its own
+// window — but it is **not visible as ink outside the window**: egui clips the
+// chip row, so what actually happens is the note painting *over* the chips and
+// shoving them sideways *inside* the clip. Three versions of a test were written
+// against that, measuring ink coordinates and then the chip row's layout, and
+// all three passed on the broken code. A test that passes before and after a fix
+// is testing nothing, so none of them was kept.
+//
+// The change itself is the one that cannot fail this way: the note is drawn by
+// `chrome::ribbon`, which is a full-width bar on its own line, so there is no
+// longer anything for it to be laid out beside.

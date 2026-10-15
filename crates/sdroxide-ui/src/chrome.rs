@@ -84,6 +84,41 @@ pub fn advisory(
     dismiss
 }
 
+/// A full-width bar saying something the operator should not miss, with a ✕.
+///
+/// **Not [`advisory`]**, which is for advice that stays true until acted on and
+/// is then hidden for good. A bar here is for **state**: the result of
+/// something just done — a file written, some rows dropped — which is true for
+/// this moment and is answered by reading it and closing it. Hiding one of those
+/// for good would hide the *next* one too, which is the opposite of what was
+/// asked for.
+///
+/// Full width and filled, because the failure this was built for was a note drawn
+/// among a row of buttons: it pushed them sideways and painted over them, so it
+/// read as a rendering fault rather than as a message. A bar has its own line
+/// and cannot reach the row above it.
+pub fn ribbon(ui: &mut egui::Ui, text: &str, colour: Color32) -> bool {
+    let fill = colour.gamma_multiply(0.14);
+    let mut dismissed = false;
+    egui::Frame::new()
+        .fill(fill)
+        .stroke(egui::Stroke::new(1.0, colour))
+        .corner_radius(3)
+        .inner_margin(egui::Margin::symmetric(8, 5))
+        .show(ui, |ui| {
+            ui.horizontal_wrapped(|ui| {
+                ui.add(
+                    egui::Label::new(egui::RichText::new(text).color(colour).size(11.0)).wrap(),
+                );
+                dismissed = ui
+                    .small_button("✕")
+                    .on_hover_text("Close this message. Nothing else changes.")
+                    .clicked();
+            });
+        });
+    dismissed
+}
+
 pub fn angled_frame<R>(ui: &mut Ui, accent: Color32, add: impl FnOnce(&mut Ui) -> R) -> R {
     // A Frame measures its content with UNBOUNDED width to auto-size, and
     // `horizontal_wrapped` inside that pass never wraps (nothing to wrap
