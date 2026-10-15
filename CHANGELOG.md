@@ -28,6 +28,7 @@ and the [README](https://github.com/madmedicnl/sdroxide-brown#readme).
 - **A description on a settings page no longer paints itself over the Apply button** — 53 of them wrapped to two lines while reserving one.
 - **The SPOTS window's KML result no longer shoves the ⚙ SETUP button aside** — it is a yellow bar of its own with a ✕, instead of a line of text among the chips.
 - **The ATS Mini's "Apply / reconnect" reopens the radio again** — it had been wired to the sound-card rescan, so it re-asked for the device list and reopened nothing.
+- **DAB's volume follows the knob** — it was applied straight rather than on the ear's curve every other receiver uses, so 5 % sounded like 80 %.
 - **The link button opens the radio where it last tuned** — a start frequency the tuner cannot reach no longer has to be corrected by hand on every start, and a station already stuck on one now opens on one of its own channels (#72).
 - **The fill under the spectrum line no longer shows as vertical stripes** — it is shaded by height, with a choice of Fixed, Gradient or Mixed in Settings → UI and the SPEC popup's line row.
 
