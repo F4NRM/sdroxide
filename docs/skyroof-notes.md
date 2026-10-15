@@ -49,8 +49,31 @@ We already do a lot of it — checked before treating any of this as new work:
   prevent. Only downlinks: an uplink is on another band entirely. The operator's
   own frequency table wins over the built-in one, as the SAT window does.
 - **Satellite telemetry decoders** (FSK/AFSK/GFSK/GMSK/BPSK) with SatNOGS
-  submission — fits our "decoding" identity; a new wideband/audio lane like the
-  existing ones.
+  submission — **being worked, AFSK first** (the operator's call: submission
+  first would have nothing to submit). What is already established, measured
+  rather than assumed:
+
+  - **BPSK is ours** — `sdroxide-qo100` decodes the QO-100 BPSK-400 beacon and
+    the AO-40 uncoded frames off raw IQ. This note was stale on that half.
+  - **SatNOGS submission does not exist.** The only "SatNOGS" in the tree is a
+    comment about EasyComm rotator protocols.
+  - **Both halves of the AFSK path are already written.** `sdroxide-dsp::afsk`
+    is the Bell 202 demodulator (1200/2200 Hz at 1200 baud for VHF, 1600/1800 at
+    300 for HF) and `sdroxide-ax25::hdlc` is the bit level — flags, zero-bit
+    stuffing, NRZI and the FCS. ISS telemetry is AX.25-framed, so the bit layer
+    is not work.
+  - **The first mission is the ISS**, 145.827 MHz FM, 1200 baud **AFSK-ASCII**,
+    in the AMSAT **AOS**-style format of 16-byte fields that ISS and a good
+    number of cubesats share. Funcube-1 (AO-73) is the counter-example worth
+    noting: its telemetry is **BPSK** at 145.950 MHz, so it belongs with the
+    QO-100 work rather than here.
+  - **"AOS" means two different things** and the name must not be used without
+    saying which: the amateur telemetry format above, and **CCSDS AOS Space Data
+    Link Protocol** (732.0-B-4), an unrelated high-rate spacecraft protocol. A
+    module called `aos` would be ambiguous to the next reader.
+  - **Not started, deliberately:** the per-mission field layouts. Those are
+    published per mission and change, so they want writing out from a published
+    table with real frames to test against — not from memory.
 - Further ideas (not scoped): **SSDV** image rebuild across passes, **Codec2**
   voice playback, the **FT4 transponder console**, a **pass scheduler**, and
   **I/Q output over UDP** (which is our **#594**).
