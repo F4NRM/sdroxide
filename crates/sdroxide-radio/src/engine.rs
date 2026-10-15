@@ -10037,6 +10037,11 @@ impl Engine {
                 // `sync_dab`, driven below like the other wideband lanes.
                 self.state.dab = cfg;
                 self.dab_cfg = self.state.dab.clone();
+                // A station picked, or a channel, while the radio is off the
+                // channel: bring it back, or the pick is silence.
+                if self.state.rx[0].mode == Mode::Dab {
+                    self.dab_dial_to_channel();
+                }
                 // Written through, so what a scan found outlives the session.
                 if let Err(e) = self.store.save_dab_config(&self.dab_cfg) {
                     warn!("saving DAB config: {e}");
@@ -12445,6 +12450,39 @@ impl Engine {
         sdroxide_types::DAB_BAND_III.iter().find(|(n, _)| n.eq_ignore_ascii_case(want)).map(|c| c.1)
     }
 
+    /// Put the dial on the DAB channel in force, if it is not already there.
+    ///
+    /// With no channel chosen, the first one a scan found is taken, else the
+    /// channel of the first starred station. A dial already within a
+    /// kilohertz of the channel is left where it is.
+    fn dab_dial_to_channel(&mut self) {
+        if self.dab_channel_hz().is_none() {
+            let first = self
+                .dab_cfg
+                .found
+                .first()
+                .or_else(|| self.dab_cfg.presets.first().map(|p| &p.channel))
+                .cloned();
+            let Some(channel) = first else { return };
+            self.dab_cfg.channel = channel.clone();
+            self.state.dab.channel = channel;
+        }
+        let Some(hz) = self.dab_channel_hz() else { return };
+        if (self.state.active_freq_hz() - hz).abs() < 1_000.0 || !self.caps.may_rx_hz(hz) {
+            return;
+        }
+        info!(from = self.state.active_freq_hz(), to = hz, "DAB: back on the channel");
+        match self.state.active_vfo {
+            Vfo::A => self.state.vfo_a_hz = hz,
+            Vfo::B => self.state.vfo_b_hz = hz,
+        }
+        self.state.band = Band::containing(hz);
+        self.follow_dial();
+        // See the APRS block in `set_rx_mode` for why `follow_dial` is not enough.
+        self.update_tuning();
+        self.sync_dab_window();
+    }
+
     /// The DAB lane wants the ensemble at the decoder's 2.048 Msps where the
     /// front end can, so no resampling is needed; below that the lane still
     /// works but the crate resamples, so the target is what the device offers.
@@ -14588,6 +14626,14 @@ impl Engine {
             self.follow_dial();
             // See the APRS block above for why `follow_dial` is not enough.
             self.update_tuning();
+        }
+        // DAB is a channel the receiver has to be on, like the four above: the
+        // decoder's window sits at the channel *relative to where the radio is
+        // tuned*, so coming back to DAB from 6 m left it listening 150 MHz from
+        // the ensemble — no sound, and a station picked did not help. Choosing
+        // the mode brings the dial back to the channel in force.
+        if rx == RxId::Main && mode == Mode::Dab && self.state.rx[0].mode != Mode::Dab {
+            self.dab_dial_to_channel();
         }
         // Changing modes under a running keyer message would leave it playing
         // into a transmit chain that has just been rebuilt (or into a digital
