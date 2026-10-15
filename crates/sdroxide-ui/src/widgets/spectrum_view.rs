@@ -486,9 +486,9 @@ pub struct WfTuning {
     /// Optional vertical gradient `(top, bottom)` filling the spectrum area,
     /// `None` when disabled in the UI settings.
     pub gradient: Option<(Color32, Color32)>,
-    /// The colour under the live trace — full at the bottom, fading out at
-    /// the line — or `None` when the fill is off.
-    pub fill: Option<[u8; 3]>,
+    /// The colour under the live trace and how it is shaded, or `None` when
+    /// the fill is off.
+    pub fill: Option<([u8; 3], sdroxide_types::SpectrumFillStyle)>,
     /// Which radio's GPU waterfall history this panadapter scrolls. Radios are
     /// keyed apart so two tabs never write into each other's texture.
     pub wf_id: u64,
@@ -2325,11 +2325,13 @@ pub fn show_ext(
             let pts = trace.live.points_for(key, || {
                 compute_trace(view, f, Some(&smooth.bins), &spec_rect, wf.row_scale)
             });
-            if let Some(rgb) = wf.fill {
+            if let Some((rgb, style)) = wf.fill {
                 painter.add(Shape::mesh(crate::spectrum_fill::fill_mesh(
                     &pts,
+                    spec_rect.top(),
                     spec_rect.bottom(),
                     rgb,
+                    style,
                 )));
             }
             if view.peak_hold {

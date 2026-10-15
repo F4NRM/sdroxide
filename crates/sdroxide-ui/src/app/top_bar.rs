@@ -26,7 +26,7 @@ use sdroxide_types::{
     AgcMode, BURST_MS_RANGE, Band, Command, CwEngine, DCS_CODES, DIV_FREEZE_ELEMENT,
     DIV_MODE_ELEMENT, DIV_RATE_ELEMENT, DIV_RESET_ELEMENT, DeviceCaps, Direction, DiversityMode,
     GainElement, GainUnit, MAX_OFFSET_HZ, Mode, NrEngine, NrLevel, NrStrength, RadioState, RxId,
-    Shift, SkimmerKind, SpectrumDetail, Speed, SubTone, ToneMode, Vfo,
+    Shift, SkimmerKind, SpectrumDetail, SpectrumFillStyle, Speed, SubTone, ToneMode, Vfo,
 };
 
 use crate::widgets::{freq_display, smeter};
@@ -5812,6 +5812,7 @@ impl SdroxideApp {
                  rows get every frame either way.",
             );
             self.detail_row(ui, &mut cfg);
+            fill_style_row(ui, &mut cfg);
         });
         crate::chrome::menu_group(ui, "Waterfall", w, |ui| {
             let on = self.view.waterfall_visible();
@@ -7566,6 +7567,44 @@ fn speed_row(ui: &mut egui::Ui, caption: &str, value: &mut Speed, steps: &[Speed
         for step in steps {
             if crate::chrome::chip(ui, value == step, step.label().to_uppercase()).clicked() {
                 *value = *step;
+            }
+        }
+    });
+}
+
+/// The SPEC popup's **line** row: how the colour under the spectrum line is
+/// shaded. Greyed while FILL is off, as the 3D rows are while 3D is: the
+/// choice is still real — it is what FILL will show — and a row that came and
+/// went would resize the popup under the pointer.
+fn fill_style_row(ui: &mut egui::Ui, cfg: &mut sdroxide_types::UiSettings) {
+    ui.horizontal_wrapped(|ui| {
+        ui.label(RichText::new("line").size(10.0).color(crate::theme::CYAN_DIM())).on_hover_text(
+            "How the colour under the spectrum line is shaded. The colour itself is \
+             chosen in Settings → UI → Spectrum line.",
+        );
+        for (style, label, hint) in [
+            (SpectrumFillStyle::Fixed, "FIXED", "One colour, the same everywhere under the line"),
+            (
+                SpectrumFillStyle::Gradient,
+                "GRADIENT",
+                "Full at the bottom of the spectrum, fading out towards the top",
+            ),
+            (
+                SpectrumFillStyle::Mixed,
+                "MIXED",
+                "Full in the lower half, fading out across the upper half",
+            ),
+        ] {
+            let r = crate::chrome::chip_enabled(
+                ui,
+                cfg.spectrum_fill,
+                cfg.spectrum_fill_style == style,
+                label,
+            );
+            if !cfg.spectrum_fill {
+                r.on_disabled_hover_text("Switch FILL on to set this");
+            } else if r.on_hover_text(hint).clicked() {
+                cfg.spectrum_fill_style = style;
             }
         }
     });

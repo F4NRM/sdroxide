@@ -4,7 +4,7 @@
 //! The fill goes through the *real* `spectrum_fill::fill_mesh`, rasterised
 //! here triangle by triangle with its own vertex colours, over the panadapter's
 //! default background gradient and under the cyan line. Panels, top to bottom:
-//! no fill, the fill in its default cyan, the fill in green.
+//! no fill, then the default cyan fill **Fixed**, **Gradient** and **Mixed**.
 //!
 //! ```sh
 //! cargo run -p sdroxide-ui --release --example spectrum_fill_probe
@@ -17,14 +17,14 @@
 use eframe::egui::epaint::Mesh;
 use eframe::egui::{Color32, Pos2};
 use image::{Rgb, RgbImage};
+use sdroxide_types::SpectrumFillStyle;
 use sdroxide_ui::spectrum_fill::fill_mesh;
 
 const W: u32 = 1000;
-const H: u32 = 200;
+const H: u32 = 240;
 const GAP: u32 = 12;
 const LINE: [f32; 3] = [120.0, 220.0, 255.0];
 const CYAN: [u8; 3] = [120, 220, 255];
-const GREEN: [u8; 3] = [40, 220, 60];
 
 fn hash(a: u32) -> f32 {
     let mut h = a.wrapping_mul(0x9E37_79B9);
@@ -50,7 +50,9 @@ fn trace() -> Vec<Pos2> {
     (0..W)
         .map(|x| {
             let f = x as f32 / W as f32;
-            let mut v = 0.18 + 0.05 * hash(x) + 0.03 * hash(x * 7 + 3);
+            // A ragged floor, as a real band has: the edge the first fill
+            // turned into stripes.
+            let mut v = 0.12 + 0.07 * hash(x) + 0.04 * hash(x * 7 + 3);
             for (c, w, a) in peaks {
                 let d = (f - c) / w;
                 v += a * (-0.5 * d * d).exp() * (0.8 + 0.2 * hash(x * 13));
@@ -140,13 +142,18 @@ fn draw_line(img: &mut RgbImage, y0: u32, pts: &[Pos2]) {
 
 fn main() {
     let pts = trace();
-    let panels: [Option<[u8; 3]>; 3] = [None, Some(CYAN), Some(GREEN)];
+    let panels: [Option<SpectrumFillStyle>; 4] = [
+        None,
+        Some(SpectrumFillStyle::Fixed),
+        Some(SpectrumFillStyle::Gradient),
+        Some(SpectrumFillStyle::Mixed),
+    ];
     let mut img = RgbImage::from_pixel(W, panels.len() as u32 * (H + GAP), Rgb([40, 40, 40]));
     for (i, panel) in panels.iter().enumerate() {
         let y0 = i as u32 * (H + GAP);
         background(&mut img, y0);
-        if let Some(rgb) = panel {
-            draw_mesh(&mut img, y0, &fill_mesh(&pts, H as f32, *rgb));
+        if let Some(style) = panel {
+            draw_mesh(&mut img, y0, &fill_mesh(&pts, 0.0, H as f32, CYAN, *style));
         }
         draw_line(&mut img, y0, &pts);
     }

@@ -80,6 +80,33 @@ pub enum SpectrumDetail {
     Ultra,
 }
 
+/// How the colour under the spectrum line is shaded, measured on the height of
+/// the spectrum area rather than on each column — so the noise floor's ragged
+/// edge does not turn into stripes.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SpectrumFillStyle {
+    /// One colour, the same strength everywhere under the line.
+    Fixed,
+    /// Full at the bottom of the spectrum area, fading out towards the top.
+    #[default]
+    Gradient,
+    /// Full in the lower half, fading out across the upper half.
+    Mixed,
+}
+
+impl SpectrumFillStyle {
+    pub const ALL: [SpectrumFillStyle; 3] =
+        [SpectrumFillStyle::Fixed, SpectrumFillStyle::Gradient, SpectrumFillStyle::Mixed];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            SpectrumFillStyle::Fixed => "Fixed",
+            SpectrumFillStyle::Gradient => "Gradient",
+            SpectrumFillStyle::Mixed => "Mixed",
+        }
+    }
+}
+
 impl SpectrumDetail {
     pub const ALL: [SpectrumDetail; 4] = [
         SpectrumDetail::Auto,
@@ -805,6 +832,9 @@ pub struct UiSettings {
     /// The colour under the trace (sRGB, 0–255). The line keeps its own cyan.
     #[serde(default = "default_spectrum_fill_color")]
     pub spectrum_fill_color: [u8; 3],
+    /// How the fill is shaded — fixed, fading, or half of each.
+    #[serde(default)]
+    pub spectrum_fill_style: SpectrumFillStyle,
     /// The tint each spot kind wears — on the panadapter labels, in the SPOTS
     /// list and on the world map — indexed by [`SpotKind::index`]. Starts at
     /// [`SpotKind::default_color`]; the UI tab retints any of them.
@@ -1230,6 +1260,7 @@ impl Default for UiSettings {
             gradient_bottom: [0, 0, 0], // black
             spectrum_fill: false,
             spectrum_fill_color: default_spectrum_fill_color(),
+            spectrum_fill_style: SpectrumFillStyle::Gradient,
             spot_colors: default_spot_colors(),
             bandplan_colors: default_bandplan_colors(),
             layout: LayoutMode::Auto,
@@ -1551,6 +1582,9 @@ pub struct ClientScreen {
     /// rides the wire positionally.
     pub spectrum_fill: bool,
     pub spectrum_fill_color: [u8; 3],
+    /// How the fill is shaded — [`UiSettings::spectrum_fill_style`].
+    /// Appended last: this struct rides the wire positionally.
+    pub spectrum_fill_style: SpectrumFillStyle,
 }
 
 impl Default for ClientScreen {
@@ -1595,6 +1629,7 @@ impl ClientScreen {
             keep_screen_on: s.keep_screen_on,
             spectrum_fill: s.spectrum_fill,
             spectrum_fill_color: s.spectrum_fill_color,
+            spectrum_fill_style: s.spectrum_fill_style,
         }
     }
 
@@ -1630,6 +1665,7 @@ impl ClientScreen {
         s.keep_screen_on = self.keep_screen_on;
         s.spectrum_fill = self.spectrum_fill;
         s.spectrum_fill_color = self.spectrum_fill_color;
+        s.spectrum_fill_style = self.spectrum_fill_style;
     }
 }
 
@@ -1725,10 +1761,16 @@ mod client_screen_tests {
         let old: ClientScreen = serde_json::from_str(r#"{"simple_ui":true}"#).expect("old profile");
         assert!(!old.spectrum_fill, "a profile from before the field has no fill");
         assert_eq!(old.spectrum_fill_color, [120, 220, 255]);
+        assert_eq!(
+            old.spectrum_fill_style,
+            SpectrumFillStyle::Gradient,
+            "the style starts as the gradient"
+        );
 
         let mut mine = UiSettings::default();
         mine.spectrum_fill = true;
         mine.spectrum_fill_color = [40, 220, 60];
+        mine.spectrum_fill_style = SpectrumFillStyle::Mixed;
         let carried = ClientScreen::from_settings(&mine);
         let back: ClientScreen =
             postcard::from_bytes(&postcard::to_allocvec(&carried).unwrap()).unwrap();
@@ -1736,6 +1778,7 @@ mod client_screen_tests {
         back.apply_to(&mut other);
         assert!(other.spectrum_fill, "the fill stayed behind");
         assert_eq!(other.spectrum_fill_color, [40, 220, 60], "the colour stayed behind");
+        assert_eq!(other.spectrum_fill_style, SpectrumFillStyle::Mixed, "the style stayed behind");
     }
 
     /// Applying a served screen leaves every machine-specific field alone.
