@@ -145,6 +145,43 @@ Station Models" · tutiempo.net Ejemplos de Synops · soop-wiki.awi.de FM13.
 The authoritative reference is **WMO-No. 306, Manual on Codes**; DARC's DG5CW
 page also points at a two-page **VOS Ship Code Card** kept by the radio.
 
+## The real blocker, found by running it (2026-10-15)
+
+The rebuild compiles and runs against all four real messages. **Here is its
+actual output on HKO's report**, which is the finding worth keeping:
+
+```
+YYGGiw      23013    day 23 at 01:00 UTC, wind in knots     ✓
+99LaLaLa    99219    21.9° N                              ✓
+QcLoLoLoLo  11148    114.8° E                             ✓
+4PPPP       41692    169.2 hPa          ← WRONG: this is iRixhVV
+8NhCLCMCH   80506    lowest clear sky  ← WRONG: this is Nddff
+QcLoLoLoLo  10190    19.0° E            ← WRONG: this is 1snTTT
+Nddff       20188    wind 10° at 88     ← WRONG: this is 2snTdTdTd
+4PPPP       40198    1019.8 hPa         ✓
+QcLoLoLoLo  51018    101.8° E           ← WRONG: this is 5appp
+QcLoLoLoLo  74554    -455.4° W          ← WRONG: this is 7wwW1W2
+```
+
+**The cause: five-digit groups cannot be told apart by length.** `iRixhVV`
+(`41692`) is **five** characters — `i`, `ix`, `h`, `VV` — not six or seven as
+the specification's spaced form `iRiXhVV` suggests. So `41692`, `41494`,
+`80506`, `10190`, `40100` and `51018` are *all* five digits and are told apart
+**only by their position in the sequence**.
+
+Which means the dispatcher I wrote — "by length and leading digits", the thing
+I was so pleased to have got right after the loose-guard bug — **cannot work**.
+The groups are in a fixed order and several are optional, so this has to be a
+**small state machine that walks the message**, where each position knows what
+may come next. That is a different piece of work from a table lookup, and it is
+the real cost of this feature.
+
+The good news is that it is bounded and now well understood: four real
+messages, a known group order, and eight optional groups. The bad news is that
+nothing before that state machine is worth shipping, including to a field
+tester — a decoder that reports `169.2 hPa` for a wind group is worse than no
+decoder, because it looks like an answer.
+
 ## Why it stopped here
 
 **The test fixture was invented.** `BBXX GBRY 151204 99545 100023 …` was written
