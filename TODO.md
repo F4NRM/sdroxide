@@ -6,6 +6,57 @@ to everyone on the repo. Last updated **2026-10-15**.
 Upstream issues are the *maintainer's* queue; the items below marked `#NNN` are
 upstream feature requests **this fork** may pick up, not a promise to upstream.
 
+## Now — pick one
+
+1. **SYNOP feedback (#88).** BETA, built, tested against four real messages.
+   **Nobody has decoded one off the air.** When Kevin reports: either the BETA
+   marks come off or the decoder gets fixed. This is the only item here that is
+   blocked on someone else and still worth waiting for.
+2. **The ⇱ chip paints over the window above it.** From the operator's
+   screenshots of 13 Oct. Seven sites draw one; find which, then pin it with a
+   test that two overlapping tool windows leave nothing of the lower one visible
+   outside its own rect. **Do not fix this from the screenshot** — three wrong
+   causes from one picture is the house rule earning itself.
+3. **#537, the false OPEN alerts.** Answered, unmeasured. The two spot feeds
+   share one per-path baseline and that is the likely cause.
+4. **The tool window's ⇱/⇲ and undocked mode (#257).** The SDRuno window set —
+   the largest thing here, and in progress.
+5. **UDP audio out (#594)** — built, socket-tested, **never listened to**. Stream
+   it to `aplay` and confirm it is audio and not a crackle.
+
+### Waiting on someone, and nothing to do about it
+
+- **S-meter jumps with the mouse** (#69) — the question is asked on the thread:
+  does the *number* jump, or only the needle? bebepip has not answered.
+- **Grey-line gradient** — built, verified only on a path entirely in night.
+  Needs one run over a **partly daylit** path, which is the case the feature
+  exists for.
+
+### Housekeeping, still open
+
+- **`docs/USER_MANUAL.md` has no SYNOP/SHIP section.** The feature ships BETA
+  before it is documented, deliberately — but it is owed, and the RTTY
+  frequencies and the schedule belong there.
+- **A quick-start card** for listening to weather on HF, as the other
+  quick-starts have. Four languages, like the rest.
+- **`docs/synop-notes.md`** should keep being updated rather than being written
+  once and left; the two wrong "fixes" it records are the kind of thing a third
+  reader would otherwise repeat.
+
+## Done 2026-10-15
+
+- **SYNOP/SHIP weather reports** — see *Now / next session*; **BETA**, #88 open.
+- **Bluetooth microphone** — solved, in tonight's nightly.
+- **Upstream takes** — the window title (#664), PSTRotator (#638); FT8 #667 was
+  **already ours** and was skipped rather than forced.
+- **`sdrbrown.info`** — the site is up and waiting on GitHub's certificate.
+- **Issue template** — now a form, with the version **required**. We had one
+  already and it failed three ways: last in the list, optional, and its example
+  said `v1.6.0` — *upstream's* scheme.
+- **S-meter calibration dropdown removed** — it was built on a reading from the
+  wrong build. Upstream has its own (#642), so ours was redundant as well as
+  wrong-premised.
+
 ## Done 2026-10-14
 
 - **Search by frequency in SCHEDULE** (`2afdfce8`) — bebepip's ask on #69. `6185`,
@@ -48,8 +99,10 @@ upstream feature requests **this fork** may pick up, not a promise to upstream.
 - **Still open upstream, lower value, not taken:** `4fdcce19` AIS LO offset,
   `065249bf` HFDL USB-not-FM (we carry both lanes), `763a961f` globe ring height +
   map non-finite recovery, `edfb0343` tab-strip wrap (we chose scroll).
-- **CHANGELOG 2.0.10 entry is still long** — 3 scripted compression attempts, each
-  reverted by its own guard. A hand edit, and it needs a fresh session.
+- ~~**CHANGELOG 2.0.10 entry is still long**~~ — **FIXED.** Hand-edited to 45
+  lines; 2.0.11 is 31 and 2.0.12 is 33. The guard is now a **hard fail in
+  `release.yml` at 60 lines**, because the short-notes rule had been written
+  down, read, and broken three times and only a check stops that.
 
 ## Now / next session
 
@@ -77,9 +130,19 @@ upstream feature requests **this fork** may pick up, not a promise to upstream.
   **BUILT** (`04032baf`): an **all satellites** checkbox, off by default, sharing
   one `satellite_is_workable` test with the PASSES tab so the two cannot drift.
 
-- **Check our open upstream PRs for maintainer replies** — answer only where he
-  asked something. Current: **#648** (eQSL QTH nickname), **#660** (UTC + local
-  clock), **#661** (output-audio routing), **#663** (HFDL custom frequency chips).
+- ~~**Check our open upstream PRs for maintainer replies**~~ — **DONE 2026-10-15.**
+  **All four merged upstream: #648, #660, #661, #663** (plus #557). Our queue
+  upstream is empty. Still open there, none awaiting us: #626, #597, #554, #545,
+  #537, #598, #559.
+  - **#537 answered 2026-10-15** — the maintainer reports the warm-up fix is
+    only called from tests and that false OPEN alerts remain when returning to a
+    band or when DX-cluster spots mix with PSK Reporter. Replied honestly: the
+    clock *is* started in `ingest`, but the **two feeds share one tracker and one
+    per-path baseline**, and a DX-cluster-only path starts its baseline at the
+    moment the spot lands — so the mixing is the likely cause, not a missed call.
+    **Unmeasured, and the reply says so.** Open question: does the false OPEN
+    only ever involve a cluster-only path, and does it survive leaving the band
+    and returning? Two questions asked, no code changed on a guess.
 - **#257 — undocked mode / separate windows on a second monitor.** In progress;
   the SDRuno window set. See `SDRUNO-UI-HANDOVER.md` and `UNDOCKED-HANDOVER.md`.
   - **A tool window's ⇱/⇲ chip is drawn after its window is covered.** From the

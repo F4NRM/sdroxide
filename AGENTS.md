@@ -2316,15 +2316,14 @@ failing DLL name or a Windows/Radeon repro).
 4. New upstream issues: look only at ones we have not seen, or ones we already
    have a PR connected to. Skip the rest without comment.
 
-**Fork Discussions, re-counted 2026-10-06 — there are thirteen, not three.**
+**Fork Discussions — re-counted 2026-10-15: twenty-four threads, and the forum
+already exists.**
 
-**The fork's ISSUES are open too, and this note was wrong until 2026-10-12.**
-It used to say *"Issues are disabled on the fork, so a discussion is the only
-place a user can be answered."* That was false, and it cost an afternoon: an
-agent read it, told the operator there was no support queue to check, and
-answered nobody — when there were five unanswered issues. Verified
-2026-10-12 with `gh repo view madmedicnl/sdroxide-brown --json
-hasIssuesEnabled` → **`true`**.
+**The fork's ISSUES are open too, and an earlier note here said they were not.**
+It said *"Issues are disabled on the fork"*, which cost an afternoon: an agent
+read it, told the operator there was no support queue, and answered nobody.
+Verified with `gh repo view … --json hasIssuesEnabled` → **`true`**. Re-check it
+rather than trusting any number written here.
 
 **Check both, every session.** Issues are where reports arrive — a user opens
 one without thinking about which tab. Discussions are where the longer threads
@@ -2421,6 +2420,111 @@ carries the fix. Telling a user his report is fixed when he is running the
 release *before* the fix teaches him that our "fixed" is worth nothing — and he
 has already had to say "persistant" twice. **Ask which build he is on before
 answering, and name the tag that carries the change.**
+
+
+## Session 2026-10-15: the site, Bluetooth audio, and a BETA weather decoder
+
+Four things, and the two that change how work is done come first.
+
+### Two programs, one executable name — and the site is the fix
+
+The fork's repository homepage was set to **upstream's releases**. Anyone
+arriving at `sdroxide-brown` was handed a link to somebody else's downloads,
+which is a large part of why people mix the builds up. It now points at
+**`sdrbrown.info`**.
+
+- The site is **GitHub Pages from `/docs`** (`docs/index.html`, `docs/style.css`,
+  `docs/CNAME`), because the Pages API accepts only `/` or `/docs`. A bonus: the
+  manual is now browsable on the site.
+- **The page's one job is identity**, which is why it is short where upstream's
+  is enormous: what Brown is, `sdroxide --version` and what `_brown` means, the
+  differences, the download, and the Discussions link.
+- **The forum already existed** — Discussions, 24 threads — and was simply
+  invisible. No third-party service was needed; nothing pointed a newcomer at it.
+- DNS is four A records at GitHub plus a `www` CNAME, and the wildcard `*.`
+  record that shipped with the domain **had to go**: it catches every name under
+  the domain and silently keeps serving the registrar's parking page.
+- `hasIssuesEnabled` is **true** and so are Discussions. An earlier note here
+  said issues were disabled and it cost a session.
+
+### Bluetooth audio: cpal cannot open a PipeWire node, and that is not the bug
+
+The Midland wireless mic, asked for and delivered.
+
+- **Pairing attaches no audio profile.** `bluetoothctl devices Connected` showed
+  the mic and there was still no node until `bluetoothctl connect <mac>`. This
+  cost a run and would cost an operator the same.
+- **ALSA cannot see a PipeWire graph.** It exposes a `pipewire` and a `pulse`
+  PCM and nothing behind it, so `bluez_input.…` was never listed however long
+  anyone looked. `crates/sdroxide-audio/src/graph.rs` lists the sound server's
+  own nodes by name and **only those ALSA cannot already show**, so a sound card
+  is never offered twice under two names.
+- **Opening a node by name does not work, and that inverts the obvious design.**
+  `pulse:bluez_input.…` is accepted by ALSA — verified, it captured the Midland
+  — but **cpal can only open what the host enumerated or the host's default**,
+  and **PipeWire has no per-application capture source** (playback has a
+  per-stream target, capture does not). So picking a node runs `wpctl
+  set-default`, which takes over the machine's capture, and **the warning says so
+  in the settings row** rather than only in the log.
+- **The warning's predicate was wrong the first time.** It asked
+  `is_graph_node_name`, which matches `alsa_input.` — and the ordinary analog
+  card is called `alsa_input.pci-0000_06_00.6.analog-stereo`, so every sound
+  card warned that it takes over the machine's recording. A confident false
+  warning is worse than none. The condition is **membership of the extra list**,
+  which is what the engine actually does, so the two cannot drift.
+- `wpctl get-default` **does not exist** in the version here; it prints its help,
+  so the undo line came out empty every time. `pactl get-default-source` answers.
+
+### Reading a published table, and the three wrong "fixes"
+
+The SYNOP/SHIP work, and this is the part worth carrying.
+
+- Real example messages exist **online** — Hong Kong Observatory's ship code
+  sheet, CTOM Oman's worked group-by-group decoding, tutiempo.net, AWI. I told
+  the operator to go outside and make a recording, which was wrong and cost him
+  a trip he could not make.
+- **Testing against a fixture I invented is how this decoder lost two correct
+  readings.** It passed on a message I made up and was wrong in six ways.
+- **When a source disagrees with the code, check a second source before changing
+  the code.** I confidently "fixed" `iw` to two figures and `QcLoLoLoLo` to nine,
+  and **both were already right** — one source had merely spaced the
+  specification differently. Two independent examples said so.
+- **Five-digit groups are told apart only by position.** `iRixhVV` is *five*
+  characters, and a length-based dispatcher read a visibility group as a
+  barometer of 169.2 hPa. The decoder is a **walk with a cursor**, not a table.
+- **A slash is a value** — `8597/`, `43///`, `8/000` are "not reported", which is
+  neither zero nor absent.
+- **Three of my own test assertions were wrong and the code was right.** Fixed
+  the tests. A test that fails because the test is wrong is a test to fix, not
+  the code to bend.
+
+### Upstream: take commits, never the branch
+
+Upstream had 69 commits we lacked and is at `PROTO_VERSION 179` against our 210.
+**Taken by hand:** the window title (#664, both commits — and ours keeps
+`FLAVOR`, so a title that said "sdroxide" would have defeated the point of it),
+and PSTRotator (#638), integrated as a fourth arm of **our** `RotatorTransport`
+rather than upstream's parallel enum, which would have left `RotatorConfig` with
+two fields both answering "how is the antenna reached".
+
+**Skipped: FT8 streaming decodes (#667) — we already have it**, byte-identical
+apart from a path qualification, and our `apply_armed_qsy` is a superset. Taking
+it would have been an empty commit wearing their message.
+
+**#648, #660, #661, #663 all merged upstream.** Our queue there is empty.
+**#537** was answered on the 15th: the maintainer reports the warm-up fix is
+only called from tests. The clock *is* started in `ingest`, but the two spot
+feeds share one per-path baseline and a DX-cluster-only path starts its baseline
+when the spot lands — that is the likely cause, and the reply says it is
+unmeasured rather than changing the tracker on a guess.
+
+### An issue template that cannot be ignored
+
+We **had** a version field and it failed three ways: last in a list of six,
+optional (a markdown template cannot require anything), and its example said
+`v1.6.0` — **upstream's** scheme, so it taught people to answer with a version
+that does not exist here. It is now a GitHub issue **form** where
+`required: true` is real. Five fields, the rest optional.
 
 ## What this repository is
 
