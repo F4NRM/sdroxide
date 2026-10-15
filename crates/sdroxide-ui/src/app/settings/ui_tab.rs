@@ -245,15 +245,24 @@ pub(in crate::app) fn settings_ui_tab(
         ui.end_row();
 
         ui.label("Spectrum line").on_hover_text(
-            "The colour under the spectrum line: full at the bottom, fading out as it \
-             rises to the line. The line itself stays cyan. The FILL chip in the SPEC \
-             popup switches the same setting.",
+            "The colour under the spectrum line, and how it is shaded: Fixed is one \
+             colour throughout, Gradient is full at the bottom and fades out towards \
+             the top, Mixed is full in the lower half and fades across the upper half. \
+             The line itself stays cyan. The FILL chip in the SPEC popup switches the \
+             fill, and its line row picks the shading.",
         );
         ui.horizontal(|ui| {
             crate::chrome::checkbox(ui, &mut cfg.spectrum_fill, "Fill");
             ui.add_enabled_ui(cfg.spectrum_fill, |ui| {
                 ui.label("colour");
                 ui.color_edit_button_srgb(&mut cfg.spectrum_fill_color);
+                ComboBox::from_id_salt("ui-spectrum-fill-style")
+                    .selected_text(cfg.spectrum_fill_style.label())
+                    .show_styled(ui, |ui| {
+                        for s in sdroxide_types::SpectrumFillStyle::ALL {
+                            ui.selectable_value(&mut cfg.spectrum_fill_style, s, s.label());
+                        }
+                    });
             });
         });
         ui.end_row();
