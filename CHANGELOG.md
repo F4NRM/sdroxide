@@ -24,6 +24,7 @@ and the [README](https://github.com/madmedicnl/sdroxide-brown#readme).
 
 ### Fixed
 - **A DAB channel cleared with × stays cleared** — a station update arriving just after put it back, and the next save kept it. Each radio now keeps its own channel list.
+- **DAB's VU meter pumps with the music, at any volume** — it stepped a few times a second out of time with the beat, and sank with the volume knob.
 - **Only a sound-server device carries the take-over warning — a sound card does not.**
 - **Choosing a Bluetooth microphone says it takes over the machine's recording** — it is no longer something you find out afterwards.
 - **The Midland wireless microphone appears in the device list and can be picked** — a Bluetooth headset is now offered by name; picking it makes it the capture default and says what to undo.
