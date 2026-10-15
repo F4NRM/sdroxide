@@ -6156,6 +6156,13 @@ button on.
 
 ## House rules
 
+- **Release pages are checked, not requested.** `release.yml` fails a release
+  whose notes run past **60 lines**, because the short-notes rule was written down,
+  read, and broken anyway — the page carried a **185-line preamble** the workflow
+  pasted above every changelog entry, so every release was long no matter how short
+  its entry was, and the operator had to ask for the same thing week after week.
+  The preamble is a few lines now and the guard is what keeps it there. **When a
+  prose rule has been given more than twice, make it a check.**
 - **Say it short. Always — release notes, front page, and anything a user reads.**
   The operator's standing order, and it has been broken three times by an agent
   that read the rule further up this file and wrote prose anyway. So it is here,
