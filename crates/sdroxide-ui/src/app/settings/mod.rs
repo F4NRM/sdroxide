@@ -2879,11 +2879,17 @@ impl SdroxideApp {
                     });
                     ui.end_row();
 
-                    // The S-meter's calibration. Live, not on Apply: the
-                    // operator sets it against a signal they are watching, and
-                    // it only moves the reading, so there is nothing to reopen.
-                    ui.label(RichText::new("S-Meter calib").strong());
-                    ui.end_row();
+                    // **Nothing here for the S-meter calibration.** The control
+                    // was removed — it was built on a reading from the wrong
+                    // build — and it left its **label** behind, alone in a row
+                    // of a grid whose every other row has two cells. egui pads a
+                    // row to the widest, so the short row shifted everything
+                    // below it by a column and the page came apart: labels and
+                    // their controls drawn on top of each other, all the way
+                    // down. One stray label, and the whole panel.
+                    //
+                    // Removing a control means removing its row, not just its
+                    // widget.
 
                 });
                 if let sdroxide_types::RxSite::Elsewhere(g) = &*site {
@@ -3064,11 +3070,12 @@ impl SdroxideApp {
                         cmds,
                     ),
                     Backend::UsbAudio => settings_usb_audio_tab(ui),
+                    // No `apply_iface`: this panel does not draw an Apply row,
+                    // because the shared one below does it for every backend.
                     Backend::AtsMini => settings_atsmini_tab(
                         ui,
-                        io.radio_edit,
-                        io.apply_iface,
                         self.atsmini_memories.as_deref(),
+                        io.radio_edit,
                         cmds,
                     ),
                     Backend::Tci => settings_tci_tab(
@@ -3270,7 +3277,18 @@ impl SdroxideApp {
                         );
                     }
                 }
+                // **A gap before the row, and it is not decoration.** Every
+                // panel above ends with a wrapped label — the SDRplay one, the
+                // RTL-SDR one, all of them — and a wrapped label's final height
+                // is only known once its galley is laid out. Drawn straight
+                // after it, the separator and the button landed **on top of the
+                // last two lines**: a page whose bottom rows were illegible
+                // under a button that looked like it was floating in the text.
+                // The space is what stops the row being placed against a height
+                // the panel above has not finished reporting.
+                ui.add_space(10.0);
                 ui.separator();
+                ui.add_space(6.0);
                 ui.horizontal(|ui| {
                     // The same button either way: it reopens whichever radio
                     // the engine has, on the settings just edited — including a

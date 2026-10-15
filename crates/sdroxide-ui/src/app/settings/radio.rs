@@ -1078,9 +1078,8 @@ pub(in crate::app) fn settings_usb_audio_tab(ui: &mut egui::Ui) {
 /// offered — the Si4732 demodulates in hardware and there is nothing to key.
 pub(in crate::app) fn settings_atsmini_tab(
     ui: &mut egui::Ui,
-    radio_edit: &mut Option<sdroxide_types::RadioConfig>,
-    apply: &mut crate::app::settings::ApplyInterface,
     memories: Option<&[sdroxide_types::atsmini::AtsMiniMemory]>,
+    radio_edit: &mut Option<sdroxide_types::RadioConfig>,
     cmds: &mut Vec<Command>,
 ) {
     let Some(cfg) = radio_edit.as_mut() else {
@@ -1163,20 +1162,10 @@ pub(in crate::app) fn settings_atsmini_tab(
         )
         .wrap(),
     );
-    ui.horizontal(|ui| {
-        if ui
-            .button("Apply / reconnect")
-            .on_hover_text("Reopen the radio with these settings — no restart")
-            .clicked()
-        {
-            apply.request();
-        }
-        ui.add(
-            egui::Label::new(RichText::new("Reconnects the radio without restarting.").weak())
-                .wrap(),
-        );
-    });
-
+    // **No Apply row here.** `settings_device_tab`'s caller draws **one** for
+    // every backend, after the panel, so this tab was showing two identical
+    // buttons. The row belongs to the shared footer, and a panel that adds its
+    // own is a panel that adds a second one.
     ui.add_space(10.0);
     ui.separator();
     ui.add_space(6.0);
