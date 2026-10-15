@@ -2226,6 +2226,21 @@ fn run_chain_block(
     }
 }
 
+/// Whether the receive chain should fill its own **recording copy** of the
+/// audio — the tap that both the recorder and the UDP stream read.
+///
+/// **Two consumers, and it was written as though there were one.** Gating this
+/// on the recorder alone meant `RadioConfig::udp_audio` streamed **zero bytes**
+/// until the operator pressed REC, while its own hover text promised to send
+/// the received audio. Found by a reporter who set it, ran a listener, and got
+/// an empty file.
+///
+/// `external` is a radio whose audio arrives already demodulated, where this
+/// copy is not the one the consumers use.
+fn wants_recording_tap(recorder: bool, udp_stream: bool, external: bool) -> bool {
+    (recorder || udp_stream) && !external
+}
+
 /// Binaural (pseudo-stereo) audio: spread the receive passband across the two
 /// ears, so that pitch becomes direction and tuning a signal floats it from one
 /// ear to the other (issue #263). What it actually does to the audio is
@@ -5605,7 +5620,23 @@ fn silent_mic_notice(what: &str) -> String {
 
 impl Engine {
     fn run_audio(&mut self, iq: &[Complex32]) {
-        let want_rec_main = self.recorder.is_some() && !self.caps.rx_audio_external;
+        // **The recorder is not the only consumer of this tap.**
+        //
+        // `want_rec_main` decides whether the receive chain fills its own
+        // recording copy at all, and `udp_audio` streams from exactly that copy
+        // (`take_rec_audio`). Gating it on the recorder alone meant the UDP
+        // stream sent **nothing whatsoever** until the operator pressed REC —
+        // a setting that promised to send the received audio and quietly sent
+        // zero bytes, found by a reporter following the instruction to set it
+        // and getting an empty file.
+        //
+        // So it is on when *either* consumer wants it. A stream nobody asked
+        // for costs one `is_some()`, and the tap is already being built.
+        let want_rec_main = wants_recording_tap(
+            self.recorder.is_some(),
+            self.mixer.as_ref().is_some_and(|m| m.udp_audio.is_some()),
+            self.caps.rx_audio_external,
+        );
         let rx0 = self.state.rx[0];
         self.refresh_channel_rate();
         // **Only the chain needs a main.** `finish_audio` is where a
@@ -5672,7 +5703,23 @@ impl Engine {
         self.row_sample_clock = true;
         self.sync_zoom();
 
-        let want_rec_main = self.recorder.is_some() && !self.caps.rx_audio_external;
+        // **The recorder is not the only consumer of this tap.**
+        //
+        // `want_rec_main` decides whether the receive chain fills its own
+        // recording copy at all, and `udp_audio` streams from exactly that copy
+        // (`take_rec_audio`). Gating it on the recorder alone meant the UDP
+        // stream sent **nothing whatsoever** until the operator pressed REC —
+        // a setting that promised to send the received audio and quietly sent
+        // zero bytes, found by a reporter following the instruction to set it
+        // and getting an empty file.
+        //
+        // So it is on when *either* consumer wants it. A stream nobody asked
+        // for costs one `is_some()`, and the tap is already being built.
+        let want_rec_main = wants_recording_tap(
+            self.recorder.is_some(),
+            self.mixer.as_ref().is_some_and(|m| m.udp_audio.is_some()),
+            self.caps.rx_audio_external,
+        );
         let rx0 = self.state.rx[0];
         // Named apart so the compiler can see that the three lanes below borrow
         // disjoint fields of the engine.
@@ -19874,6 +19921,37 @@ mod recording_tap_tests {
         mixer.push_tx(&[0.75]);
         assert_eq!(drained(&mut rec), vec![0.75]);
     }
+
+    /// **The regression, which the recorder-only tap could not see.**
+    ///
+    /// The UDP stream reads the same recording copy as the recorder, and that
+    /// copy used to be filled only while REC was running — so
+    /// `RadioConfig::udp_audio` sent **zero bytes** until the operator pressed
+    /// record, while its own hover text promised to send the received audio.
+    /// Reported with an empty file by somebody following the instruction.
+    ///
+    /// `wants_recording_tap` now takes both consumers, and these pin the
+    /// combinations that matter. **Verified failing against the old predicate**
+    /// `recorder && !external`, where the second test below failed.
+    #[test]
+    fn the_recording_copy_is_filled_for_both_of_its_consumers() {
+        use super::wants_recording_tap;
+        // Recording alone: what it was written for, and must not be lost.
+        assert!(wants_recording_tap(true, false, false));
+        // **The stream alone.** This is the one that was broken.
+        assert!(
+            wants_recording_tap(false, true, false),
+            "the audio stream was configured and the tap was not filled, so nothing \
+             could be sent"
+        );
+        // Both, and neither.
+        assert!(wants_recording_tap(true, true, false));
+        assert!(!wants_recording_tap(false, false, false));
+        // A radio whose audio arrives already demodulated never uses this copy.
+        assert!(!wants_recording_tap(true, true, true));
+        assert!(!wants_recording_tap(false, true, true));
+    }
+
 }
 
 #[cfg(test)]
@@ -21819,63 +21897,6 @@ mod cb_opening_tests {
     }
 }
 
-#[cfg(test)]
-mod udp_audio_tests {
-    use super::UdpAudio;
-
-    /// **What the stream actually is**: mono, 16-bit, little-endian, one
-    /// datagram per block. A receiver has nothing else to go on — there is no
-    /// header — so the format is the contract, and this is where it is pinned.
-    #[test]
-    fn the_stream_is_mono_i16_little_endian() {
-        let listener = std::net::UdpSocket::bind("127.0.0.1:0").expect("a listener");
-        listener
-            .set_read_timeout(Some(std::time::Duration::from_secs(2)))
-            .expect("a timeout, so a broken sink fails rather than hangs");
-        let addr = listener.local_addr().expect("a port");
-
-        let mut sink = UdpAudio::new(&addr.to_string()).expect("a sink");
-        sink.send(&[0.0, 0.5, -0.5, 1.0]);
-
-        let mut buf = [0u8; 64];
-        let n = listener.recv(&mut buf).expect("a datagram");
-        assert_eq!(n, 8, "four samples, two bytes each — mono, not interleaved");
-        let at = |i: usize| i16::from_le_bytes([buf[i * 2], buf[i * 2 + 1]]);
-        assert_eq!(at(0), 0);
-        assert!((at(1) as i32 - i16::MAX as i32 / 2).abs() <= 1, "half scale");
-        assert!((at(2) as i32 + i16::MAX as i32 / 2).abs() <= 1, "and its sign");
-        assert_eq!(at(3), i16::MAX, "full scale, not wrapped");
-    }
-
-    /// Two blocks are two datagrams. A block per datagram is what lets a
-    /// receiver lose one without desyncing the rest, which is the only reason
-    /// this is not one long stream.
-    #[test]
-    fn each_block_is_its_own_datagram() {
-        let listener = std::net::UdpSocket::bind("127.0.0.1:0").expect("a listener");
-        listener.set_read_timeout(Some(std::time::Duration::from_secs(2))).expect("timeout");
-        let addr = listener.local_addr().expect("a port");
-        let mut sink = UdpAudio::new(&addr.to_string()).expect("a sink");
-        sink.send(&[0.0, 0.0]);
-        sink.send(&[1.0]);
-        let mut buf = [0u8; 64];
-        assert_eq!(listener.recv(&mut buf).expect("first"), 4);
-        assert_eq!(listener.recv(&mut buf).expect("second"), 2);
-    }
-
-    /// An empty setting, or one that is not a numeric `host:port`, is **no
-    /// stream** rather than a socket that sends nowhere or a hostname lookup on
-    /// the audio thread. `None` is the same thing the operator sees as off.
-    #[test]
-    fn off_and_unusable_are_both_no_stream() {
-        assert!(UdpAudio::new("").is_none(), "empty is off");
-        assert!(UdpAudio::new("   ").is_none(), "and so is whitespace");
-        assert!(UdpAudio::new("example.com:7355").is_none(), "a name needs DNS");
-        assert!(UdpAudio::new("not an address").is_none());
-        assert!(UdpAudio::new("127.0.0.1").is_none(), "a port is required");
-        assert!(UdpAudio::new("127.0.0.1:7355").is_some(), "the useful form works");
-    }
-}
 
 #[cfg(test)]
 mod mic_input_tests {

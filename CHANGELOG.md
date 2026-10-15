@@ -14,6 +14,7 @@ and the [README](https://github.com/madmedicnl/sdroxide-brown#readme).
 ## [Unreleased]
 
 ### Fixed
+- **The audio stream sent nothing until you pressed REC.** It reads the same recording copy as the recorder, and that copy was only filled while recording — so the setting promised the received audio and delivered an empty file.
 - **The audio stream setting is now reachable on an SDR.** "Send the audio out over UDP" was inside the sound-card section, which does not draw for an SDR — so the row could not be found on most radios, and the setting could not be turned on at all.
 
 ### Fixed
