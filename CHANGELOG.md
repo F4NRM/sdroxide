@@ -22,6 +22,7 @@ and the [README](https://github.com/madmedicnl/sdroxide-brown#readme).
 
 ### Fixed
 - **The link button opens the radio where it last tuned** — a start frequency the tuner cannot reach no longer has to be corrected by hand on every start, and a station already stuck on one now opens on one of its own channels (#72).
+- **The fill under the spectrum line no longer shows as vertical stripes** — it is shaded by height, with a choice of Fixed, Gradient or Mixed in Settings → UI and the SPEC popup's line row.
 
 ## [2.0.12_brown] - 2026-10-15
 
