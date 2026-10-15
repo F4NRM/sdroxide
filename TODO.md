@@ -10,7 +10,41 @@ feature requests **this fork** may pick up, not a promise to upstream.
 
 ## Now
 
-1. **Undocked mode (#257)** — the SDRuno window set, and the largest thing on
+1. **Opening the program takes the sound device away from PipeWire, and closing
+   it does not give it back.** The operator, 2026-10-15: *"when I now open the app
+   the audio devices selected in the program disappear from my sound settings,
+   and I can't see them in cable. That would be ok if they return when I close
+   the program but that doesn't happen, I have to unplug or reload pipewire."*
+
+   **The evidence, read from his own configuration:**
+   `config.toml` has `audio_output = "Generic KM_B2 Audio, USB Audio
+   [Audio · 8087:1024]"` — a USB sound card, selected as the output.
+
+   **The likely cause, and it is nameable: cpal opens ALSA devices directly.**
+   cpal's ALSA host hands `snd_pcm_open` the device's own hardware name, which
+   **bypasses the sound server and takes the card exclusively**. PipeWire
+   therefore loses the node and drops it from the graph — his "disappear from my
+   sound settings". When sdroxide exits the PCM closes, but PipeWire does not
+   re-acquire the node by itself, so it stays gone until the device is
+   replugged or the server restarted.
+
+   **It is the same shape as the Bluetooth work**, and that is the useful part:
+   the sound server owns the device, and anything that reaches past it to the
+   hardware takes it away from everything else. There we found that
+   `pulse:<node>` is accepted by ALSA but cpal cannot open what the host did not
+   enumerate — so the fix is not obviously "open it a different way".
+
+   **What to establish first, before changing anything:**
+   - `cat /proc/asound/card*/pcm*/sub*/status` with sdroxide running and stopped —
+     does the PCM show `RUNNING` while open, and does it release on exit?
+   - Which PCM cpal actually opened: the engine logs the device name it opens.
+   - Whether the node returns on a *clean* exit rather than a kill — the operator
+     has been `pkill`ing it all evening, and that skips any teardown.
+   - If it is the raw-hardware open, the fix is to prefer the `pipewire`/`pulse`
+     PCM so the server keeps ownership, and to **warn** when a raw `hw:` device
+     is picked — the same treatment the Bluetooth node got, for the same reason.
+
+2. **Undocked mode (#257)** — the SDRuno window set, and the largest thing on
    this list. See `SDRUNO-UI-HANDOVER.md` and `UNDOCKED-HANDOVER.md`. It wants a
    session of its own rather than the tail of one.
 2. **`docs/synop-notes.md`** — keep it current rather than written once. The wrong
