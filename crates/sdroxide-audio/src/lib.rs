@@ -6,6 +6,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+pub mod graph;
+
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{Sample, SampleFormat};
 use sdroxide_types::AudioRouting;
@@ -850,13 +852,27 @@ fn enumerate_devices(host: &cpal::Host, output: bool) -> Vec<(cpal::Device, Stri
 }
 
 /// The distinct names of the devices for one direction, in enumeration order.
+///
+/// **The sound server's own nodes are appended.** ALSA cannot see a PipeWire
+/// graph, so a Bluetooth microphone, a virtual sink or anything else the operator
+/// has arranged in a patchbay would otherwise never appear here at all — and the
+/// fix for that used to be making it the system default for everything, which
+/// moves the whole desktop's audio onto a CB microphone to suit one program.
+/// Only names ALSA cannot already show are added, so a sound card is never
+/// offered twice under two names. See [`graph`].
 fn device_names(host: &cpal::Host, output: bool) -> Vec<String> {
     let mut seen = HashSet::new();
-    enumerate_devices(host, output)
+    let mut names: Vec<String> = enumerate_devices(host, output)
         .into_iter()
         .map(|(_, n)| n)
         .filter(|n| seen.insert(n.clone()))
-        .collect()
+        .collect();
+    for extra in crate::graph::extra_device_names(output) {
+        if seen.insert(extra.clone()) {
+            names.push(extra);
+        }
+    }
+    names
 }
 
 /// Names of the available output devices (for a device-selection UI).
@@ -935,6 +951,34 @@ fn pick_device(
 ) -> Result<(cpal::Device, String, Option<DeviceSwap>), AudioError> {
     if let Some(want) = name {
         let all = enumerate_devices(host, output);
+        // 0) a node the sound server owns rather than a card ALSA can see. It
+        // cannot be opened by name — cpal only offers what the host enumerated,
+        // and PipeWire has no per-application capture source — so picking one
+        // means making it the default, and saying so, because that also moves
+        // the desktop's capture. See `graph::set_default`.
+        if crate::graph::is_graph_node_name(want) && !all.iter().any(|(_, n)| n == want) {
+            let took = crate::graph::current_default(!output);
+            match crate::graph::set_default(want) {
+                Ok(()) => {
+                    // The previous default is the undo. Making a microphone the
+                    // default moves the *desktop's* capture, so what it was is
+                    // not a detail — it is the only way back.
+                    match took.as_deref() {
+                        Some(prev) if prev != want => info!(
+                            device = %want, was = %prev,
+                            "made the sound-server node the default capture source; \
+                             put it back with: wpctl set-default {}",
+                            prev
+                        ),
+                        _ => info!(
+                            device = %want,
+                            "made the sound-server node the default capture source"
+                        ),
+                    }
+                }
+                Err(why) => warn!(device = %want, %why, "could not select the sound-server node"),
+            }
+        }
         // 1) enumerated-name match (all sub-PCMs of the card); 2) legacy plain
         // cpal-name match for configs saved before names carried the vendor/id.
         // The legacy form cannot tell two identical devices apart — nothing
