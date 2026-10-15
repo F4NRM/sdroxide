@@ -4482,6 +4482,23 @@ mod tests {
                 .map(|(_, r)| *r)
                 .next()
                 .expect("the skimmer font picker");
+            // Each label reads level with the first line of its swatches.
+            for (label, first) in [("Spot label colours", "DX"), ("Band plan colours", "Ham")] {
+                let label = find(label).expect("the colour row's label");
+                let first = texts
+                    .iter()
+                    .filter(|(t, r)| t == first && r.min.y >= label.min.y - 20.0)
+                    .map(|(_, r)| *r)
+                    .min_by(|a, b| a.min.y.total_cmp(&b.min.y))
+                    .expect("the row's first swatch label");
+                assert!(
+                    (label.center().y - first.center().y).abs() <= 1.5,
+                    "at {width} pt the label (centre {:.1}) is not level with its first line \
+                     of colours (centre {:.1})",
+                    label.center().y,
+                    first.center().y,
+                );
+            }
             let reset_box = frame_around(&out, reset);
             let picker_box = frame_around(&out, picker);
             let row_end = reset_box.max.y.max(cb.max.y);

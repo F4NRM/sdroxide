@@ -267,7 +267,7 @@ pub(in crate::app) fn settings_ui_tab(
         });
         ui.end_row();
 
-        ui.label("Spot label colours").on_hover_text(
+        first_line_label(ui, "Spot label colours").on_hover_text(
             "The tint each spot source wears: the boxes along the bottom of the \
              waterfall, the badges in the SPOTS list and the dots on the world map.",
         );
@@ -306,7 +306,7 @@ pub(in crate::app) fn settings_ui_tab(
         });
         ui.end_row();
 
-        ui.label("Band plan colours").on_hover_text(
+        first_line_label(ui, "Band plan colours").on_hover_text(
             "The shade each class of allocation is painted in on the band-plan \
              strip along the bottom of the waterfall. The blocks are drawn \
              semi-transparent over the waterfall, so they land darker there \
@@ -1080,4 +1080,22 @@ pub(in crate::app) fn workspaces_section(
     if let Some(i) = apply {
         workspaces[i].apply(cfg);
     }
+}
+
+/// A grid label that sits level with the first line of a wrapped row beside it.
+///
+/// A grid centres a label on its whole row, so beside a row of swatches that
+/// wraps onto a second line it lands between the two lines. Pinned to the top
+/// of the cell at one line's height, it reads with the swatches it names.
+fn first_line_label(ui: &mut egui::Ui, text: &str) -> egui::Response {
+    let line = ui.spacing().interact_size.y;
+    ui.with_layout(egui::Layout::top_down(egui::Align::Min), |ui| {
+        ui.allocate_ui_with_layout(
+            egui::vec2(0.0, line),
+            egui::Layout::left_to_right(egui::Align::Center),
+            |ui| ui.label(text),
+        )
+        .inner
+    })
+    .inner
 }
