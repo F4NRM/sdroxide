@@ -10,8 +10,18 @@ feature requests **this fork** may pick up, not a promise to upstream.
 
 ## Now
 
-1. **Opening the program takes the sound device away from PipeWire, and closing
-   it does not give it back.** The operator, 2026-10-15: *"when I now open the app
+1. **Undocked mode (#257)** — the SDRuno window set, and the next session's whole
+   job. See `SDRUNO-UI-HANDOVER.md` and `UNDOCKED-HANDOVER.md`. The operator's
+   call (2026-10-15): the session is saved for this, so nothing else is started
+   in it.
+
+2. **The sound device leaving the audio server** — **issue #89**, reported against
+   `2.0.13_brown`, documented and **deliberately not next.** Full detail below;
+   the short version is that it is probably not a quick fix, and half of it may
+   not be needed at all.
+
+   **Report.** Opening the program takes the sound device away from the audio
+   server, and closing it does not give it back. The operator, 2026-10-15: *"when I now open the app
    the audio devices selected in the program disappear from my sound settings,
    and I can't see them in cable. That would be ok if they return when I close
    the program but that doesn't happen, I have to unplug or reload pipewire."*
@@ -64,7 +74,7 @@ feature requests **this fork** may pick up, not a promise to upstream.
      PCM so the server keeps ownership, and to **warn** when a raw `hw:` device
      is picked — the same treatment the Bluetooth node got, for the same reason.
 
-2. **Undocked mode (#257)** — the SDRuno window set, and the largest thing on
+
    this list. See `SDRUNO-UI-HANDOVER.md` and `UNDOCKED-HANDOVER.md`. It wants a
    session of its own rather than the tail of one.
 2. **`docs/synop-notes.md`** — keep it current rather than written once. The wrong
