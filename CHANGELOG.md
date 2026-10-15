@@ -13,51 +13,39 @@ and the [README](https://github.com/madmedicnl/sdroxide-brown#readme).
 
 ## [Unreleased]
 
-### Fixed
-- **The audio stream sent nothing until you pressed REC.** It reads the same recording copy as the recorder, and that copy was only filled while recording — so the setting promised the received audio and delivered an empty file.
-- **The audio stream setting is now reachable on an SDR.** "Send the audio out over UDP" was inside the sound-card section, which does not draw for an SDR — so the row could not be found on most radios, and the setting could not be turned on at all.
-
-### Fixed
-- **A tool window's ⇱ button no longer shows through the window you put on top of it.** The button is drawn as an overlay in its title bar, and it was in the foreground layer — which paints above every window whatever the order they are drawn in.
-
-### Fixed
-- **False OPEN alerts when returning to a band, or when a DX-cluster spot mixes with PSK Reporter.** The warm-up clock survived a band change while the spots behind it had been pruned, so the first traffic back divided by nothing and read as an infinite opening. The tracker is now told when the dial moves.
+## [2.0.13_brown] - 2026-10-15
 
 ### Added
-- **BETA — SYNOP and SHIP weather reports.** RTTY on 4583, 7646 and 10100.8 kHz carries a coded report from ships and land stations every few hours; this decodes them into wind, pressure, temperature, cloud and sea state. A **WEATHER** chip opens the list when a report has been heard. Still being tried out — please try it and say what you see.
-
-### Added
-- **PSTRotator over its own UDP port**, in the rotator settings beside the rotctld and serial transports.
-- **The version sits in the window title**, so a screenshot says which build it came from.
+- **SYNOP and SHIP weather reports** — coded weather off HF RTTY, decoded into wind, pressure, cloud and sea state.
+- **The received audio streamed over UDP** to another program, from the recording tap so volume and MUTE do not touch it.
+- **Bluetooth and other sound-server devices in Settings → Audio**, offered by name.
+- **A Settings → Audio page** — your speakers and microphone, this radio's sound card, recordings.
+- **Device pickers you can type into**, for a device the host does not enumerate.
+- **PSTRotator over its own UDP port**, beside rotctld and the serial transports.
+- **The version in the window title**, so a screenshot says which build it came from.
+- **DAB's logo tile shows the station's slideshow picture**, in small, while the slideshow shows it large.
 
 ### Fixed
-- **Coming back to DAB brings the radio back to the DAB channel** — after 6 m (50.150) it stayed there, silent; picking a station now retunes too.
-- **The S-meter calibration dropdown is gone** — it was built on a reading taken against the wrong build, so the whole premise was never established.
-
-### Added
-- **DAB's logo tile shows the station's slideshow picture** — in small, while the slideshow shows it large; the station logo itself (SPI) is not decoded.
-- **A Settings → Audio page** — your speakers and microphone, this radio's sound card, and where recordings are written, in one place instead of four pages under four names.
-- **Device pickers you can type into** — a sound server can offer a device the host API does not enumerate, and the name can now be typed when it is not on the list.
-- **A Rescan for the radio's sound cards, on the Audio page** — where the pickers are, rather than at the foot of the Radio tab.
+- **A tool window's ⇱ button no longer shows through the window you put on top of it.**
+- **False band-open alerts when returning to a band, or when DX-cluster spots mix with PSK Reporter.**
+- **The audio stream sent nothing until you pressed REC**, and its setting could not be reached on any SDR.
+- **The last rows of the Radio page were under the Apply button**, and an orphaned row shifted the whole page.
+- **The ATS Mini's Apply / reconnect reopens the radio again** — it had been wired to the sound-card rescan.
+- **DAB's volume follows the knob**, and its VU meter pumps with the music rather than the volume.
+- **A DAB channel cleared with × stays cleared.**
+- **The link button opens the radio where it last tuned** (#72).
+- **A description on a settings page no longer paints itself over the Apply button.**
+- **The current page's name is visible in the Settings menu.**
+- **The silent-microphone warning names the page the microphone is on.**
+- **The fill under the spectrum line no longer shows as vertical stripes.**
 
 ### Changed
-- **The Settings window has a menu down the left** — the pages are grouped Station / Radio work / Sending / Setup, with the page beside them. Below 620 pt it still uses the tab strip, which wraps rather than cutting labels off.
-- **Device rows on the Audio page are a label above a control**, not a two-column grid, and the controls are wide enough for a sound card's whole name.
+- **The Settings window has a menu down the left**, grouped, with the page beside it; below 620 pt it still uses the tab strip.
+- **The SPOTS window's KML result is a bar of its own** rather than a line among the chips.
+- **The S-meter calibration control is gone** — it was built on a reading from the wrong build.
 
-### Fixed
-- **A DAB channel cleared with × stays cleared** — a station update arriving just after put it back, and the next save kept it. Each radio now keeps its own channel list.
-- **DAB's VU meter pumps with the music, at any volume** — it stepped a few times a second out of time with the beat, and sank with the volume knob.
-- **Only a sound-server device carries the take-over warning — a sound card does not.**
-- **Choosing a Bluetooth microphone says it takes over the machine's recording** — it is no longer something you find out afterwards.
-- **The Midland wireless microphone appears in the device list and can be picked** — a Bluetooth headset is now offered by name; picking it makes it the capture default and says what to undo.
-- **The silent-microphone warning points at the page the microphone is on** — it still said General after the sound devices moved to Audio.
-- **The current page's name is visible in the Settings menu** — it was drawn in the ordinary text colour over the selection colour, so the highlighted row had nothing written on it.
-- **A description on a settings page no longer paints itself over the Apply button** — 53 of them wrapped to two lines while reserving one.
-- **The SPOTS window's KML result no longer shoves the ⚙ SETUP button aside** — it is a yellow bar of its own with a ✕, instead of a line of text among the chips.
-- **The ATS Mini's "Apply / reconnect" reopens the radio again** — it had been wired to the sound-card rescan, so it re-asked for the device list and reopened nothing.
-- **DAB's volume follows the knob** — it was applied straight rather than on the ear's curve every other receiver uses, so 5 % sounded like 80 %.
-- **The link button opens the radio where it last tuned** — a start frequency the tuner cannot reach no longer has to be corrected by hand on every start, and a station already stuck on one now opens on one of its own channels (#72).
-- **The fill under the spectrum line no longer shows as vertical stripes** — it is shaded by height, with a choice of Fixed, Gradient or Mixed in Settings → UI and the SPEC popup's line row.
+### Needs feedback
+- **SYNOP and SHIP** — nobody has decoded one off the air yet. RTTY, 50 baud, 4583 / 7646 / 10100.8 kHz, and tell us what came out.
 
 ## [2.0.12_brown] - 2026-10-15
 
