@@ -8,58 +8,48 @@ upstream feature requests **this fork** may pick up, not a promise to upstream.
 
 ## Now — pick one
 
-1. **SYNOP feedback (#88).** BETA, built, tested against four real messages.
-   **Nobody has decoded one off the air.** When Kevin reports: either the BETA
-   marks come off or the decoder gets fixed. This is the only item here that is
-   blocked on someone else and still worth waiting for.
-2. **The ⇱ chip paints over the window above it.** From the operator's
-   screenshots of 13 Oct: *"with LISTEN on top of SCHEDULE, SCHEDULE's
-   open-in-window button still paints over LISTEN's body, at (941, 530), while
-   the rest of its title bar is correctly hidden underneath."*
-   Seven sites draw one; find which, then pin it with a test that two
-   overlapping tool windows leave nothing of the lower one visible outside its
-   own rect.
-   **2026-10-15: the draw order was read and it contradicts the screenshot.**
-   `frame.rs` calls `listen_window` at **1377** and `schedule_window` at
-   **1378**, so egui paints LISTEN *first* and SCHEDULE *second* — which makes
-   SCHEDULE the one on top, not LISTEN. Either the report has the two the wrong
-   way round, or something reorders them at run time.
-   **So the mechanism is not yet known and nothing has been changed**, which is
-   the correct state: three wrong causes from one picture is the house rule
-   earning itself, and a fourth would be no better. **Next: reproduce it**, then
-   read the order the windows actually get drawn in that run.
-3. ~~**#537, the false OPEN alerts**~~ — **FIXED.** The cause was the warm-up
-   clock, exactly as the maintainer suspected: `first_watched` is keyed by path
-   and survives a band change, while the spots behind it are pruned by age, so
-   returning to a band divided by nothing and reported an **infinite** opening.
-   A spot also used to start its own clock, which is why a DX-cluster-only path
-   read as six hours of silence followed by an opening. Two changes: a spot no
-   longer starts the clock, and the manager tells the tracker when the dial
-   moves (`BandOpeningTracker::restart`). The second tests failed on the old
-   code with the maintainer's own symptom.
-4. **The tool window's ⇱/⇲ and undocked mode (#257).** The SDRuno window set —
+1. **The two-window render harness.** The ⇱ chip is **fixed** (`3f877e30`,
+   `Order::Middle` instead of `Foreground`) but has **no regression test**, and
+   one cannot be written without this. Pinning *"two overlapping tool windows
+   leave nothing of the lower one visible outside its own rect"* needs a harness
+   that drives two tool windows at known rects and dumps every painted shape in
+   paint order. It is the guard for the class, not for the instance, and it is
+   the only thing standing between this fix and a future regression. **Build
+   this first** — it is self-contained and it unlocks the test.
+2. **UDP audio out (#594)** — built, socket-tested, **never listened to**. Stream
+   it to `aplay` on the bench and confirm it is audio and not a crackle. The
+   operator's machine, two minutes.
+3. **The tool window's ⇱/⇲ and undocked mode (#257).** The SDRuno window set —
    the largest thing here, and in progress.
-5. **UDP audio out (#594)** — built, socket-tested, **never listened to**. Stream
-   it to `aplay` and confirm it is audio and not a crackle.
+4. **`docs/synop-notes.md`** should keep being updated rather than written once
+   and left. The two wrong "fixes" it records are what a third reader would
+   otherwise repeat.
 
 ### Waiting on someone, and nothing to do about it
 
+- **SYNOP feedback (#88)** — BETA, built, tested against four real messages.
+  **Nobody has decoded one off the air.** When Kevin reports: either the BETA
+  marks come off or the decoder gets fixed.
 - **S-meter jumps with the mouse** (#69) — the question is asked on the thread:
   does the *number* jump, or only the needle? bebepip has not answered.
 - **Grey-line gradient** — built, verified only on a path entirely in night.
   Needs one run over a **partly daylit** path, which is the case the feature
   exists for.
 
-### Housekeeping, still open
+### Owed, and not urgent
 
-- **`docs/USER_MANUAL.md` has no SYNOP/SHIP section.** The feature ships BETA
-  before it is documented, deliberately — but it is owed, and the RTTY
-  frequencies and the schedule belong there.
-- **A quick-start card** for listening to weather on HF, as the other
-  quick-starts have. Four languages, like the rest.
-- **`docs/synop-notes.md`** should keep being updated rather than being written
-  once and left; the two wrong "fixes" it records are the kind of thing a third
-  reader would otherwise repeat.
+- **Two things are in no release yet.** The Bluetooth microphone, the window
+  title, PSTRotator, the SYNOP decoder, the ⇱ fix and the #537 fix are all
+  **only on `main`**. The next release carries them; 2.0.12 carries none.
+
+### Done 2026-10-15, for reference
+
+- **⇱ chip** (`3f877e30`) — `Order::Middle`, not `Foreground`.
+- **#537 false OPEN alerts** — the warm-up clock no longer survives the dial,
+  and a spot no longer starts one.
+- **SYNOP/SHIP manual section** (`62c7a9c0`) — §3.3a.
+- **Weather quick-start in four languages**, with PDFs.
+- **Branches pruned** — 38 deleted, `.git` 417M → 339M.
 
 ## Done 2026-10-15
 
