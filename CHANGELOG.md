@@ -24,6 +24,7 @@ and the [README](https://github.com/madmedicnl/sdroxide-brown#readme).
 
 ### Fixed
 - **A DAB channel cleared with × stays cleared** — a station update arriving just after put it back, and the next save kept it. Each radio now keeps its own channel list.
+- **Only a sound-server device carries the take-over warning — a sound card does not.**
 - **Choosing a Bluetooth microphone says it takes over the machine's recording** — it is no longer something you find out afterwards.
 - **The Midland wireless microphone appears in the device list and can be picked** — a Bluetooth headset is now offered by name; picking it makes it the capture default and says what to undo.
 - **The silent-microphone warning points at the page the microphone is on** — it still said General after the sound devices moved to Audio.
@@ -31,6 +32,7 @@ and the [README](https://github.com/madmedicnl/sdroxide-brown#readme).
 - **A description on a settings page no longer paints itself over the Apply button** — 53 of them wrapped to two lines while reserving one.
 - **The SPOTS window's KML result no longer shoves the ⚙ SETUP button aside** — it is a yellow bar of its own with a ✕, instead of a line of text among the chips.
 - **The ATS Mini's "Apply / reconnect" reopens the radio again** — it had been wired to the sound-card rescan, so it re-asked for the device list and reopened nothing.
+- **DAB's volume follows the knob** — it was applied straight rather than on the ear's curve every other receiver uses, so 5 % sounded like 80 %.
 - **The link button opens the radio where it last tuned** — a start frequency the tuner cannot reach no longer has to be corrected by hand on every start, and a station already stuck on one now opens on one of its own channels (#72).
 - **The fill under the spectrum line no longer shows as vertical stripes** — it is shaded by height, with a choice of Fixed, Gradient or Mixed in Settings → UI and the SPEC popup's line row.
 

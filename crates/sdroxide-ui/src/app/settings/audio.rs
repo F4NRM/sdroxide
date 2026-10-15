@@ -34,11 +34,20 @@ use crate::theme::gray;
 /// ask, so the answer there is always no and the warning never appears — which
 /// is right, because in a browser the page really does own its own capture.
 #[cfg(not(target_arch = "wasm32"))]
-fn is_machine_default_device(name: &str) -> bool {
-    sdroxide_audio::graph::is_graph_node_name(name)
+fn is_machine_default_device(name: &str, output: bool) -> bool {
+    // **Membership in the extra list, not the shape of the name.** The first
+    // version asked `is_graph_node_name`, which matches `alsa_input.` — and the
+    // ordinary analog card on this machine is called
+    // `alsa_input.pci-0000_06_00.6.analog-stereo`. So picking a sound card
+    // would have warned that it takes over the machine's recording, which is
+    // false, on the most-used row of the page. The engine never made that
+    // mistake: it routes through `set-default` only when ALSA cannot see the
+    // node, and the extra list *is* exactly that set — the names the program had
+    // to add for itself. Ask the list rather than re-deriving the condition.
+    sdroxide_audio::graph::extra_device_names(output).iter().any(|n| n == name)
 }
 #[cfg(target_arch = "wasm32")]
-fn is_machine_default_device(_name: &str) -> bool {
+fn is_machine_default_device(_name: &str, _output: bool) -> bool {
     false
 }
 
@@ -189,7 +198,7 @@ impl SdroxideApp {
             *audio_pick = Some((true, out));
         }
         if let Some(chosen) = out_chosen.as_deref() {
-            if is_machine_default_device(chosen) {
+            if is_machine_default_device(chosen, true) {
                 sound_server_takes_over(ui, "speakers", chosen, true);
             }
         }
@@ -223,7 +232,7 @@ impl SdroxideApp {
             *audio_pick = Some((false, mic));
         }
         if let Some(chosen) = mic_chosen.as_deref() {
-            if is_machine_default_device(chosen) {
+            if is_machine_default_device(chosen, false) {
                 sound_server_takes_over(ui, "microphone", chosen, false);
             }
         }
