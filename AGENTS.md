@@ -2335,15 +2335,21 @@ live. Re-count rather than trusting any number written here.
 |---|---|---|---|
 | **#72** | drdatapi | RTL-SDR start frequency on QO-100 — an I.F. offset saved as the start frequency, so the dongle was asked for 6 GHz and did not open | **answered and fixed** (`ba565a56`): `set_center` refuses a centre above the tuner's ceiling and names it. The *saving* of an impossible start frequency is **not** fixed — asked of the reporter |
 | **#69** | bebepip | Import a broadcast schedule other than EiBi (Aoki / HFCC / own CSV) | **answered, not built.** The parser is hard-wired to EiBi's column layout and code tables; the display side is already source-neutral. Three questions put to the reporter (which source, replace or sit alongside, where entries appear). Called a real job, not promised as quick |
-| **#68** | bebepip | S-meter uncalibrated — S9+10 on pure noise | **answered and fixed** (`f45b00d9`): only the SDRplay and Pluto implemented `rx_gain_db`, so an RTL-SDR's whole tuner gain was added to the reading. His two numbers reproduce the fault exactly |
+| **#68** | bebepip | S-meter uncalibrated — S9+10 on pure noise | **answered** (`f45b00d9`): only the SDRplay and Pluto implemented `rx_gain_db`, so an RTL-SDR's whole tuner gain was added to the reading. **Then withdrawn, 2026-10-15**: Kevin asked for the calibration control to be removed, having established the reading behind it came from the *wrong build* — so the premise under the whole feature was never established. The dropdown is gone; the field stays on the wire inert because `udp_audio` follows it and the struct is positional. **Upstream has its own at #642**, so ours was redundant as well as wrong-premised |
 | **#51** | drdatapi | DELETE button for recorded MP3s | answered — the **CLEAR** chip in the playback window |
 | **#28** | dig647 | Channel spacing, and DMR | spacing answered (6.25 / 12.5 kHz added). **DMR re-answered 2026-10-12**: Kevin's "the codec is a big project" was right in its conclusion and wrong in its reason. The codec is `mbelib-neo` (GPL-2.0-or-later, compatible, no licence wall), and the blocker is **US Patent 8,359,197**, which covers the AMBE+2 variant DMR uses until **2028-05-20**. A clean Rust crate exists for D-STAR and declines DMR for exactly that reason |
 
-**#68 and #72 are the shape worth keeping.** Both were reported by people who
-had never seen this code, and both were one line that had been assumed correct
-for months. In both cases the *numbers the reporter gave* named the mechanism —
-an S9+10 noise floor is a fixed excess over a real one, and 6 GHz is a fixed
-multiple of a 1.7 GHz ceiling — and each matched a specific line once read.
+**#72 is the shape worth keeping.** Reported by somebody who had never seen this
+code, and it was one line that had been assumed correct for months: his *number*
+named the mechanism — 6 GHz is a fixed multiple of a 1.7 GHz ceiling — and it
+matched a specific line once read.
+
+**#68 is the shape worth keeping in the other direction.** The reading was
+real, the arithmetic was right, and the *premise* was wrong — the reporter's
+figures came from a build that was not the one being fixed. **Ask which build a
+number came from before building anything on it**, which is the same rule as
+"ask which build he is on before answering" and the reason the issue form now
+requires a version.
 
 - **#4** "Settings saved to the saved profile" (kevin2008-01, 22 comments) —
   the client-screen feature, which **is fixed** (see the store section below).
@@ -2424,7 +2430,8 @@ answering, and name the tag that carries the change.**
 
 ## Session 2026-10-15: the site, Bluetooth audio, and a BETA weather decoder
 
-Four things, and the two that change how work is done come first.
+Five things, and the two that change how work is done come first. **Everything
+below is on `main` and in no release** — `2.0.12` predates all of it.
 
 ### Two programs, one executable name — and the site is the fix
 
@@ -2512,11 +2519,102 @@ apart from a path qualification, and our `apply_armed_qsy` is a superset. Taking
 it would have been an empty commit wearing their message.
 
 **#648, #660, #661, #663 all merged upstream.** Our queue there is empty.
-**#537** was answered on the 15th: the maintainer reports the warm-up fix is
-only called from tests. The clock *is* started in `ingest`, but the two spot
-feeds share one per-path baseline and a DX-cluster-only path starts its baseline
-when the spot lands — that is the likely cause, and the reply says it is
-unmeasured rather than changing the tracker on a guess.
+
+**#537 was reported, answered, and then fixed the same day.** The maintainer:
+*"the warm-up fix is only called from tests … coming back to a band, or mixing
+DX-cluster spots with PSK Reporter still shows false OPEN alerts."* **He was
+right, and the fault was worse than a large factor — it was infinite.**
+
+`first_watched` is keyed by **path**, not by timestamp, so it outlives pruning.
+A feed is only polled for the band the dial is on, so a path on a band you have
+just come back to has had **no observation at all** while its clock still said
+"warm for hours". Warm over nothing is the silent-baseline branch, which divides
+by zero and returns `f64::INFINITY` — and the factor serialises as `None`,
+because infinity is not a number a reader can be shown. The DX-cluster half is
+the same clock from the other side: `ingest` was doing `or_insert(now)`, so a
+path only the cluster ever mentions had its **first ever spot** set its watch
+time, and "watched for hours" and "silent for hours" were one sentence.
+
+Two changes: a spot no longer starts the clock (only `watch()` does), and the
+manager tells the tracker when the dial moves
+(`BandOpeningTracker::restart`). It costs a few minutes of quiet after each band
+change, which is the honest trade.
+
+**And the tests for it are the cautionary tale.** The first version of both
+**passed on the broken code as well as the fixed one**, for three reasons in a
+row: the module's own `spot()` helper stamps timestamps relative to a `NOW`
+constant, so every fixture fell outside the retention window and *nothing was
+ingested at all*; then one spot, where `min_distinct_calls` is five. **A test
+that passes on the broken code is not a slow test — it is not a test**, and the
+only way to know is to remove the fix and watch it fail.
+
+### Two structural bugs, and why no test could see either
+
+The audio stream (#594) had been **built and "socket-tested"** for days, with
+three tests pinning its format. It sent **nothing at all**, and it took the
+operator trying it to find out — *"absolutely nothing"*, an empty file.
+
+**Two bugs, stacked, and both structural rather than arithmetic:**
+
+1. **The row was unreachable on every SDR.** It lived inside the sound-card
+   section, which is gated on `sound_card_roles` — and that answers `None` for
+   every SDR in the list. So the setting existed, the engine honoured it, and
+   nothing on screen could turn it on.
+2. **The tap behind it was never filled unless REC was running.**
+   `want_rec_main = self.recorder.is_some() && …` decides whether the receive
+   chain fills its own recording copy — and the stream reads from exactly that
+   copy. It was written as though the recorder were the only consumer. Zero bytes
+   until you pressed record, with hover text that mentioned only volume and MUTE.
+
+**Why the whole suite missed both, and this is the reusable part:**
+
+- The **settings probe draws a sound-card radio on purpose** — its own comment
+  says *"so the pickers and the typed field are in the picture"*. **A probe that
+  only ever looks at one kind of radio cannot see what the other kind is
+  missing.**
+- A **format test over a socket** says the bytes are right when they are sent.
+  It cannot say they are never sent. The three existing tests each called
+  `UdpAudio::send` directly, so the one question that mattered — *does anything
+  call it?* — was outside every one of them.
+
+It is the same shape as `EngineConfig::default()` reading as "nothing special"
+while actually being one of the two configurations the engine has. **A harness
+that takes every default is testing the defaults, not the program** — and a
+probe that only draws the easy case is testing the easy case.
+
+Both now have guards verified failing on the old code:
+`the_audio_stream_row_is_reachable_on_every_backend` walks SdrPlay, Cat, RtlSdr
+and AtsMini, and `the_recording_copy_is_filled_for_both_of_its_consumers` pins
+the small pure predicate rather than an engine built in a test.
+
+### A contradiction in a report is the clue, not an obstacle
+
+The operator's screenshot said SCHEDULE's ⇱ chip painted over LISTEN's body
+*"while the rest of its title bar is correctly hidden underneath"*. Reading the
+call sites said the opposite: `listen_window` at 1377, `schedule_window` at
+1378, so SCHEDULE should be on top. **Both were right**, and the resolution was
+the finding:
+
+**The chip is an `egui::Area` ordered `Order::Foreground`**, which paints above
+*every* window whatever order they are drawn in. So the **title bar** (ordinary
+window order) was hidden by LISTEN and the **chip** (foreground) painted over
+LISTEN's body anyway. One window, half hidden — no z-order or overflow theory
+fits that, which is why the earlier readings, including three from the previous
+session, were wrong.
+
+Fixed by `Order::Middle` (`3f877e30`), and the guard is the **mechanism** rather
+than the symptom: `a_tool_window_does_not_paint_above_the_window_stack` drives
+two tool windows and asserts no layer above the window stack exists. *"Nothing
+of the lower window shows through"* reads like the right assertion and needs a
+real pointer and a compositor to mean anything; this fails the moment anyone
+reaches for `Foreground` in a window again, and it names both chips when it does.
+
+### Branch hygiene, measured
+
+38 branches deleted — 3 merged locally, 35 merged remote — taking `.git` from
+**417 MB to 339 MB**. What stays: every `upstream-pr/*` branch **still backing
+an open PR**, per the house rule, and `claude/funny-wright-aujoii`, which holds
+an unmerged DAB probe and is the operator's to decide on.
 
 ### An issue template that cannot be ignored
 
