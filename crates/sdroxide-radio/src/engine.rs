@@ -3266,6 +3266,13 @@ struct Engine {
     /// of the dial it was handed — the case where a start frequency the tuner
     /// cannot reach is what the dial still holds (#72).
     refused_center_hz: Option<f64>,
+    /// How far down the operator's channel list the open attempts have got.
+    ///
+    /// The fallback cannot know which of their channels this radio can reach —
+    /// that is what the failed open was about — so a single choice can be the
+    /// one unreachable channel, and the station is stuck again. Walking the
+    /// list turns that into a few attempts that end somewhere usable.
+    channel_attempt: usize,
     /// The dial, and the frequency it was stood in for, on the background
     /// attempt now in flight. Set where the attempt is spawned and read where
     /// it answers, because the worker only reports the source it opened — and
@@ -4644,6 +4651,7 @@ fn engine_thread(
         // Nothing has been refused yet on a front end that opened, so the first
         // attempt is made at the dial and only its failure arms the fallback.
         refused_center_hz: seeded_refused_center_hz,
+        channel_attempt: 0,
         retry_asked_hz: 0.0,
         retry_fell_back_to: None,
         // Both VFOs start on the mode the receiver came up in; the remembered
@@ -16424,28 +16432,37 @@ impl Engine {
             dial,
             self.refused_center_hz,
             self.good_vfo_hz,
-            &self.stored_channels_hz(),
+            &self.stored_channels_from_here(),
         );
         (fallback.unwrap_or(dial), fallback)
     }
 
-    /// The operator's stored channels, as plain frequencies.
+    /// The operator's stored channels, as plain frequencies, starting at
+    /// whichever one this run is on.
     ///
-    /// The last honest source when the record of the last tuned frequency is
-    /// useless — which is what a station that has never managed to tune holds,
-    /// since the stand-in it runs on answers every tune with "done". They are
-    /// read per attempt rather than cached: a channel added a moment ago is
-    /// exactly the one somebody would want the radio to come up on.
-    fn stored_channels_hz(&self) -> Vec<f64> {
+    /// Rotated rather than filtered: the engine cannot tell which channels this
+    /// radio can reach, and the first one — 6.2 MHz on the station that
+    /// reported #72, below the RTL-SDR's own floor — is quite possibly not one
+    /// of them. Trying them in turn ends at a channel that opens, and each
+    /// refusal moves one along.
+    fn stored_channels_from_here(&self) -> Vec<f64> {
         // Station-wide, not this radio's scope: one channel list for the
         // station, which is where the operator put their QO-100 frequencies.
-        sdroxide_config::load_memories().iter().map(|m| m.freq_hz).collect()
+        let mut all = sdroxide_config::load_memories().iter().map(|m| m.freq_hz).collect::<Vec<_>>();
+        let n = all.len();
+        if n > 0 {
+            all.rotate_left(self.channel_attempt % n);
+        }
+        all
     }
 
     /// An open at `center` failed, so an attempt that would repeat it is
     /// wasted: record it and let [`Self::reopen_centre`] offer the fallback.
     fn note_open_refused(&mut self, center: f64) {
         self.refused_center_hz = Some(center);
+        // Move down the channel list, so the next attempt is not the one that
+        // just failed.
+        self.channel_attempt = self.channel_attempt.saturating_add(1);
     }
 
     /// Record a frequency the front end is on, **unless a stand-in is in
@@ -16472,6 +16489,9 @@ impl Engine {
     /// is by definition not one.
     fn note_opened(&mut self, center: f64) {
         self.refused_center_hz = None;
+        // The channel list is a fallback, not a queue: once something opened,
+        // the next refusal starts from the operator's first channel again.
+        self.channel_attempt = 0;
         if center > 0.0 {
             self.good_vfo_hz = center;
         }

@@ -127,9 +127,12 @@ fn temp_root(tag: &str) -> std::path::PathBuf {
 fn tuner(asked: Asked) -> ReopenFn {
     Box::new(move |center: f64| {
         asked.lock().unwrap().push(center);
-        if center > 1_800_000_000.0 {
+        // An RTL-SDR's own limits: it stops at 1,766 MHz going up and 24 MHz
+        // coming down, which is the floor that made the first channel on his
+        // station a poor first guess.
+        if center > 1_766_000_000.0 || center < 24_000_000.0 {
             return Err(format!(
-                "{center} is above this RTL-SDR's tuner range, which ends at 1766 MHz"
+                "{center} MHz is outside this RTL-SDR's tuning range, 24 MHz to 1766 MHz"
             ));
         }
         Ok((Box::new(Real { center }) as Box<dyn IqSource>, caps()))
@@ -149,25 +152,30 @@ fn session_recalling(store: &sdroxide_config::Store, last_good: f64) {
 }
 
 /// The operator's own channel list — the only honest source left once the
-/// record is the number that just failed.
-fn store_qo100_channel() {
-    let mut m: Vec<sdroxide_types::MemoryChannel> = sdroxide_config::load_memories();
-    if m.iter().any(|c| (c.freq_hz - QO100).abs() < 1.0) {
-        return;
-    }
-    m.push(sdroxide_types::MemoryChannel {
-        id: 1,
-        name: "QO-100".into(),
-        freq_hz: QO100,
-        mode: sdroxide_types::Mode::Usb,
-        filter_lo: -2900.0,
-        filter_hi: -200.0,
-        folder: None,
-        rtty: None,
-        repeater: None,
-        antenna: None,
-    });
+/// record is the number that just failed. In the order stored, which is what
+/// the walk follows.
+fn store_channels(channels: &[(f64, &str)]) {
+    let m: Vec<sdroxide_types::MemoryChannel> = channels
+        .iter()
+        .enumerate()
+        .map(|(i, (freq_hz, name))| sdroxide_types::MemoryChannel {
+            id: i as u32 + 1,
+            name: (*name).into(),
+            freq_hz: *freq_hz,
+            mode: sdroxide_types::Mode::Usb,
+            filter_lo: -2900.0,
+            filter_hi: -200.0,
+            folder: None,
+            rtty: None,
+            repeater: None,
+            antenna: None,
+        })
+        .collect();
     sdroxide_config::save_memories(&m).unwrap();
+}
+
+fn store_qo100_channel() {
+    store_channels(&[(QO100, "QO-100")]);
 }
 
 #[test]
@@ -315,5 +323,58 @@ fn a_station_whose_record_is_the_unreachable_number_still_opens_on_its_own_chann
         "a successful open must replace the unreachable number in the record"
     );
 
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn an_unreachable_channel_does_not_strand_the_station_on_the_next_one() {
+    let _dir = CONFIG_DIR.lock().unwrap_or_else(|e| e.into_inner());
+    let root = temp_root("walk");
+    let store = sdroxide_config::Store::radio(0);
+
+    // His station: the record holds the unreachable number, and the *first*
+    // channel is one this radio cannot reach — 6.2 MHz on an RTL-SDR, whose own
+    // floor is 24 MHz. It works on the RSP1, which is exactly why a bench test
+    // alone would have passed this.
+    session_recalling(&store, IMPOSSIBLE);
+    store_channels(&[(6_200_000.0, "60 m IF"), (145_000_000.0, "low band")]);
+
+    let asked: Asked = Arc::new(Mutex::new(Vec::new()));
+    let cfg = EngineConfig {
+        tx_ham_only: false,
+        remember_session: true,
+        store: store.clone(),
+        reopen: Some(tuner(Arc::clone(&asked))),
+        ..Default::default()
+    };
+    let mut h = start_engine(Box::new(StandIn { center: IMPOSSIBLE }), caps(), cfg);
+    h.swap_tx.send(EngineSwap::ReopenSource).unwrap();
+
+    // The tuner this test uses refuses anything under 24 MHz, as an RTL-SDR
+    // does, so the walk has to move past the 6.2 MHz channel to reach one.
+    let deadline = std::time::Instant::now() + Duration::from_secs(15);
+    while std::time::Instant::now() < deadline {
+        if asked.lock().unwrap().iter().any(|&c| (c - 145_000_000.0).abs() < 1.0) {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+
+    let asks = asked.lock().unwrap().clone();
+    assert!(
+        asks.iter().any(|&c| (c - 145_000_000.0).abs() < 1.0),
+        "the walk stopped at a channel this radio cannot reach; it asked {asks:?}"
+    );
+    assert!(
+        asks.iter().any(|&c| (c - 6_200_000.0).abs() < 1.0),
+        "the first channel should still have been tried — the point is that the walk moves on, \
+         not that it skips; it asked {asks:?}"
+    );
+
+    let thread = h.thread.take();
+    drop(h.cmd_tx);
+    if let Some(t) = thread {
+        let _ = t.join();
+    }
     let _ = std::fs::remove_dir_all(&root);
 }
