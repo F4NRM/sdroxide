@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SDR Oxide Brown — SDR for CB, 11 m and shortwave listening</title>
+<meta name="description" content="SDR Oxide Brown is a build of SDRoxide tuned for the 11 m citizens band, shortwave listening and decoding. Not upstream — see how to tell them apart.">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header>
+  <div class="wrap">
+    <div class="brand">
+      <h1>SDR Oxide <span>Brown</span></h1>
+    </div>
+    <p class="tag">For the 11&nbsp;m citizens band, freeband and shortwave listening &mdash; not the upstream SDRoxide.</p>
+    <nav>
+      <a href="#which">Which build am I?</a>
+      <a href="#what">What's different</a>
+      <a href="#get">Download</a>
+      <a href="#help">Get help</a>
+      <a href="https://github.com/madmedicnl/sdroxide-brown/releases/latest">Releases</a>
+    </nav>
+  </div>
+</header>
+
+<div class="wrap">
+
+<div class="hero">
+  <h2>The radio you point at the 11&nbsp;m band, or at a shortwave station that hasn't said anything in six hours.</h2>
+  <p>Everything upstream SDRoxide does, plus the parts a listener and a CB operator actually want: WSJT-CB callsigns and channel plans, the broadcast schedule, the reception log, and a screen that works on a phone.</p>
+  <a class="btn" href="#get">Download Brown</a>
+  <a class="btn ghost" href="USER_MANUAL.md">Read the manual</a>
+</div>
+
+<section id="which">
+  <h3>Which build am I?</h3>
+  <p class="lead">Both builds install a program called <code>sdroxide</code>. That is the whole reason this page exists.</p>
+
+  <div class="check">
+    <h4>Run this and read the line</h4>
+    <code>sdroxide --version</code>
+    <p style="margin:0">
+      <span class="yes">SDR Oxide Brown &hellip; 2.0.12_brown</span> &nbsp;← Brown, this site<br>
+      <span class="no">SDR Oxide &hellip; 1.6.10</span> &nbsp;← upstream, a different program
+    </p>
+    <p style="margin:11px 0 0;color:#9198a1;font-size:14px">
+      The title bar and <b>Settings &rarr; General</b> both show it too. If yours does not say
+      <b>_brown</b>, you are running upstream and this page is not about your build.
+    </p>
+  </div>
+</section>
+
+<section id="what">
+  <h3>What's different</h3>
+  <p class="lead">Brown is upstream plus this. Nothing upstream has been taken away.</p>
+  <div class="grid">
+    <div class="card">
+      <h4>11 m as a two-way band</h4>
+      <p>WSJT-CB interop and channel plans, FT8 working 19&nbsp;callbook calls, the wide CB grammar the community has outgrown, and the transmit etiquette that goes with it.</p>
+    </div>
+    <div class="card">
+      <h4>The listener's side</h4>
+      <p>Broadcast schedule from EiBi, Aoki or HFCC &middot; reception log with QSL tracking &middot; time-shift replay &middot; scheduled recordings &middot; ECSS &middot; signal identification.</p>
+    </div>
+    <div class="card">
+      <h4>Digital broadcast</h4>
+      <p>DAB/DAB+ decoded and played, with station name, programme type and MOT slideshow.</p>
+    </div>
+    <div class="card">
+      <h4>Working the radio</h4>
+      <p>Contest logger &middot; ACARS &middot; KNOWN window (which hashes this station can resolve) &middot; a real iambic CW keyer that keys your rig.</p>
+    </div>
+    <div class="card">
+      <h4>The screen</h4>
+      <p>Detachable windows you can put on a second monitor &middot; saved workspaces &middot; a phone and tablet layout &middot; a browser client that signs in once.</p>
+    </div>
+    <div class="card">
+      <h4>Cheap receivers</h4>
+      <p>The ATS Mini and other sound-card-only boards are supported as listening receivers, alongside the RTL-SDR, RSP1, HackRF and the rest.</p>
+    </div>
+  </div>
+</section>
+
+<section id="get">
+  <h3>Download</h3>
+  <p class="lead">Windows, macOS and Linux. A release each Friday, with a nightly in between.</p>
+  <p style="margin:0 0 10px">
+    <a class="btn" href="https://github.com/madmedicnl/sdroxide-brown/releases/latest">Latest release</a>
+    <a class="btn ghost" href="https://github.com/madmedicnl/sdroxide-brown/releases">All releases</a>
+  </p>
+  <ul class="tight" style="margin-top:18px;color:#9198a1">
+    <li><b>Windows</b> &mdash; the <code>.msi</code> installs as <b>SDR Oxide Brown</b>, separate from any upstream install you already have.</li>
+    <li><b>macOS / Linux</b> &mdash; download and run; the package names are shared with upstream, so install Brown on its own.</li>
+    <li><b>Browser</b> &mdash; connect to your own station's server from any device, and sign in once for all its radios.</li>
+  </ul>
+</section>
+
+<section id="help">
+  <h3>Get help</h3>
+  <p class="lead">Questions, reports and pictures &mdash; all welcome.</p>
+  <div class="grid">
+    <div class="card">
+      <h4>Discussions</h4>
+      <p>The forum. Questions, ideas, show-and-tell.<br><a href="https://github.com/madmedicnl/sdroxide-brown/discussions">Open the discussions &rarr;</a></p>
+    </div>
+    <div class="card">
+      <h4>Bug reports</h4>
+      <p>Tell us the <b>version</b> and the radio. It's the one thing we can't guess.<br><a href="https://github.com/madmedicnl/sdroxide-brown/issues/new/choose">Report a bug &rarr;</a></p>
+    </div>
+    <div class="card">
+      <h4>Quick starts</h4>
+      <p>CB, FT8 on 11&nbsp;m, SSTV and listening, in English and three more.<br><a href="cb-quickstart.en.html">Read them &rarr;</a></p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h3>Upstream</h3>
+  <p class="lead" style="margin:0">
+    Brown is a build of <a href="https://github.com/dividebysandwich/sdroxide">SDRoxide</a> by
+    dividebysandwich. If you want upstream's build rather than this one, that link is the right
+    place &mdash; and its own site is <a href="https://sdroxide.com">sdroxide.com</a>. Please don't
+    report Brown's problems there.
+  </p>
+</section>
+
+</div>
+
+<footer>
+  <div class="wrap">
+    <p>
+      Written and maintained by <b>Roy</b> and <b>Kevin</b>, with the help of an LLM.<br>
+      Brown is GPL-3.0-or-later. SDRoxide is by dividebysandwich, also GPL-3.0-or-later.
+    </p>
+  </div>
+</footer>
+
+</body>
+</html>
