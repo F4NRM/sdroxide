@@ -17,8 +17,15 @@ upstream feature requests **this fork** may pick up, not a promise to upstream.
    test that two overlapping tool windows leave nothing of the lower one visible
    outside its own rect. **Do not fix this from the screenshot** — three wrong
    causes from one picture is the house rule earning itself.
-3. **#537, the false OPEN alerts.** Answered, unmeasured. The two spot feeds
-   share one per-path baseline and that is the likely cause.
+3. ~~**#537, the false OPEN alerts**~~ — **FIXED.** The cause was the warm-up
+   clock, exactly as the maintainer suspected: `first_watched` is keyed by path
+   and survives a band change, while the spots behind it are pruned by age, so
+   returning to a band divided by nothing and reported an **infinite** opening.
+   A spot also used to start its own clock, which is why a DX-cluster-only path
+   read as six hours of silence followed by an opening. Two changes: a spot no
+   longer starts the clock, and the manager tells the tracker when the dial
+   moves (`BandOpeningTracker::restart`). The second tests failed on the old
+   code with the maintainer's own symptom.
 4. **The tool window's ⇱/⇲ and undocked mode (#257).** The SDRuno window set —
    the largest thing here, and in progress.
 5. **UDP audio out (#594)** — built, socket-tested, **never listened to**. Stream

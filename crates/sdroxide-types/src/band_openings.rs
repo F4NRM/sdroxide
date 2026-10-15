@@ -193,6 +193,24 @@ pub struct BandOpeningTracker {
     /// genuinely quiet path, may have no spots at all, yet it has still been
     /// watched since the moment its feed started arriving.
     first_watched: HashMap<Key, i64>,
+    /// Reserved: continuity bookkeeping for a feed that is up. Kept as a field
+    /// rather than a local so a future feed can carry it without a wire change.
+    obs_start: HashMap<Key, i64>,
+    last_seen: HashMap<Key, i64>,
+    /// When this key's observation **began without a break**, and when it was
+    /// last delivered anything at all.
+    ///
+    /// The clock alone was not enough, and the maintainer was right about that
+    /// (PR #537): `first_watched` survives a band switch while the spots behind
+    /// it are pruned, so returning to a band gave a fully-warmed clock over an
+    /// empty history and took the "silent baseline" branch — which is
+    /// **infinite**, not large. A DX-cluster-only path did the same thing: its
+    /// first spot *is* the start of its clock, so a path seen for the first time
+    /// in six hours looked like a six-hour silence followed by an opening.
+    ///
+    /// So a key is only warmed for as long as it has been **continuously**
+    /// delivered. A gap longer than one short window means the feed was not
+    /// really being watched, and the clock starts again from now.
     states: HashMap<Key, StateRec>,
 }
 
@@ -213,6 +231,8 @@ impl BandOpeningTracker {
             spots: HashMap::new(),
             seen: HashMap::new(),
             first_watched: HashMap::new(),
+            obs_start: HashMap::new(),
+            last_seen: HashMap::new(),
             states: HashMap::new(),
         }
     }
@@ -241,6 +261,27 @@ impl BandOpeningTracker {
         // to its own `now`, which is what lets a caller say "this feed has been
         // up since X" after the first spots have already arrived.
         self.first_watched.entry(key).and_modify(|w| *w = (*w).min(since)).or_insert(since);
+    }
+
+    /// **The dial moved: forget every baseline.**
+    ///
+    /// This is the call the app was not making, and the maintainer's report on
+    /// #537 is what it explains. A feed is only polled for the band the dial is
+    /// on, so a path on a band you have just come back to has had **no
+    /// observation at all** for as long as you were away — while its watch
+    /// clock, keyed by path and not by timestamp, still said "warm for hours".
+    /// Warm over nothing is the silent-baseline branch, which divides by zero
+    /// and reports an **infinite** opening on the first spots back.
+    ///
+    /// So the clock is cleared with the dial rather than being trusted across a
+    /// gap it never observed. Everything warms again from now, which costs a few
+    /// minutes of quiet after every band change and is the only honest answer:
+    /// the alternative is reporting an opening that is really just a return.
+    pub fn restart(&mut self) {
+        self.first_watched.clear();
+        self.obs_start.clear();
+        self.last_seen.clear();
+        self.states.clear();
     }
 
     /// The warm-up clock for a path: when it was first watched, if known.
@@ -274,7 +315,15 @@ impl BandOpeningTracker {
             // a path that is producing no spots — a quiet band is still being
             // watched, and that is what lets it open once its baseline span is
             // real rather than being stuck at "never" forever.
-            self.first_watched.entry(key).or_insert(now);
+            // **A spot does not start the warm-up clock, and that is the whole
+            // fix.** It used to (`or_insert(now)`), which is what let a
+            // DX-cluster-only path read as a six-hour silence followed by an
+            // opening: the path's *first ever* spot set its clock to that
+            // moment, so "watched for hours" and "nothing seen for hours" were
+            // the same statement. The clock is now only ever started by
+            // [`Self::watch`], which the caller uses when a feed actually comes
+            // up — and which, until the app started calling it, only tests did.
+            let _ = key;
             // A re-send of the same observation is dropped; a later timestamp
             // for the same id is a fresh observation and counts. Keying on the
             // timestamp rather than an absolute bucket keeps a station's rate
@@ -339,6 +388,20 @@ impl BandOpeningTracker {
             // spots) looked freshly warmed and opened at 5–40×, and a genuinely
             // silent path could never reach the ∞ case because it had no spots
             // to measure from at all.
+            // **The clock cannot claim a baseline older than the evidence that
+            // survives.** `first_watched` outlives pruning — it is keyed by
+            // path, not by timestamp — so coming back to a band found a clock
+            // warm from hours ago over a spot list that had been trimmed away,
+            // which is precisely the "silent baseline" branch and therefore an
+            // *infinite* opening on the first spot back. Bounding the clock by
+            // the oldest surviving spot closes that, and costs nothing to a
+            // path that has not been away.
+            // **The clock cannot claim a baseline older than the evidence that
+            // survives.** `first_watched` is keyed by path, not timestamp, so it
+            // outlives pruning: coming back to a band found a clock warm from
+            // hours ago over a spot list that had been trimmed away — which is
+            // the silent-baseline branch, and therefore an *infinite* opening
+            // on the first spot back.
             let watched_since = self.first_watched.get(key).copied().unwrap_or(now);
             let observed_baseline_s =
                 (now - watched_since - self.opts.short_window_s).clamp(0, nominal_baseline_s);
@@ -853,6 +916,100 @@ mod tests {
     /// genuinely silent *can* open, because the warm-up clock advances with the
     /// watching, not with the spots. Under the old "oldest spot" rule a silent
     /// baseline had no span to measure from, so the ∞ case was unreachable.
+    /// **Coming back to a band must not open everything on it.**
+    ///
+    /// The maintainer's report on #537, and it was an *infinite* factor rather
+    /// than a large one: `first_watched` is keyed by path and survives the
+    /// switch, while the spots behind it are pruned by age. So the clock said
+    /// "warmed for hours" over an empty baseline, which is the branch that
+    /// divides by zero and returns `f64::INFINITY`.
+    ///
+    /// **Verified failing on the old code** — the first spot back opened.
+    /// A spot at an **absolute** time. The module's own `spot()` stamps
+    /// relative to its `NOW` constant, which silently made the tests below
+    /// ingest nothing at all — every spot fell outside the retention window, so
+    /// they passed on the broken code as well as the fixed one, and guarded
+    /// nothing. That is the whole lesson of those two tests' first version.
+    fn at(call: &str, ts: i64) -> BandPath {
+        BandPath {
+            call: call.to_string(),
+            band: Band::M20,
+            from_continent: "EU",
+            to_continent: "NA",
+            timestamp: ts,
+            id: Some(format!("{call}|{ts}")),
+        }
+    }
+
+    #[test]
+    fn coming_back_to_a_band_does_not_open_a_path_that_was_pruned_away() {
+        let now = 1_700_000_000;
+        let opts = OpenOptions { short_window_s: 300, baseline_window_s: 9_900, ..Default::default() };
+        let mut t = BandOpeningTracker::with_options(opts);
+
+        // Watched for hours, and one quiet stretch so the clock is warm.
+        t.watch(Band::M20, "EU", "NA", now - 8_000);
+        t.ingest(&[], now - 8_000);
+
+        // A spot, then a long silence: the spot ages out of the retained list.
+        t.ingest(&[at("K1ABC", now - 7_000)], now - 7_000);
+        for step in 1..=40 {
+            t.ingest(&[], now - 7_000 + step * 300);
+        }
+
+        // The dial went elsewhere and came back. **This is the call the app
+        // was not making**, and it is what the report is about.
+        t.restart();
+
+        // Back on the band. These five are the whole feed for the window —
+        // five, because `min_distinct_calls` is five and one spot is not an
+        // opening by anyone's definition.
+        let back = now;
+        let burst: Vec<BandPath> = ["K1ABC", "K2ABC", "K3ABC", "K4ABC", "K5ABC"]
+            .iter()
+            .map(|c| at(c, back))
+            .collect();
+        t.ingest(&burst, back);
+        let openings = t.analyze(back);
+        assert!(
+            openings.is_empty(),
+            "returning to a band opened a path on one spot: {openings:?}"
+        );
+    }
+
+    /// **A DX-cluster spot must not start a clock that no feed ever started.**
+    ///
+    /// The other half of the same report. A path that only the DX cluster ever
+    /// mentions has its **first-ever spot** set its watch clock, so "this path
+    /// has been watched for hours" and "this path was silent for hours" were
+    /// the same sentence — and the first spot after a quiet spell read as an
+    /// opening with no baseline to compare against, which again is infinity.
+    ///
+    /// **No `watch()` call here, and that is the point:** nobody said the feed
+    /// was up. Verified failing on the old code.
+    #[test]
+    fn a_first_ever_spot_does_not_start_a_warm_up_clock() {
+        let now = 1_700_000_000;
+        let opts = OpenOptions { short_window_s: 300, baseline_window_s: 9_900, ..Default::default() };
+        let mut t = BandOpeningTracker::with_options(opts);
+
+        // Six hours of nothing at all for this path.
+        for step in 0..72 {
+            t.ingest(&[], now - 21_600 + step * 300);
+        }
+        // Then one cluster spot. Nothing has ever watched this path.
+        let burst: Vec<BandPath> = ["W1AW", "W2AW", "W3AW", "W4AW", "W5AW"]
+            .iter()
+            .map(|c| at(c, now))
+            .collect();
+        t.ingest(&burst, now);
+        let openings = t.analyze(now);
+        assert!(
+            openings.is_empty(),
+            "a first-ever spot opened a path nothing was watching: {openings:?}"
+        );
+    }
+
     #[test]
     fn a_watched_but_silent_path_can_still_open() {
         let mut t = BandOpeningTracker::new();

@@ -41,6 +41,9 @@ pub struct SpotManager {
     /// any evidence pushed in by [`SpotManager::feed_openings`].
     band_openings: BandOpeningTracker,
     last_band_openings: Vec<BandOpening>,
+    /// The band the opening tracker is currently warmed for. `None` until the
+    /// first poll, so the first one never restarts a tracker that is empty.
+    openings_band: Option<Band>,
     /// Set when evidence arrived outside a feed cycle, so the next poll runs
     /// the analysis even when no feed spoke.
     feed_dirty: bool,
@@ -116,6 +119,7 @@ impl SpotManager {
             last_snapshot: Vec::new(),
             band_openings: BandOpeningTracker::new(),
             last_band_openings: Vec::new(),
+            openings_band: None,
             feed_dirty: false,
             continent_memo: HashMap::new(),
             dial_bits: Arc::new(AtomicU64::new(14_074_000f64.to_bits())),
@@ -441,6 +445,19 @@ impl SpotManager {
     /// Drain everything pending: feed updates (merged into a fresh spot
     /// snapshot when the set changed) plus worker results.
     pub fn poll(&mut self) -> Vec<NetEvent> {
+        // **The band the dial is on, and whether it changed.** A feed is only
+        // polled for the current band, so every path on the band we have just
+        // left has had no observation for as long as we were elsewhere. The
+        // band-opening tracker is told, so its warm-up clock is not trusted
+        // across a gap it never saw — which is what produced an **infinite**
+        // opening on the first spots back (upstream #537).
+        let dial_hz = f64::from_bits(self.dial_bits.load(Ordering::Relaxed));
+        let band_now = Band::containing(dial_hz);
+        if let Some(previous) = self.openings_band.replace(band_now)
+            && previous != band_now
+        {
+            self.band_openings.restart();
+        }
         let mut got_feed = false;
         while let Ok((kind, spots)) = self.feed_rx.try_recv() {
             self.by_kind.insert(kind, spots);

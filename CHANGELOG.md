@@ -13,6 +13,9 @@ and the [README](https://github.com/madmedicnl/sdroxide-brown#readme).
 
 ## [Unreleased]
 
+### Fixed
+- **False OPEN alerts when returning to a band, or when a DX-cluster spot mixes with PSK Reporter.** The warm-up clock survived a band change while the spots behind it had been pruned, so the first traffic back divided by nothing and read as an infinite opening. The tracker is now told when the dial moves.
+
 ### Added
 - **BETA — SYNOP and SHIP weather reports.** RTTY on 4583, 7646 and 10100.8 kHz carries a coded report from ships and land stations every few hours; this decodes them into wind, pressure, temperature, cloud and sea state. A **WEATHER** chip opens the list when a report has been heard. Still being tried out — please try it and say what you see.
 
