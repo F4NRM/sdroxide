@@ -297,9 +297,9 @@ pub struct DabStatus {
     /// A receiver too narrow to hold an ensemble decodes nothing and says so.
     #[serde(default)]
     pub degraded: Option<String>,
-    /// The decoded audio's level, left and right, in dBFS RMS over the last
-    /// status interval — measured before the volume control, so the meter
-    /// shows the programme and not the knob. `None` while nothing plays.
+    /// The decoded audio's level, left and right, in dBFS RMS over the block
+    /// last sent to the speakers — measured before the volume control, so the
+    /// meter shows the programme and not the knob. `None` while nothing plays.
     ///
     /// Appended last: `DabStatus` rides the wire whole.
     #[serde(default)]
