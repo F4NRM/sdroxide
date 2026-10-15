@@ -63,7 +63,7 @@ or connects to a remote sdroxide server.
   **ISB** (independent sideband — two services on one carrier, one in each ear), a
   spectrum-only mode (SPEC), the automatic digital modes **FT8**, **FT4** and
   **FT2**, the
-  keyboard modes **PSK31**, **RTTY**, **Olivia**, **THOR** and **FSQ**, the image
+  keyboard modes **PSK31**, **RTTY**, **SYNOP/SHIP**, **Olivia**, **THOR** and **FSQ**, the image
   modes **SSTV**, **weather fax** and **RIFP** (draft-dulaunoy-rifp-00, a packetised image
   protocol on its own FSK modem), the transmit-only **RF Paint**
   (spectrum-painting) mode, AX.25 **packet** on HF and VHF, and **APRS** — with
@@ -4549,6 +4549,68 @@ Its band buttons are the FM **calling** channels — 50.150, 145.500 and 433.500
 because RTTY on FM has no worldwide convention at all: where it is still used the
 frequency comes from the society running the bulletin. Tune the real one and
 store it in a memory.
+
+### 3.3a SYNOP and SHIP — coded weather reports (**BETA**)
+
+> **BETA.** The decoder is tested against four real published messages and
+> decodes all of them, but **no report has been read off the air by this code
+> yet**. If you try it and the numbers look wrong, or a report does not appear
+> at all, please say so — that is what this note is for.
+
+Ships and land stations broadcast the **weather where they are** as coded numbers
+on HF RTTY, every few hours. It is the plainest service on the shortwave band:
+no internet, no account, no timeslot booking — just a schedule you can read off a
+piece of paper.
+
+Set **RTTY**, **50 baud**, **170 Hz shift**, and listen on one of:
+
+| kHz | Who |
+|---|---|
+| **4583** | German weather service (DKD/DWD), 24 h |
+| **7646** | the same, worldwide schedule |
+| **10100.8** | the same, higher power |
+
+They go out roughly every six hours across two codes:
+
+| UTC | Code | What |
+|---|---|---|
+| 02:00, 07:35 | **SHIP** — WMO FM 13 | ships |
+| 00:35, 12:10 | **SYNOP** — WMO FM 12 | land stations |
+| 08:15, 20:15 | BUOY — FM 13 | buoys |
+
+These are the quietest hours on the band. Leave it running.
+
+The line arrives as a wall of figures and means nothing on its own:
+
+```
+BBXX BRAVO 20123 99252 10595 41494 81412 10285 20269 40100 53012 79586 8597/ …
+```
+
+When one is recognised, a **WEATHER** chip appears beside the message box with
+the number of reports heard. Press it and a window lists them newest first, each
+one giving:
+
+- **the station and the time it was observed** — from `DDD` and `YYGGiw`;
+- **the position**, in degrees — the quadrant digit fixes both hemispheres;
+- **wind**, with the unit the report asked for rather than an assumed one;
+- **pressure, air and dew-point temperature, sea temperature**;
+- **cloud amount and type**, **visibility**, and **present and past weather**,
+  spelled out rather than left as two digits;
+- for a ship, **course, speed, waves and swell** — and the speed is a *range*,
+  because the code is a range;
+- **the raw line**, kept above the decoding, because a listener checking a report
+  against the original needs the figures and not just the interpretation.
+
+**A slash is an answer, not a gap.** Groups like `8597/` mean *not reported* —
+neither zero nor missing — and are shown as **not reported**. A blank there would
+read as our fault rather than the station's.
+
+Anything the decoder does not recognise as a group is kept and shown as the
+station's own words. Human-entered reports put the interesting part in exactly
+that way, and it is the part worth reading.
+
+Nothing leaves the program: the list is for this session only, because a report
+read tomorrow is a lie about when it was observed.
 
 ### 3.4 Olivia, THOR and FSQ
 
