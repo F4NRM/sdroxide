@@ -4833,6 +4833,31 @@ that cannot transmit — because the ham RX strip has no room for another chip (
 desktop-strip two-row test pins it) and a listener's log is the reception one.
 The same EQ is also on the LISTEN window's Tone row.
 
+## ⛔ No release happens by itself — and none by an agent (2026-10-16)
+
+**The operator's standing rule, and it overrides the rhythm below: a release is
+cut only when he asks, and after Kevin has tested.** Neither an agent nor he
+tags one on his own initiative. He is not at home with his radio, the work has
+got technical, and a build reaching a tester unasked is the thing he is avoiding.
+
+**The one exception he named: the nightly.** `nightly.yml` at 18:00 UTC moves the
+`nightly` tag and dispatches `release.yml` against it, publishing a
+**pre-release**. That continues.
+
+**What was actually happening, because it was not the Friday release.** The
+"release run" with errors on the morning of the 16th was `release.yml`'s own
+**daily cron** (`17 3 * * *`), which had been there since an older nightly and
+was **superseded by `nightly.yml`**: it built the whole matrix every day and then
+skipped `create release` (the release is gated on a tag), so it published nothing
+and cost fourteen builds a day. It fired on the 14th, 15th and 16th.
+
+**The schedule is removed.** `release.yml` now triggers on a **tag push** and on
+**`workflow_dispatch`** only. `windows-msi.yml` and `armv7-probe.yml` are already
+dispatch-only. So nothing publishes on its own but the nightly.
+
+**An agent must not tag a release.** Not a Friday one, not a patch one, not
+"because the queue looks clean". Ask.
+
 ## The release rhythm (decided 2026-10-07, and it is a decision, not a habit)
 
 The operator's own words, kept because the reasoning is the whole point: *"we'll

@@ -37,16 +37,17 @@ on:
         required: false
         default: false
         type: boolean
-  # Nightly build, 03:17 UTC. Same deal as a manual run — `release` is gated on
-  # a tag, so nothing is published — but it builds the four platforms listed in
-  # `targets` rather than all fourteen, and the result is downloaded from the
-  # run's Artifacts section. Note that GitHub runs a schedule on the default
-  # branch only, and disables it after 60 days with no commits to the
-  # repository; a push re-enables it. The odd minute is deliberate: GitHub
-  # delays scheduled runs at the top of the hour, when load peaks, and drops
-  # some outright, which is most likely what became of the first 03:00 nightly.
-  schedule:
-    - cron: '17 3 * * *'
+  # **No schedule here, and that is the point.** This workflow used to carry a
+  # daily cron that built the whole matrix and then skipped creating a release
+  # (the release is gated on a tag), so it published nothing and cost fourteen
+  # builds a day. `nightly.yml` superseded it — that one moves the `nightly`
+  # tag and dispatches this workflow against it, which *does* publish a
+  # pre-release, at 18:00 UTC and on a smaller matrix.
+  #
+  # **A release now happens only two ways: a tag is pushed, or this is
+  # dispatched by hand.** Nothing publishes on its own. That is deliberate —
+  # the operator's standing rule is that a build reaching a tester has been
+  # asked for, and the nightly is the one exception he named.
 
 permissions:
   contents: write
