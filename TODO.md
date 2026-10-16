@@ -12,109 +12,64 @@ feature requests **this fork** may pick up, not a promise to upstream.
 
 1. **Undocked mode (#257)** — the SDRuno window set, and the next session's whole
    job. See `SDRUNO-UI-HANDOVER.md` and `UNDOCKED-HANDOVER.md`. The operator's
-   call (2026-10-15): the session is saved for this, so nothing else is started
-   in it.
+   call: the session is saved for this, so nothing else is started in it.
 
-2. **The sound device leaving the audio server** — **issue #89**, reported against
-   `2.0.13_brown`, documented and **deliberately not next.** Full detail below;
-   the short version is that it is probably not a quick fix, and half of it may
-   not be needed at all.
+2. **WEFAX detection** — the one real bug from discussion #90. DWD Pinneberg at
+   3855 kHz, four captures of the same transmission minutes apart, and the decoder
+   locking the **wrong line rate or IOC**: the 09:57 picture has a compass rose
+   reading *SEESCHIFFAHRT DWD* and two `52°N` labels — a perfectly good fax — but
+   it is sheared and **904 px wide against 1809**. Full detail in the #90 section
+   below. **First job when the operator is back at the radio (Sunday)**; it needs
+   his captures, and the phasing logic it touches carries a warning (a previous
+   fix regressed #276).
 
-   **Report.** Opening the program takes the sound device away from the audio
-   server, and closing it does not give it back. The operator, 2026-10-15: *"when I now open the app
-   the audio devices selected in the program disappear from my sound settings,
-   and I can't see them in cable. That would be ok if they return when I close
-   the program but that doesn't happen, I have to unplug or reload pipewire."*
-
-   **The evidence, read from his own configuration:**
-   `config.toml` has `audio_output = "Generic KM_B2 Audio, USB Audio
-   [Audio · 8087:1024]"` — a USB sound card, selected as the output.
-
-   **The likely cause, and it is nameable: cpal opens ALSA devices directly.**
-   cpal's ALSA host hands `snd_pcm_open` the device's own hardware name, which
-   **bypasses the sound server and takes the card exclusively**. PipeWire
-   therefore loses the node and drops it from the graph — his "disappear from my
-   sound settings". When sdroxide exits the PCM closes, but PipeWire does not
-   re-acquire the node by itself, so it stays gone until the device is
-   replugged or the server restarted.
-
-   **It is the same shape as the Bluetooth work**, and that is the useful part:
-   the sound server owns the device, and anything that reaches past it to the
-   hardware takes it away from everything else. There we found that
-   `pulse:<node>` is accepted by ALSA but cpal cannot open what the host did not
-   enumerate — so the fix is not obviously "open it a different way".
-
-   **The intended behaviour, settled by the operator (2026-10-15):** *"for the
-   Bluetooth I understand and it was mentioned, because otherwise it would not
-   see the device — but for the other devices it's too drastic."*
-
-   So there are **two cases and they are not the same**, and the fix must not
-   treat them alike:
-   - **A sound-server node** (a Bluetooth headset, a virtual sink) — taking the
-     machine's default is the only route that exists, because PipeWire has no
-     per-application capture source. It stays, and it stays **warned about**.
-   - **An ordinary sound card** — the card must keep working for everything
-     else. It is shared through the sound server, and it must **not** disappear
-     from the machine's own sound settings while the program runs. Reaching past
-     the server to the hardware is the fault here, and there is no reason for it:
-     the card is the sound server's to hand out.
-
-   So the shape of the fix is "open the card **through** the sound server, and
-   keep the hardware name only as the label the operator picks by" — not "open
-   it a different way" in general. Verified against a plain USB card on the bench,
-   which is what caught it.
-
-   **The clean-exit question is answered, and it removes the cheap half
-   (operator, 2026-10-15):** *"had to test, the card isn't coming back and i have
-   to restart pipewire."*
-
-   So it is **not** a kill artefact and **not** a teardown fault. The card is
-   closed on exit and PipeWire does **not** reclaim the node by itself — a
-   dropped node needs the server restarted, which is its behaviour rather than
-   ours. **Which means "release it properly on exit" is not a fix and must not be
-   attempted as one**: the only fix is to stop taking the card in the first place.
-
-   That makes this the expensive half and nothing else:
-
-   **What to establish first, before changing anything:**
-   - `cat /proc/asound/card*/pcm*/sub*/status` with sdroxide running and stopped —
-     does the PCM show `RUNNING` while open, and does it release on exit?
-   - Which PCM cpal actually opened: the engine logs the device name it opens.
-   - Whether the node returns on a *clean* exit rather than a kill — the operator
-     has been `pkill`ing it all evening, and that skips any teardown.
-   - If it is the raw-hardware open, the fix is to prefer the `pipewire`/`pulse`
-     PCM so the server keeps ownership, and to **warn** when a raw `hw:` device
-     is picked — the same treatment the Bluetooth node got, for the same reason.
-
-
-   this list. See `SDRUNO-UI-HANDOVER.md` and `UNDOCKED-HANDOVER.md`. It wants a
-   session of its own rather than the tail of one.
-2. **`docs/synop-notes.md`** — keep it current rather than written once. The wrong
+3. **`docs/synop-notes.md`** — keep it current rather than written once. The wrong
    "fixes" it records are what a third reader would otherwise repeat.
-3. **`docs/USER_MANUAL.md`** — the ⇱/⇲ chip's `Order::Middle` rule, and the two
+
+4. **`docs/USER_MANUAL.md`** — the ⇱/⇲ chip's `Order::Middle` rule, and the two
    UDP fixes, are worth a line where a reader would look for them. Not urgent;
    the manual is for the operator, not for us.
 
+## Sound device leaving the audio server (#89) — FIXED, awaiting his confirmation
+
+Reported against `2.0.13`: opening the program took the sound device out of the
+audio server, and closing it did not give it back.
+
+**The cause was ours, and it was not how the card is opened.** Two theories died
+by measurement — that cpal's hardware-name open takes the card (`hw:`,
+`sysdefault:`, `pulse:` and `default` each tested; none did) and that our
+`wpctl set-default` did it (tested; it did not). WirePlumber's own journal named
+it instead:
+
+    s-monitors: Failed to create ALSA node …: Object activation aborted:
+      PipeWire proxy destroyed
+
+**The client that vanished was ours.** The Settings → Audio page asked the
+patchbay what it held **on every frame it drew**, spawning a `pactl` process each
+time — tens a second, every one a PipeWire client connecting and being destroyed,
+and one landing inside WirePlumber's activation window aborted it. Fixed in
+`0d1dd7a1`: a pure shape check answers the common case with no process at all,
+and the list is cached for when it is genuinely needed.
+
+**Two things still stand from the report:**
+
+- **The intended behaviour, settled by the operator:** taking the machine's
+  default is right for a **sound-server node** (a Bluetooth headset — the only
+  route that exists, because PipeWire has no per-application capture source) and
+  **too drastic for an ordinary sound card**, which must keep working for
+  everything else. That distinction is in the settings warning already.
+- **A clean exit does not return the card either** — PipeWire does not reclaim a
+  dropped node by itself. That is why "release it properly on exit" was never the
+  fix, and why the cause had to be found instead.
+
+**Awaiting the operator's word that the card now stays put.**
+
 ## From discussion #90 (Kevin, 2026-10-16)
 
-**WEFAX detection at 3855 kHz — "detection, not the signal".** DWD Pinneberg's
-**chart** frequency, and four captures of the same transmission minutes apart:
+**WEFAX detection** — see *Now* above for the evidence; it is the one real bug
+here and it is first for Sunday.
 
-| Time | Result | Width |
-|---|---|---|
-| 09:45Z | noise, horizontal banding | 1809 |
-| 09:47Z | noise above, partial chart below | 1809 |
-| 09:57Z | **sheared** — compass rose and `52°N` legible but slanted | **904** |
-| 11:15Z | clean, complete chart | 1809 |
-
-The signal is a good fax and the decoder is locking the **wrong line rate or
-IOC** — the 904 px half-width and the diagonal shear are the signature. **First
-job when the operator is back at the radio (Sunday)**: get the four captures, then
-work the decoder's start/rate detection. Care needed — the phasing logic carries
-a warning in AGENTS.md (a narrow static stripe is indistinguishable from a
-phasing pulse from line data alone; a previous fix regressed #276).
-
-**The rest of #90, checked and answered on the thread:**
+**The rest, checked and answered on the thread:**
 - *Settings rows overlapping* — **not reproducible**, here or on his machine with
   the trace. Every row at its own y. Left open in case it returns.
 - *Sound 3 s behind the waterfall* — every queue is bounded (server lane 8 blocks,
