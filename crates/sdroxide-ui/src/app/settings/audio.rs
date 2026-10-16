@@ -35,15 +35,26 @@ use crate::theme::gray;
 /// is right, because in a browser the page really does own its own capture.
 #[cfg(not(target_arch = "wasm32"))]
 fn is_machine_default_device(name: &str, output: bool) -> bool {
-    // **Membership in the extra list, not the shape of the name.** The first
-    // version asked `is_graph_node_name`, which matches `alsa_input.` — and the
-    // ordinary analog card on this machine is called
-    // `alsa_input.pci-0000_06_00.6.analog-stereo`. So picking a sound card
-    // would have warned that it takes over the machine's recording, which is
-    // false, on the most-used row of the page. The engine never made that
-    // mistake: it routes through `set-default` only when ALSA cannot see the
-    // node, and the extra list *is* exactly that set — the names the program had
-    // to add for itself. Ask the list rather than re-deriving the condition.
+    // **The shape first, as a pure check, and the list only to confirm.**
+    //
+    // This function is called every frame the page draws, and asking the list
+    // means spawning a `pactl` process — tens of them a second, each one a
+    // PipeWire client that connects and is destroyed. WirePlumber aborts an
+    // ALSA node's activation when a client vanishes mid-activation, and the
+    // sound card was disappearing from the graph for good as a result. So the
+    // common case — a cpal display name like `Generic KM_B2 Audio, USB Audio
+    // [Audio]` — is answered here by shape, with **no process spawned at all**.
+    //
+    // The shape alone is not the answer, and that is the trap this had already
+    // fallen into once: `is_graph_node_name` matches `alsa_input.`, and the
+    // ordinary analog card is literally `alsa_input.pci-0000_06_00.6.analog-stereo`,
+    // so shape alone warned that a plain sound card takes over the machine's
+    // recording. Shape decides whether the list is *worth asking*; the list
+    // decides. And the list itself is cached now, so a page that does ask costs
+    // one process every few seconds rather than one per frame.
+    if !sdroxide_audio::graph::is_graph_node_name(name) {
+        return false;
+    }
     sdroxide_audio::graph::extra_device_names(output).iter().any(|n| n == name)
 }
 #[cfg(target_arch = "wasm32")]

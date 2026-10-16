@@ -81,12 +81,41 @@ pub fn graph_nodes(output: bool) -> Vec<GraphNode> {
 /// twice under two names — which is worse than not offering it, because the
 /// operator cannot tell which is which.
 pub fn extra_device_names(output: bool) -> Vec<String> {
-    graph_nodes(output)
+    // **Cached, and it is not an optimisation.** This is called from a settings
+    // panel that redraws every frame, and each call used to spawn a short-lived
+    // `pactl` process — a PipeWire client that connects and is destroyed again.
+    // WirePlumber aborts an ALSA node's activation when a client vanishes
+    // mid-activation (`s-monitors: Failed to create ALSA node …: Object
+    // activation aborted: PipeWire proxy destroyed`), so the panel was, tens of
+    // times a second, taking a sound card out of the graph for good: the sink
+    // disappeared from the machine's sound settings and only a PipeWire restart
+    // brought it back. Reported as "it happened since we messed with pipewire
+    // for the bluetooth mike", and it was.
+    //
+    // A few seconds of staleness costs nothing here — the list is of things that
+    // change when a device is plugged in or a profile attached, and the caller
+    // has a Rescan for exactly those moments.
+    const TTL: std::time::Duration = std::time::Duration::from_secs(5);
+    let mut cache = EXTRA_CACHE.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some((at, dir, names)) = cache.as_ref()
+        && *dir == output
+        && at.elapsed() < TTL
+    {
+        return names.clone();
+    }
+    let names: Vec<String> = graph_nodes(output)
         .into_iter()
         .filter(|n| !n.name.starts_with("alsa_"))
         .map(|n| n.name)
-        .collect()
+        .collect();
+    *cache = Some((std::time::Instant::now(), output, names.clone()));
+    names
 }
+
+/// Last answer per direction, with when it was taken. See [`extra_device_names`].
+static EXTRA_CACHE: std::sync::Mutex<
+    Option<(std::time::Instant, bool, Vec<String>)>,
+> = std::sync::Mutex::new(None);
 
 /// Whether `name` is a sound-server graph node rather than an ALSA card.
 pub fn is_graph_node_name(name: &str) -> bool {
