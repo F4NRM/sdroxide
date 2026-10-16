@@ -339,6 +339,7 @@ pub use swl::{
 pub use tciserver::TciServerConfig;
 pub use tone::{CTCSS_TONES, SubTone};
 pub use ui::{
+    BroadcastScope,
     BandplanKind, ChromeStyle, ClientAcks, ClientScreen, DetachableModule, DetachedState,
     DetachedWindow, FontSize, LayoutMode, SmeterStyle, Solar3dWindow, SpectrumDetail,
     SpectrumFillStyle, Speed, UiSettings, UiTheme, WORKSPACE_MAX, Workspace,

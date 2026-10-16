@@ -51,12 +51,22 @@ pub(in crate::app) fn listen_set(
     home: Option<(f64, f64)>,
     history: bool,
     logged: &[sdroxide_types::SwlEntry],
+    scope: sdroxide_types::BroadcastScope,
 ) -> ListenSet {
     use sdroxide_types::BroadcastStation;
     let mut out = ListenSet::default();
     // A panadapter showing nothing has not settled yet; a floor keeps the map
     // useful in the moment after start-up rather than blank.
-    let half = (span_hz / 2.0).max(4_000.0);
+    //
+    // **The window is the operator's choice, not ours** (#80). The span is right
+    // for a waterfall label, where a station off the edge of a 10 kHz window is
+    // not something to label on it — and wrong for a listener looking at a
+    // whole-band map, who is told there are four stations in the world because
+    // the dial happens to be at 6190. `WholeBand` is what they asked for.
+    let half = match scope {
+        sdroxide_types::BroadcastScope::InView => (span_hz / 2.0).max(4_000.0),
+        sdroxide_types::BroadcastScope::WholeBand => f64::INFINITY,
+    };
 
     let mut considered = 0usize;
     for s in schedule {
@@ -144,9 +154,41 @@ pub(in crate::app) fn station_near(
 
 #[cfg(test)]
 mod tests {
+    use sdroxide_types::BroadcastScope;
     use super::{listen_set, station_near};
     use sdroxide_types::BroadcastStation;
     use sdroxide_types::SwlEntry;
+
+    /// **The span is not the whole band, when the operator says so** (#80).
+    ///
+    /// drdatapi's report: broadcast names gone from the waterfall, and the SPOTS
+    /// list empty, on 2.0.11 and 2.0.12 — while a click on a signal still found
+    /// the stations, so the data was never missing. The window is the
+    /// panadapter's own span, which is right for a label on that waterfall and
+    /// wrong for a listener looking at a whole-band map.
+    ///
+    /// So the two are a choice, and this pins both ends of it.
+    #[test]
+    fn the_broadcast_window_is_the_span_or_the_band() {
+        let stations: Vec<BroadcastStation> = [
+            ("Local", 6_190.0, Some(52.0), Some(5.0)),
+            ("Far away", 6_950.0, Some(-33.0), Some(151.0)),
+            ("Further", 7_200.0, Some(40.0), Some(-74.0)),
+        ]
+        .iter()
+        .map(|&(n, k, la, lo)| station(n, k, la, lo))
+        .collect();
+
+        // 20 kHz of span at 6190 kHz reaches none of the others.
+        let inview = listen_set(&stations, 6_190_000.0, 20_000.0, None, false, &[], BroadcastScope::InView);
+        assert_eq!(inview.near.len(), 1, "the span should hold only what it holds");
+        assert_eq!(inview.on_band, 1);
+
+        // The whole band is all of them, which is what a listener asked for.
+        let whole = listen_set(&stations, 6_190_000.0, 20_000.0, None, false, &[], BroadcastScope::WholeBand);
+        assert_eq!(whole.near.len(), 3, "the whole band should hold every station");
+        assert_eq!(whole.on_band, 3);
+    }
 
     fn station(name: &str, khz: f64, lat: Option<f64>, lon: Option<f64>) -> BroadcastStation {
         BroadcastStation {
@@ -169,7 +211,7 @@ mod tests {
             station("just outside", 6_196.0, Some(50.0), Some(6.0)),
             station("far away", 7_200.0, Some(50.0), Some(7.0)),
         ];
-        let set = listen_set(&s, 6_190_000.0, 10_000.0, None, false, &[]);
+        let set = listen_set(&s, 6_190_000.0, 10_000.0, None, false, &[], BroadcastScope::InView);
         let names: Vec<&str> = set.stations.iter().filter_map(|d| d.call.as_deref()).collect();
         assert_eq!(names, vec!["in span"], "only the span: {names:?}");
         assert_eq!(set.dropped_off_band, 2);
@@ -187,7 +229,7 @@ mod tests {
             station("no position", 6_191.0, None, None),
             station("half placed", 6_192.0, Some(50.0), None),
         ];
-        let set = listen_set(&s, 6_190_000.0, 20_000.0, None, false, &[]);
+        let set = listen_set(&s, 6_190_000.0, 20_000.0, None, false, &[], BroadcastScope::InView);
         assert_eq!(set.stations.len(), 1, "only the placed one is drawn");
         assert_eq!(
             set.dropped_no_position, 2,
@@ -209,10 +251,10 @@ mod tests {
         };
         let s = vec![station("on band", 6_190.0, Some(50.0), Some(5.0))];
 
-        let off = listen_set(&s, 6_190_000.0, 20_000.0, None, false, &[logged.clone()]);
+        let off = listen_set(&s, 6_190_000.0, 20_000.0, None, false, &[logged.clone()], BroadcastScope::InView);
         assert!(off.logged.is_empty(), "history off must draw nothing of it");
 
-        let on = listen_set(&s, 6_190_000.0, 20_000.0, None, true, &[logged]);
+        let on = listen_set(&s, 6_190_000.0, 20_000.0, None, true, &[logged], BroadcastScope::InView);
         assert_eq!(on.logged.len(), 1, "history on draws what was logged");
         assert_eq!(on.stations.len(), 1, "and does not disturb what is on now");
     }
@@ -222,7 +264,7 @@ mod tests {
     #[test]
     fn a_logged_station_without_coordinates_is_not_drawn_at_zero() {
         let logged = SwlEntry { station: "typed by hand".into(), ..Default::default() };
-        let set = listen_set(&[], 6_190_000.0, 20_000.0, None, true, &[logged]);
+        let set = listen_set(&[], 6_190_000.0, 20_000.0, None, true, &[logged], BroadcastScope::InView);
         assert!(set.logged.is_empty(), "absent coordinates must not become 0,0");
     }
 
@@ -244,7 +286,7 @@ mod tests {
             lon: Some(12.0),
             ..Default::default()
         };
-        let set = listen_set(&[], 6_190_000.0, 20_000.0, None, true, &[pirate, ordinary]);
+        let set = listen_set(&[], 6_190_000.0, 20_000.0, None, true, &[pirate, ordinary], BroadcastScope::InView);
         assert_eq!(set.logged.len(), 2);
         assert_ne!(
             set.logged[0].2, set.logged[1].2,
@@ -346,7 +388,7 @@ mod tests {
             station("our own local tx", 6_190.0, Some(52.0), Some(5.0)),
             station("a real one", 6_191.0, Some(50.0), Some(6.0)),
         ];
-        let set = listen_set(&s, 6_190_000.0, 20_000.0, Some(home), false, &[]);
+        let set = listen_set(&s, 6_190_000.0, 20_000.0, Some(home), false, &[], BroadcastScope::InView);
         assert_eq!(set.stations.len(), 1, "the local one must not cover home");
     }
 }
@@ -425,7 +467,15 @@ impl SdroxideApp {
         });
         ui.add_space(4.0);
 
-        let set = listen_set(&self.broadcast, dial, span, home, self.listen_history, &self.swl_log);
+        let set = listen_set(
+            &self.broadcast,
+            dial,
+            span,
+            home,
+            self.listen_history,
+            &self.swl_log,
+            self.ui_settings.broadcast_scope,
+        );
         // Say plainly what the map is *not* showing, or an empty map is
         // indistinguishable from a quiet band.
         if set.stations.is_empty() {

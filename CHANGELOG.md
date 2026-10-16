@@ -13,6 +13,9 @@ and the [README](https://github.com/madmedicnl/sdroxide-brown#readme).
 
 ## [Unreleased]
 
+### Added
+- **Settings → UI: which broadcast stations a screen may show** — on the panadapter's span, or the whole band. The span is right for a label on that waterfall and wrong for a whole-band map (issue #80).
+
 ### Fixed
 - **Opening the settings no longer takes a sound card out of the audio server.** The page asked the patchbay what it held on every frame it drew, spawning a PipeWire client each time — and WirePlumber aborts a card's activation when a client vanishes mid-activation, so the card left the graph until the server was restarted.
 

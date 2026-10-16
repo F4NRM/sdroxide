@@ -1840,8 +1840,13 @@ use sdroxide_types::{
 /// — PSTRotator's own UDP control port, as an arm on the transport enum this
 /// fork already has rather than a second enum beside it (issue #638). Appended
 /// as a variant, so a v210 peer reads the discriminant it knows.
-pub const PROTO_VERSION: u16 = 211;
-const VERSION_BYTE: u8 = 0x1F;
+/// v212: [`sdroxide_types::ClientScreen`] gains `broadcast_scope`
+/// ([`sdroxide_types::BroadcastScope`]) at its tail — which broadcast stations
+/// a listener's screen may show, the panadapter's span or the whole band
+/// (issue #80). It rides `ClientScreen` because it is what the listener sees,
+/// and travels with the theme for the same reason. Appended last.
+pub const PROTO_VERSION: u16 = 212;
+const VERSION_BYTE: u8 = 0x20;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ProtoError {

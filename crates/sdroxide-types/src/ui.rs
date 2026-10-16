@@ -739,6 +739,38 @@ pub struct DetachedState {
     pub window: Option<DetachedWindow>,
 }
 
+/// Which broadcast stations a listener's screen is allowed to show.
+///
+/// **The window is the panadapter's span, and that is right for the waterfall
+/// label** — a station off the edge of a 10 kHz window is not something to
+/// label on it. But the LISTEN window's map is a whole-band picture, and a
+/// listener looking at it wants the band, not a sliver. The two disagree, so
+/// the choice is the operator's rather than ours (`#80`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum BroadcastScope {
+    /// Only what the panadapter's own span covers, half a span either side.
+    InView,
+    /// Everything the schedule has, whether it is on screen or not.
+    WholeBand,
+}
+
+impl Default for BroadcastScope {
+    fn default() -> Self {
+        // Unchanged from before this existed: a fresh screen behaves as every
+        // screen has.
+        BroadcastScope::InView
+    }
+}
+
+impl BroadcastScope {
+    pub fn label(self) -> &'static str {
+        match self {
+            BroadcastScope::InView => "On this span",
+            BroadcastScope::WholeBand => "The whole band",
+        }
+    }
+}
+
 /// User display preferences. All have defaults so a missing `[ui]` table loads.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -1099,6 +1131,11 @@ pub struct UiSettings {
     /// note above.
     #[serde(default, skip_serializing, rename = "panadapter_window")]
     pub panadapter_window_legacy: Option<DetachedWindow>,
+    /// Which broadcast stations a listener's screen may show — see
+    /// [`BroadcastScope`]. Defaults to the span, which is what every screen did
+    /// before the choice existed.
+    #[serde(default)]
+    pub broadcast_scope: BroadcastScope,
 }
 
 /// Default for [`UiSettings::spot_colors`] — every kind on its stock tint.
@@ -1298,6 +1335,7 @@ impl Default for UiSettings {
             detached: [DetachedState::default(); DetachableModule::COUNT],
             panadapter_detached_legacy: false,
             panadapter_window_legacy: None,
+            broadcast_scope: BroadcastScope::default(),
         }
     }
 }
@@ -1585,6 +1623,11 @@ pub struct ClientScreen {
     /// How the fill is shaded — [`UiSettings::spectrum_fill_style`].
     /// Appended last: this struct rides the wire positionally.
     pub spectrum_fill_style: SpectrumFillStyle,
+    /// Which broadcast stations a screen may show — [`BroadcastScope`], and it
+    /// belongs on the wire for the same reason the theme does: it is what the
+    /// listener sees, and they see it from whichever device they signed in on.
+    /// Appended last: this struct rides the wire positionally.
+    pub broadcast_scope: BroadcastScope,
 }
 
 impl Default for ClientScreen {
@@ -1630,6 +1673,7 @@ impl ClientScreen {
             spectrum_fill: s.spectrum_fill,
             spectrum_fill_color: s.spectrum_fill_color,
             spectrum_fill_style: s.spectrum_fill_style,
+            broadcast_scope: s.broadcast_scope,
         }
     }
 
@@ -1666,6 +1710,7 @@ impl ClientScreen {
         s.spectrum_fill = self.spectrum_fill;
         s.spectrum_fill_color = self.spectrum_fill_color;
         s.spectrum_fill_style = self.spectrum_fill_style;
+        s.broadcast_scope = self.broadcast_scope;
     }
 }
 

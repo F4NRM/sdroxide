@@ -43,6 +43,30 @@ pub(in crate::app) fn settings_ui_tab(
 ) {
     use sdroxide_types::{ChromeStyle, FontSize, LayoutMode, UiSettings, UiTheme};
     ui.label(RichText::new("Display").size(14.0).strong().color(crate::theme::CYAN()));
+    {
+        // **How many broadcast stations a listener's screen may show** (#80).
+        // The window is the panadapter's span, which is right for a label on
+        // that waterfall and wrong for a whole-band map: a listener at 6190 kHz
+        // with 20 kHz of span was told there were four stations in the world.
+        use sdroxide_types::BroadcastScope as B;
+        ui.label("Broadcast stations");
+        ComboBox::from_id_salt("ui-broadcast-scope")
+            .selected_text(cfg.broadcast_scope.label())
+            .show_styled(ui, |ui| {
+                for scope in [B::InView, B::WholeBand] {
+                    ui.selectable_value(&mut cfg.broadcast_scope, scope, scope.label());
+                }
+            })
+            .response
+            .on_hover_text(
+                "Which broadcasting stations the LISTEN window and the waterfall label may \
+                 show.\n\n**On this span** is what every screen did before this was a \
+                 choice: half a span either side of the dial, which is what a label on that \
+                 waterfall should cover. **The whole band** shows everything the schedule \
+                 holds with a position on it, which is what a listener browsing a band is \
+                 looking for — at the cost of a busier map.",
+            );
+    }
     ui.add_space(6.0);
     // Said here because this is where they used to be, and where an operator
     // who remembers them will come looking. They moved to the panadapter's own
