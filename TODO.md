@@ -95,6 +95,40 @@ feature requests **this fork** may pick up, not a promise to upstream.
    UDP fixes, are worth a line where a reader would look for them. Not urgent;
    the manual is for the operator, not for us.
 
+## From discussion #90 (Kevin, 2026-10-16)
+
+**WEFAX detection at 3855 kHz — "detection, not the signal".** DWD Pinneberg's
+**chart** frequency, and four captures of the same transmission minutes apart:
+
+| Time | Result | Width |
+|---|---|---|
+| 09:45Z | noise, horizontal banding | 1809 |
+| 09:47Z | noise above, partial chart below | 1809 |
+| 09:57Z | **sheared** — compass rose and `52°N` legible but slanted | **904** |
+| 11:15Z | clean, complete chart | 1809 |
+
+The signal is a good fax and the decoder is locking the **wrong line rate or
+IOC** — the 904 px half-width and the diagonal shear are the signature. **First
+job when the operator is back at the radio (Sunday)**: get the four captures, then
+work the decoder's start/rate detection. Care needed — the phasing logic carries
+a warning in AGENTS.md (a narrow static stripe is indistinguishable from a
+phasing pulse from line data alone; a previous fix regressed #276).
+
+**The rest of #90, checked and answered on the thread:**
+- *Settings rows overlapping* — **not reproducible**, here or on his machine with
+  the trace. Every row at its own y. Left open in case it returns.
+- *Sound 3 s behind the waterfall* — every queue is bounded (server lane 8 blocks,
+  worklet 250 ms, desktop ring ~0.5 s) and the hidden-tab case is fixed by
+  `fresh_tail`. **Asked which client and which output device** — 3 s smells like a
+  Bluetooth/USB buffer, not a queue.
+- *FT8 scroll bar out of sync* — the list never had stick-to-bottom, so nothing was
+  removed. **Hypothesis: streaming decodes grow the list under a scroll position
+  set for a finished slot.** Asked him to confirm the drift.
+- *"Many parameters not persistent"* — his own tests pass, the config parses, no
+  quarantine. **Asked which settings** — chaseable without a radio.
+- *s-meter calibration deleted* — not a bug; removed on his word (wrong-build
+  reading). Upstream has its own at #642.
+
 ## Waiting on other people, and nothing to do about it
 
 - **SYNOP feedback (#88)** — BETA. Built, tested against four real published
