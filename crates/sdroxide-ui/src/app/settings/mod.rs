@@ -2887,17 +2887,12 @@ impl SdroxideApp {
                     });
                     ui.end_row();
 
-                    // **Nothing here for the S-meter calibration.** The control
-                    // was removed — it was built on a reading from the wrong
-                    // build — and it left its **label** behind, alone in a row
-                    // of a grid whose every other row has two cells. egui pads a
-                    // row to the widest, so the short row shifted everything
-                    // below it by a column and the page came apart: labels and
-                    // their controls drawn on top of each other, all the way
-                    // down. One stray label, and the whole panel.
-                    //
-                    // Removing a control means removing its row, not just its
-                    // widget.
+                    // The S-meter's calibration. Live, not on Apply: the
+                    // operator sets it against a signal they are watching, and
+                    // it only moves the reading, so there is nothing to reopen.
+                    ui.label(RichText::new("S-Meter calib").strong());
+                    smeter_cal_combo(ui, &mut cfg.smeter_cal);
+                    ui.end_row();
 
                 });
                 if let sdroxide_types::RxSite::Elsewhere(g) = &*site {
@@ -4987,6 +4982,41 @@ fn settings_cw_usb(ui: &mut egui::Ui, io: &mut SettingsIo) {
 #[cfg(not(all(not(target_arch = "wasm32"), target_os = "linux")))]
 fn settings_cw_usb(ui: &mut egui::Ui, _io: &mut SettingsIo) {
     ui.label(RichText::new("A USB paddle needs a Linux desktop.").size(10.5).weak());
+}
+
+/// The label one S-meter calibration step is offered under.
+fn smeter_cal_label(steps: i8) -> String {
+    match steps {
+        0 => "0 (as measured)".to_string(),
+        s if s > 0 => format!("+{s} S"),
+        s => format!("{s} S"),
+    }
+}
+
+/// The S-Meter calib picker on Settings → Radio: `-5..=+5` S-units, written
+/// straight into the radio's configuration, which is saved and takes effect
+/// at once.
+fn smeter_cal_combo(ui: &mut egui::Ui, cal: &mut i8) {
+    use sdroxide_types::{SMETER_CAL_MAX, SMETER_CAL_MIN};
+    egui::ComboBox::from_id_salt("smeter-cal")
+        .selected_text(smeter_cal_label(*cal))
+        .show_ui(ui, |ui| {
+            for steps in SMETER_CAL_MIN..=SMETER_CAL_MAX {
+                ui.selectable_value(cal, steps, smeter_cal_label(steps));
+            }
+        })
+        .response
+        .on_hover_text(
+            "Corrects this radio's S-meter when it reads too high or too low, in \
+             S-units of 6 dB.\n\nA negative value lowers the reading — for a meter \
+             that shows too much, a noise floor at S5 where it should be S2. A \
+             positive value raises it. 0 is the meter as measured.\n\nOnly the \
+             reading moves: the needle, the S and dBm figures, the level a \
+             reception report starts from, and the spoken S-meter. The signal, \
+             the squelch, recording and the decoders are not touched.\n\nSaved \
+             with this radio on the machine it is attached to, and takes effect \
+             at once.",
+        );
 }
 
 #[cfg(test)]
