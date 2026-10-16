@@ -14,6 +14,9 @@ and the [README](https://github.com/madmedicnl/sdroxide-brown#readme).
 ## [Unreleased]
 
 ### Added
+- **An SDRuno theme** — SDRuno's steel blue-grey panels, cyan readouts and amber active states, meant to be worn with the **Bevel** button style. Settings → UI, Theme.
+
+### Added
 - **The S-meter calibration is back, at ±5 S-units** — Kevin's original revision of the per-radio correction, which he says worked perfectly. Per radio, display only, saved with the radio.
 
 <<<<<<< HEAD

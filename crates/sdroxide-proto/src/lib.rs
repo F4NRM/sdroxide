@@ -1845,8 +1845,13 @@ use sdroxide_types::{
 /// a listener's screen may show, the panadapter's span or the whole band
 /// (issue #80). It rides `ClientScreen` because it is what the listener sees,
 /// and travels with the theme for the same reason. Appended last.
-pub const PROTO_VERSION: u16 = 212;
-const VERSION_BYTE: u8 = 0x20;
+/// v213: [`sdroxide_types::UiTheme`] gains `SdrUno` — SDRuno's steel blue-grey
+/// palette, rather than the deep navy of `Calm` that merely echoes it. Inserted
+/// before `Default`, which is serde's catch-all and must stay last, so
+/// **`Default`'s discriminant moves**; a `UiTheme` rides `ClientScreen`, which
+/// is why this is a wire change and not a free one.
+pub const PROTO_VERSION: u16 = 213;
+const VERSION_BYTE: u8 = 0x21;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ProtoError {

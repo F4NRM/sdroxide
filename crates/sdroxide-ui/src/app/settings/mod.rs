@@ -5231,6 +5231,73 @@ mod settings_probe {
     /// The same window on an SDR, where the page ends in a description and the
     /// shared **Apply / reconnect** button — the pair a reporter's screenshot
     /// showed drawn on top of each other.
+    /// Render Settings → Radio wearing the SDRuno palette, to be looked at.
+    ///
+    /// `SDROXIDE_PROBE=1 cargo test --release -p sdroxide-ui --lib
+    /// settings_probe_theme_png -- --nocapture`
+    #[test]
+    fn settings_probe_theme_png() {
+        use eframe::egui;
+        if std::env::var("SDROXIDE_PROBE").is_err() {
+            return;
+        }
+        let (ctx, mut app) = probe_app();
+        // **Through `ui_settings`, not `set_look`.** The app re-applies the look
+        // from its own settings every frame, so calling `set_look` here is
+        // overwritten before the frame is drawn — and the render then shows the
+        // *default* palette while looking like it worked.
+        app.ui_settings.theme = sdroxide_types::UiTheme::SdrUno;
+        app.ui_settings.button_style = sdroxide_types::ChromeStyle::Bevel;
+        app.ui_settings.window_style = sdroxide_types::ChromeStyle::Bevel;
+        let mut cfg = app.radio_cfg.clone().unwrap_or_default();
+        cfg.backend = sdroxide_types::Backend::SdrPlay;
+        app.radio_cfg = Some(cfg);
+        app.caps = Some(sdroxide_types::DeviceCaps {
+            driver: "SdrPlay".into(),
+            label: "SDRplay RSP1 test".into(),
+            rx_channels: 1,
+            tx_channels: 1,
+            gains: vec![
+                sdroxide_types::GainElement::db("LNA", sdroxide_types::Direction::Rx, 0.0, 40.0, 8.0),
+                sdroxide_types::GainElement::db("VGA", sdroxide_types::Direction::Rx, 0.0, 62.0, 2.0),
+            ],
+            ..Default::default()
+        });
+        app.settings_tab = SettingsTab::Radio;
+        app.show_settings = true;
+        let mut textures = crate::test_raster::Textures::default();
+        let mut full = None;
+        for _ in 0..4 {
+            app.radio_cfg = app.radio_cfg.clone().map(|mut c| {
+                c.backend = sdroxide_types::Backend::SdrPlay;
+                c
+            });
+            let input = egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::Vec2::new(1280.0, 900.0),
+                )),
+                ..Default::default()
+            };
+            let out = ctx.run_ui(input, |ui| {
+                eframe::App::ui(&mut app, ui, &mut eframe::Frame::_new_kittest())
+            });
+            textures.apply(&out.textures_delta);
+            full = Some(out);
+        }
+        let full = full.expect("a frame");
+        let img = crate::test_raster::rasterize(
+            &ctx,
+            full,
+            &textures,
+            egui::Vec2::new(1280.0, 900.0),
+            crate::theme::palette().panel,
+        );
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target");
+        let _ = std::fs::create_dir_all(&dir);
+        let _ = img.save(dir.join("settings-probe-sdruno.png"));
+    }
+
     #[test]
     fn settings_probe_radio_png() {
         use eframe::egui;

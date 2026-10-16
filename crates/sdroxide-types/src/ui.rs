@@ -375,6 +375,20 @@ pub enum UiTheme {
     /// added — a `UiTheme` rides [`ClientScreen`], so this is the reason the
     /// theme arrived with a `PROTO_VERSION` bump rather than a free change.
     Calm,
+    /// **SDRuno's own steel**, rather than a look that merely echoes it:
+    /// mid blue-grey panels instead of navy, cyan readouts, amber for the active
+    /// state, and meant to be worn with `ChromeStyle::Bevel` for the raised edge
+    /// the real program's buttons carry.
+    ///
+    /// [`UiTheme::Calm`] above is the near neighbour — it is *described* as the
+    /// SDRuno look but named for how it reads, and its grounds are a deep navy.
+    /// This one is the closer match and is named for the program, because the
+    /// point of it is that a screenshot looks like SDRuno.
+    ///
+    /// Declared before [`UiTheme::Default`] for the same reason `Calm` is: the
+    /// catch-all must stay last, so `Default`'s discriminant moves and the theme
+    /// needs a `PROTO_VERSION` bump.
+    SdrUno,
     /// The classic navy/cyan/pink look. Declared last because serde demands
     /// the catch-all be the final variant: it also swallows an unrecognised
     /// value in a hand-edited config, so a typo degrades to the default theme
@@ -385,7 +399,7 @@ pub enum UiTheme {
 }
 
 impl UiTheme {
-    pub const ALL: [UiTheme; 18] = [
+    pub const ALL: [UiTheme; 19] = [
         UiTheme::Default,
         UiTheme::Light,
         UiTheme::HighContrast,
@@ -404,6 +418,7 @@ impl UiTheme {
         UiTheme::CatppuccinLatte,
         UiTheme::ModernMinimalist,
         UiTheme::Calm,
+        UiTheme::SdrUno,
     ];
 
     pub fn label(self) -> &'static str {
@@ -426,6 +441,7 @@ impl UiTheme {
             UiTheme::CatppuccinLatte => "Catppuccin latte",
             UiTheme::ModernMinimalist => "Modern minimalist",
             UiTheme::Calm => "Calm",
+            UiTheme::SdrUno => "SDRuno",
         }
     }
 

@@ -558,6 +558,57 @@ const CALM: Palette = Palette {
     hazard_dark: c(0x241f12),
 };
 
+/// **SDRuno's own steel**: blue-grey panel faces, cyan readouts and amber
+/// active states, and it is deliberately *lighter* than every other dark theme
+/// here.
+///
+/// That lightness is the point. SDRuno's panels are a mid blue-grey rather than
+/// near-black, and that is most of what makes a screenshot of it recognisable —
+/// a palette that borrowed only its cyan would read as one more dark theme. It
+/// is meant to be worn with [`ChromeStyle::Bevel`], which is the raised edge
+/// the real program's buttons carry.
+const SDRUNO: Palette = Palette {
+    light: false,
+    no_dim: false,
+    // A mid grey-blue, not near-black: SDRuno's window ground is the panel's
+    // own grey, and that is most of what makes a screenshot of it read as steel
+    // rather than as one more dark theme.
+    bg_deep: c(0x232a33),
+    panel: c(0x2b3440),
+    input_bg: c(0x222a33),
+    fill: c(0x3c4753),
+    fill_hover: c(0x4b5866),
+    fill_active: c(0x5b6a7a),
+    line: c(0x46525f),
+    line_lit: c(0x74869a),
+    text: c(0xc2ccd6),
+    text_strong: c(0xeef4fa),
+    cyan: c(0x3fc6e0),
+    // Light enough to be read as a caption on the panel: SDRuno's own dim cyan
+    // is around 2.7:1 there, which is fine for a lamp and not for text.
+    cyan_dim: c(0x86cfe4),
+    pink: c(0x8fa3b8),
+    yellow: c(0xf0b429),
+    green: c(0x74c96a),
+    ink_on_cyan: c(0x10161c),
+    ink_on_bright: Color32::BLACK,
+    red_deep: c(0x6a2f22),
+    cq_bg: c(0x33415a),
+    tome_bg: c(0x4a3f22),
+    done_bg: c(0x2b4030),
+    row_bg: c(0x252d37),
+    row_hover: c(0x38424f),
+    scroll_track: c(0x252d37),
+    scroll_handle: c(0x74869a),
+    scroll_handle_hover: c(0x93a6bb),
+    scroll_handle_drag: c(0xd6e2ee),
+    faint_bg: c(0x252d37),
+    // The same hot red every theme keeps — see `every_theme_keeps_alerts_red`.
+    alert: c(0xe35545),
+    hazard: c(0xf0b429),
+    hazard_dark: c(0x2a2213),
+};
+
 /// The warm Gruvbox palette: parchment text on near-black browns, blue/aqua
 /// accents, and the bright-orange chrome that makes it unmistakable.
 const GRUVBOX: Palette = Palette {
@@ -872,7 +923,7 @@ const MODERN_MINIMALIST: Palette = Palette {
 };
 
 /// Indexed by [`theme_index`].
-static PALETTES: [Palette; 18] = [
+static PALETTES: [Palette; 19] = [
     DEFAULT,           // 0  Default
     GREEN_PHOSPHOR,    // 1  Green phosphor
     AMBER_PHOSPHOR,    // 2  Amber phosphor
@@ -891,6 +942,7 @@ static PALETTES: [Palette; 18] = [
     LIGHT,             // 15 Light
     HIGH_CONTRAST,     // 16 High contrast
     CALM,              // 17 Calm
+    SDRUNO,            // 18 SDRuno
 ];
 
 /// The S-meter instrument's colours: the face wash, the backlight bloom, the
@@ -1199,7 +1251,7 @@ const fn meter_paper(p: &Palette) -> MeterPalette {
 /// Indexed by [`theme_index`], like [`PALETTES`]. Rainbow keeps the historic
 /// navy instrument: its grounds are the default's, and the meter already
 /// reads in the accents the ramps give it.
-static METER_PALETTES: [MeterPalette; 18] = [
+static METER_PALETTES: [MeterPalette; 19] = [
     METER_DEFAULT,                   // 0  Default
     METER_GREEN,                     // 1  Green phosphor
     METER_AMBER,                     // 2  Amber phosphor
@@ -1218,6 +1270,7 @@ static METER_PALETTES: [MeterPalette; 18] = [
     METER_LIGHT,                     // 15 Light
     METER_HIGH_CONTRAST,             // 16 High contrast
     meter_from(&CALM),               // 17 Calm
+    meter_from(&SDRUNO),             // 18 SDRuno
 ];
 
 /// The current theme's S-meter instrument colours.
@@ -1321,7 +1374,7 @@ const fn scope_light_from(p: &Palette) -> ScopePalette {
 /// Indexed by [`theme_index`], like [`PALETTES`]. High contrast lends the
 /// instruments its own roles like any other dark theme — its accents were
 /// already picked to sit on black, which is what the glass is.
-static SCOPE_PALETTES: [ScopePalette; 18] = [
+static SCOPE_PALETTES: [ScopePalette; 19] = [
     scope_from(&DEFAULT),                 // 0  Default
     scope_from(&GREEN_PHOSPHOR),          // 1  Green phosphor
     scope_from(&AMBER_PHOSPHOR),          // 2  Amber phosphor
@@ -1340,6 +1393,7 @@ static SCOPE_PALETTES: [ScopePalette; 18] = [
     SCOPE_LIGHT,                          // 15 Light
     scope_from(&HIGH_CONTRAST),           // 16 High contrast
     scope_from(&CALM),                    // 17 Calm
+    scope_from(&SDRUNO),                  // 18 SDRuno
 ];
 
 /// The current theme's instrument inks — see [`ScopePalette`].
@@ -1506,7 +1560,7 @@ const fn map_light_from(p: &Palette) -> MapPalette {
 }
 
 /// Indexed by [`theme_index`], like [`PALETTES`].
-static MAP_PALETTES: [MapPalette; 18] = [
+static MAP_PALETTES: [MapPalette; 19] = [
     map_from(&DEFAULT),                 // 0  Default
     map_from(&GREEN_PHOSPHOR),          // 1  Green phosphor
     map_from(&AMBER_PHOSPHOR),          // 2  Amber phosphor
@@ -1525,6 +1579,7 @@ static MAP_PALETTES: [MapPalette; 18] = [
     SCOPE_MAP_LIGHT,                    // 15 Light
     MAP_HIGH_CONTRAST,                  // 16 High contrast
     map_from(&CALM),                    // 17 Calm
+    map_from(&SDRUNO),                  // 18 SDRuno
 ];
 
 /// The current theme's world-map inks — see [`MapPalette`].
@@ -1563,6 +1618,7 @@ const fn theme_index(t: UiTheme) -> u8 {
         UiTheme::Light => 15,
         UiTheme::HighContrast => 16,
         UiTheme::Calm => 17,
+        UiTheme::SdrUno => 18,
     }
 }
 
