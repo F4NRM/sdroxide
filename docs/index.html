@@ -5,7 +5,216 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>SDR Oxide Brown — SDR for CB, 11 m and shortwave listening</title>
 <meta name="description" content="SDR Oxide Brown is a build of SDRoxide tuned for the 11 m citizens band, shortwave listening and decoding. Not upstream — see how to tell them apart.">
-<link rel="stylesheet" href="style.css">
+<style>
+/* SDR Oxide Brown — sdrbrown.info
+   One page, one job: be unmistakably not upstream. */
+
+:root {
+  --bg: #0d1117;
+  --panel: #161b22;
+  --line: #262d36;
+  --ink: #e6edf3;
+  --dim: #9198a1;
+  --brown: #c8792f;
+  --brown-lit: #f0a868;
+  --blue: #58a6ff;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font: 16px/1.65 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+a { color: var(--blue); }
+a:hover { color: var(--brown-lit); }
+
+.wrap { max-width: 860px; margin: 0 auto; padding: 0 22px; }
+
+/* ── header ─────────────────────────────────────────── */
+
+header {
+  border-bottom: 1px solid var(--line);
+  background: linear-gradient(180deg, #1b1409, var(--bg));
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 26px 0 20px;
+}
+
+.brand h1 {
+  margin: 0;
+  font-size: 27px;
+  letter-spacing: -0.4px;
+}
+
+.brand h1 span { color: var(--brown); }
+
+.tag {
+  margin: 0 0 24px;
+  color: var(--dim);
+  font-size: 14px;
+}
+
+nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px;
+  padding: 12px 0;
+  border-top: 1px solid var(--line);
+  font-size: 14px;
+}
+
+/* ── hero ───────────────────────────────────────────── */
+
+.hero { padding: 46px 0 12px; }
+
+.hero h2 {
+  margin: 0 0 14px;
+  font-size: 38px;
+  line-height: 1.15;
+  letter-spacing: -1px;
+}
+
+.hero p { font-size: 18px; color: #c6cdd5; }
+
+.btn {
+  display: inline-block;
+  margin: 10px 10px 0 0;
+  padding: 11px 21px;
+  border-radius: 7px;
+  background: var(--brown);
+  color: #12100c;
+  font-weight: 650;
+  text-decoration: none;
+}
+
+.btn:hover { background: var(--brown-lit); color: #12100c; }
+
+.btn.ghost {
+  background: transparent;
+  border: 1px solid var(--line);
+  color: var(--ink);
+}
+
+.btn.ghost:hover { border-color: var(--brown); color: var(--brown-lit); }
+
+/* ── sections ───────────────────────────────────────── */
+
+section { padding: 34px 0; border-top: 1px solid var(--line); }
+
+h3 {
+  margin: 0 0 6px;
+  font-size: 14px;
+  letter-spacing: 1.6px;
+  text-transform: uppercase;
+  color: var(--brown);
+}
+
+p.lead { margin: 0 0 18px; color: #c6cdd5; }
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(232px, 1fr));
+  gap: 14px;
+}
+
+.card {
+  padding: 16px 18px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--panel);
+}
+
+.card h4 { margin: 0 0 7px; font-size: 16px; }
+.card p { margin: 0; font-size: 14.5px; color: var(--dim); }
+
+ul.tight { margin: 0; padding-left: 19px; }
+ul.tight li { margin-bottom: 7px; }
+
+/* ── the identity check ─────────────────────────────── */
+
+.check {
+  padding: 22px;
+  border: 1px solid var(--brown);
+  border-radius: 11px;
+  background: #1a1409;
+}
+
+.check h4 { margin: 0 0 9px; font-size: 19px; color: var(--brown-lit); }
+
+.check code {
+  display: block;
+  margin: 11px 0;
+  padding: 11px 14px;
+  border-radius: 7px;
+  background: #0b0d10;
+  color: #d9e2ec;
+  font-size: 15px;
+  overflow-x: auto;
+}
+
+.yes { color: #7ee08a; }
+.no  { color: #ff8b7e; }
+
+footer {
+  padding: 26px 0 40px;
+  border-top: 1px solid var(--line);
+  color: var(--dim);
+  font-size: 14px;
+}
+
+footer a { color: var(--dim); text-decoration: underline; }
+/* ── the vision ─────────────────────────────────────── */
+
+.vision-lead {
+  margin: 0 0 20px;
+  font-size: 25px;
+  font-weight: 300;
+  color: var(--brown-lit);
+  letter-spacing: -0.3px;
+}
+
+.vision-quote {
+  margin: 26px 0;
+  padding: 4px 0 4px 20px;
+  border-left: 3px solid var(--brown);
+  font-size: 19px;
+  line-height: 1.5;
+  color: #e8edf2;
+}
+
+/* ── screenshots ────────────────────────────────────── */
+
+.shot {
+  margin: 26px 0 4px;
+}
+
+.shot img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #0b0d10;
+}
+
+.shot figcaption {
+  margin-top: 9px;
+  font-size: 13.5px;
+  color: var(--dim);
+}
+
+/* The hero banner sits directly under the headline, so it wants less air
+   above it than a section's figure does. */
+.hero + .shot { margin-top: 18px; }
+</style>
 </head>
 <body>
 
