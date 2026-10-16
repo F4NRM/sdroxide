@@ -168,6 +168,24 @@ the next release is the first that carries it.
 
 ## Recently done
 
+### 2026-10-16
+
+- **The S-meter calibration is back at Kevin's first revision** (`6f95a06f`) —
+  ±5 S-units, per radio. The widening to ±15 was the mistake, and it was made on
+  a reading from a *different build*; the correction itself was never wrong.
+  **No `PROTO_VERSION` bump**: the field was never taken off the wire, so the
+  layout is byte-identical and this only puts it back to work.
+- **No release can happen by itself** (`d63f9409`). `release.yml` carried a daily
+  cron that built the whole matrix and then skipped creating a release — fourteen
+  builds a day, publishing nothing, and firing on the 14th, 15th and 16th. Gone;
+  **the nightly is the only thing that publishes on its own.**
+- **`SDROXIDE_SETTINGS_TRACE=1`** (`9643af59`) — every settings row labels itself
+  with its y, so an overlap is a number rather than an argument. It exists because
+  four pages were reported with rows on top of each other and no render here
+  reproduces it.
+- **Discussion #90 worked through** (`6065db71`) — one real bug (WEFAX detection,
+  now first for Sunday) and four answered with a question each.
+
 ### 2026-10-15
 
 - **Audio stream (#594)** — heard on the bench: *"perfect replay"*. Took **two
