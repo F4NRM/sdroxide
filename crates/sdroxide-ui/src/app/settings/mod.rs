@@ -2173,6 +2173,14 @@ impl SdroxideApp {
     fn settings_page(&self, ui: &mut egui::Ui, cmds: &mut Vec<Command>, io: &mut SettingsIo) {
         use sdroxide_types::Backend;
 
+        // A ruled scale down the page's left edge, when `SDROXIDE_SETTINGS_TRACE`
+        // is set — so every y on any page can be read off a screenshot, and two
+        // rows at the same y are visible as numbers rather than argued about.
+        {
+            let clip = ui.clip_rect();
+            crate::chrome::trace_ruler(ui, clip.left() + 3.0, clip.top(), clip.bottom());
+        }
+
         match io.tab {
             SettingsTab::General => {
                 // Which build this is — so a bug report can name the version

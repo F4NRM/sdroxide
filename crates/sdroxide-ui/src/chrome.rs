@@ -826,10 +826,68 @@ pub fn red_panel<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> R {
 ///
 /// For a rail that runs across the panel. A vertical one goes through
 /// [`slider_vertical`], which reads the same measurement as a height.
+/// **A row's y painted beside it, for one instrumented run.**
+///
+/// Set `SDROXIDE_SETTINGS_TRACE=1` and every widget in this file draws its own
+/// top edge as a number to its right, and the settings page draws a ruled scale
+/// down its left margin. That turns "two rows overlap" — which four pages have
+/// reported and no harness here reproduces — into **numbers in a screenshot**:
+/// two rows at the same y are two rows laid out on top of each other, and the
+/// figure says which.
+///
+/// Off unless the variable is set, so the shipped program is untouched. This
+/// exists because the alternative was another blind fix: the last three attempts
+/// to reason it out from the code each produced a confident answer that a
+/// measurement then refused.
+pub fn trace_on() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var("SDROXIDE_SETTINGS_TRACE").is_ok_and(|v| v != "0"))
+}
+
+/// Paint `rect`'s top edge as a number beside it. Does nothing unless tracing.
+pub fn trace_row(ui: &Ui, rect: egui::Rect, what: &str) {
+    if !trace_on() {
+        return;
+    }
+    ui.painter().text(
+        egui::pos2(rect.right() + 4.0, rect.min.y),
+        egui::Align2::LEFT_TOP,
+        format!("{:.0} {}", rect.min.y, what),
+        egui::FontId::monospace(9.0),
+        egui::Color32::from_rgb(255, 220, 60),
+    );
+}
+
+/// A ruled scale down `x`, so any y on the page can be read off a screenshot.
+pub fn trace_ruler(ui: &Ui, x: f32, top: f32, bottom: f32) {
+    if !trace_on() {
+        return;
+    }
+    let p = ui.painter();
+    let ink = egui::Color32::from_rgb(255, 220, 60);
+    let mut y = (top / 25.0).ceil() * 25.0;
+    while y <= bottom {
+        p.line_segment(
+            [egui::pos2(x, y), egui::pos2(x + 6.0, y)],
+            egui::Stroke::new(1.0, ink),
+        );
+        p.text(
+            egui::pos2(x + 8.0, y),
+            egui::Align2::LEFT_TOP,
+            format!("{y:.0}"),
+            egui::FontId::monospace(9.0),
+            ink,
+        );
+        y += 25.0;
+    }
+}
+
 pub fn slider(ui: &mut Ui, slider: egui::Slider<'_>) -> Response {
     // No caller of this one shows a value, so the rail is the whole width.
     let width = fit_rail(ui, 0.0);
-    skinned_slider(ui, Some(width), slider)
+    let r = skinned_slider(ui, Some(width), slider);
+    trace_row(ui, r.rect, "sld");
+    r
 }
 
 /// [`slider`] for a rail that runs up the box rather than across it.
@@ -856,12 +914,15 @@ pub fn slider_readout(ui: &mut Ui, readout_w: f32, slider: egui::Slider<'_>) -> 
         spacing.item_spacing.x + spacing.interact_size.x.max(readout_w)
     };
     let width = fit_rail(ui, beside);
-    ui.scope(|ui| {
-        let size = &mut ui.spacing_mut().interact_size;
-        size.x = size.x.max(readout_w);
-        skinned_slider(ui, Some(width), slider)
-    })
-    .inner
+    let r = ui
+        .scope(|ui| {
+            let size = &mut ui.spacing_mut().interact_size;
+            size.x = size.x.max(readout_w);
+            skinned_slider(ui, Some(width), slider)
+        })
+        .inner;
+    trace_row(ui, r.rect, "rdo");
+    r
 }
 
 /// [`slider`] that may be greyed out — `ui.add_enabled`, with a skin.
@@ -1438,6 +1499,7 @@ fn terminal_arrow(ui: &Ui, rect: Rect, visuals: &egui::style::WidgetVisuals, _op
 /// no way to tell one from the other after the fact. The metrics follow
 /// egui's own so a column of these still lines up with everything beside it.
 pub fn checkbox(ui: &mut Ui, on: &mut bool, text: impl Into<WidgetText>) -> Response {
+    let traced = trace_on();
     let (icon_w, gap) = (tick_box_width(ui), ui.spacing().icon_spacing);
     let wrap = {
         let a = ui.available_width() - icon_w - gap;
@@ -1473,6 +1535,9 @@ pub fn checkbox(ui: &mut Ui, on: &mut bool, text: impl Into<WidgetText>) -> Resp
             let pos = pos2(rect.left() + icon_w + gap, rect.center().y - label.y / 2.0);
             ui.painter().galley(pos, galley, v.text_color());
         }
+    }
+    if traced {
+        trace_row(ui, resp.rect, "chk");
     }
     resp
 }

@@ -13,6 +13,9 @@ and the [README](https://github.com/madmedicnl/sdroxide-brown#readme).
 
 ## [Unreleased]
 
+### Added
+- **`SDROXIDE_SETTINGS_TRACE=1` labels every settings row with its own y-coordinate**, so an overlap in a screenshot is a number rather than an argument. Off unless the variable is set.
+
 ## [2.0.13.1_brown] - 2026-10-16
 
 ### Fixed
