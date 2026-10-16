@@ -21,6 +21,11 @@ and the [README](https://github.com/madmedicnl/sdroxide-brown#readme).
 ### Added
 - **Settings → UI: which broadcast stations a screen may show** — on the panadapter's span, or the whole band. The span is right for a label on that waterfall and wrong for a whole-band map.
 
+> **Withdrawn — do not use.** 2.0.13 takes a sound card out of the audio server
+> when the settings are opened, and the fix is in **2.0.13.1** below. The release
+> was removed so nobody downloads it; the tag stays as the record of what was
+> built, and this entry stays above the version that replaced it.
+
 ## [2.0.13_brown] - 2026-10-15
 
 ### Added
