@@ -181,3 +181,28 @@ footer a { color: var(--dim); text-decoration: underline; }
   line-height: 1.5;
   color: #e8edf2;
 }
+
+/* ── screenshots ────────────────────────────────────── */
+
+.shot {
+  margin: 26px 0 4px;
+}
+
+.shot img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #0b0d10;
+}
+
+.shot figcaption {
+  margin-top: 9px;
+  font-size: 13.5px;
+  color: var(--dim);
+}
+
+/* The hero banner sits directly under the headline, so it wants less air
+   above it than a section's figure does. */
+.hero + .shot { margin-top: 18px; }
