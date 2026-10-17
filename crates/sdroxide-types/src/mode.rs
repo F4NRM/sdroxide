@@ -1895,6 +1895,40 @@ impl NrEngine {
         }
     }
 
+    /// **When to reach for this one**, in plain words.
+    ///
+    /// [`Self::name`] says what an engine *is*; this says which to pick, which
+    /// is the question a listener actually has. Five engines behind one chip is
+    /// a lot to choose between when three of the five names are acronyms, and a
+    /// set of denoisers nobody can tell apart reads as one thin feature rather
+    /// than as five — the report that prompted this was *"a few noise-reduction
+    /// features; they're nothing special"*, from somebody looking at sixteen
+    /// settings.
+    pub fn advice(self) -> &'static str {
+        match self {
+            NrEngine::Rnn => {
+                "Try this first on voice. Trained on speech, the cheapest of the five, and the \
+                 one that needs nothing else installed."
+            }
+            NrEngine::DeepFilter => {
+                "The strongest on speech and the heaviest to run. Reach for it when RNNoise \
+                 leaves the noise audible and the machine has the CPU to spare."
+            }
+            NrEngine::SpecBleach => {
+                "For steady hiss rather than speech: it measures the noise floor and lifts a \
+                 mask over it. Good on a quiet HF carrier."
+            }
+            NrEngine::Nr2 => {
+                "The denoiser PowerSDR and Thetis run — a good all-rounder, and the one worth \
+                 comparing the others against."
+            }
+            NrEngine::Spectral => {
+                "The original one. The gentlest of the five: it takes the hiss off without \
+                 touching the signal much."
+            }
+        }
+    }
+
     /// This engine at `strength`.
     pub fn at(self, s: NrStrength) -> NrLevel {
         use NrEngine::*;
@@ -2526,6 +2560,23 @@ mod tests {
                     "{want:?} is not in ALL exactly once"
                 );
             }
+        }
+    }
+
+    /// Every engine explains itself in plain words, and no two say the same
+    /// thing — the row of five acronyms is what a listener reads as one thin
+    /// feature (r/ShortwavePlus, 2026-10-17: *"a few noise-reduction features;
+    /// they're nothing special"*).
+    #[test]
+    fn every_nr_engine_says_when_to_reach_for_it() {
+        let mut seen = std::collections::HashSet::new();
+        for e in NrEngine::ALL {
+            let a = e.advice();
+            assert!(a.len() > 40, "{e:?} has no advice worth reading: {a:?}");
+            assert!(a.ends_with('.'), "{e:?}'s advice is not a sentence: {a:?}");
+            assert!(seen.insert(a), "{e:?} repeats another engine's advice");
+            // The advice must not just be the name again — it is the *when*.
+            assert_ne!(a, e.name(), "{e:?}'s advice is its name");
         }
     }
 

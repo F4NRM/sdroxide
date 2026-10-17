@@ -3443,16 +3443,25 @@ impl SdroxideApp {
                     let nr = self.state.rx[0].noise_reduction;
                     let hover = match nr.engine() {
                         Some(e) => format!(
-                            "Noise reduction: {} — {}\n\nClick to cycle the strength: \
-                             Low / Med / High / Off. The engine is in the rows below.",
+                            "Noise reduction: {} — {}\n\n{}\n\nClick to cycle the strength: \
+                             Low / Med / High / Off. The engine is the row below this one.",
                             nr.label(),
-                            e.name()
+                            e.name(),
+                            e.advice()
                         ),
-                        None => "Noise reduction, off — click to switch it on, or pick an engine \
-                                 in the rows below"
+                        // Off is where a listener meets this, so the hover is
+                        // where the five are named — otherwise a chip carrying
+                        // sixteen settings says nothing about any of them.
+                        None => "Noise reduction is off. Five denoisers are offered in the row \
+                                 below this one — RNNoise, DeepFilterNet3, spectral-bleach, NR2 \
+                                 and the original spectral — and clicking here switches it on \
+                                 at a strength. Start with RNNoise on voice."
                             .to_string(),
                     };
-                    if crate::chrome::chip(ui, nr.is_on(), "NR").on_hover_text(hover).clicked() {
+                    if crate::chrome::chip(ui, nr.is_on(), nr_chip_label(nr))
+                        .on_hover_text(hover)
+                        .clicked()
+                    {
                         let next = nr.next();
                         self.state.rx[0].noise_reduction = next; // optimistic echo
                         cmds.push(Command::SetNoiseReduction { rx: RxId::Main, level: next });
@@ -4375,8 +4384,12 @@ impl SdroxideApp {
                 pick(self, cmds, NrLevel::Off);
             }
             for e in NrEngine::ALL {
+                // The name says what it is; the advice says when to pick it,
+                // which is the question five denoisers raise. Without it the
+                // row reads as five acronyms and the whole feature as one thin
+                // option (see `NrEngine::advice`).
                 if crate::chrome::chip(ui, nr.engine() == Some(e), e.tag())
-                    .on_hover_text(e.name())
+                    .on_hover_text(format!("{}\n\n{}", e.name(), e.advice()))
                     .clicked()
                 {
                     pick(self, cmds, nr.with_engine(e));
@@ -7240,6 +7253,27 @@ fn bw_chip_label(mode: Mode, lo: f32, hi: f32) -> String {
     }
 }
 
+/// The compact NR chip's label.
+///
+/// `NR` alone says only whether noise reduction is in circuit — which is right
+/// on the **desktop strip**, where the chip opens the picker with all five
+/// engines in it and a label that grew and shrank would move every chip beside
+/// it (see [`SdroxideApp::nr_button`]). On the **compact** layouts the chip
+/// cycles the strength instead and the engines are a row inside the RX menu
+/// below it, so a listener sees the bare `NR` and never learns there is a
+/// choice to make. There the label carries the engine, which costs a little
+/// width inside a menu and buys the whole feature.
+///
+/// The original spectral engine keeps the bare label: it is what the chip said
+/// before there were five, and an operator coming from an older build sees the
+/// chip they know.
+fn nr_chip_label(nr: sdroxide_types::NrLevel) -> String {
+    match nr.engine() {
+        Some(e) if e != NrEngine::Spectral => format!("NR {}", e.tag()),
+        _ => "NR".to_string(),
+    }
+}
+
 fn bw_chip_hint(mode: Mode, lo: f32, hi: f32) -> String {
     let edges = format!("{lo:.0} … {hi:.0} Hz from the carrier");
     let what = if mode == Mode::Isb {
@@ -9060,6 +9094,31 @@ mod tests {
         // The minute must only roll at the top of the minute, not before.
         assert_eq!(iq_recording_caption(119, RATE), "119 MB · 1:59");
         assert_eq!(iq_recording_caption(120, RATE), "120 MB · 2:00");
+    }
+
+    /// The compact NR chip names the engine it cycles the strength of, so the
+    /// five denoisers are not hidden behind a bare `NR`; and the original
+    /// spectral one keeps the bare label every older build showed.
+    #[test]
+    fn the_compact_nr_chip_names_the_engine() {
+        use sdroxide_types::{NrEngine, NrLevel, NrStrength};
+        assert_eq!(nr_chip_label(NrLevel::Off), "NR");
+        assert_eq!(
+            nr_chip_label(NrLevel::Medium),
+            "NR",
+            "the original spectral engine keeps the chip every older build had"
+        );
+        for e in NrEngine::ALL {
+            if e == NrEngine::Spectral {
+                continue;
+            }
+            let l = e.at(NrStrength::Med);
+            assert_eq!(
+                nr_chip_label(l),
+                format!("NR {}", e.tag()),
+                "{e:?} is running and the compact chip does not say so"
+            );
+        }
     }
 
     /// The auto-stop deadline fires once, only while recording, and only at or
