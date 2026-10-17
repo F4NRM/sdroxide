@@ -390,6 +390,10 @@ pub struct SdroxideApp {
     /// Seeded from the loaded setting, so a session that starts in the mode
     /// keeps the arrangement the last one left.
     applied_sdruno: bool,
+    /// Whether the **root** window currently carries the workstation's title.
+    /// Retitling is a window-manager round trip, so it is done on the mode's own
+    /// edge rather than every frame.
+    title_sdruno: bool,
     /// The interface font size last written into the context as its zoom
     /// factor, for the same reason — and so the zoom is left alone in between,
     /// where it belongs to egui's own ctrl+plus / ctrl+minus.
@@ -1782,6 +1786,7 @@ impl SdroxideApp {
             swl_start: ui_settings.start_swl || ui_settings.swl || sdroxide_types::force_swl(),
             applied_look: (ui_settings.theme, ui_settings.button_style, ui_settings.window_style),
             applied_sdruno: ui_settings.sdruno,
+            title_sdruno: false,
             applied_ui_font: ui_settings.menu_font_size,
             speech: speech::SpeechRuntime::new(load_speech_settings(storage)),
             speech_voices: Vec::new(),
@@ -2232,6 +2237,20 @@ impl SdroxideApp {
         {
             sdruno::available(self.tier) && self.ui_settings.sdruno
         }
+    }
+
+    /// What **this window** is called, given the radio it is showing.
+    ///
+    /// One function, so the title sent when a radio's capabilities arrive and
+    /// the title sent when the workstation is switched on cannot disagree —
+    /// they are the two places the root window is titled, and a mode that
+    /// retitled one but not the other would leave the desk half-named.
+    pub(in crate::app) fn root_window_title_for(&self, radio: &str) -> String {
+        #[cfg(not(target_arch = "wasm32"))]
+        if self.sdruno_active() {
+            return sdruno::main_window_title(radio);
+        }
+        crate::window_title(radio)
     }
 
     /// The one place "all of them" is written, so the two buttons cannot drift

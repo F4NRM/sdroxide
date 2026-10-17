@@ -98,6 +98,18 @@ pub(in crate::app) fn window_title(role: &str) -> String {
     format!("SDRuno {role}")
 }
 
+/// **The MAIN window's own title**, which is what the root window is called
+/// while the mode is on. SDRuno's MAIN window is `SDRuno MAIN`; the radio's own
+/// name rides after it, so two radios on a desk can still be told apart — the
+/// fork's whole reason for a per-radio title in the first place.
+pub(in crate::app) fn main_window_title(radio: &str) -> String {
+    if radio.is_empty() {
+        window_title("MAIN")
+    } else {
+        format!("{} — {radio}", window_title("MAIN"))
+    }
+}
+
 /// SDRuno's name for a module's window, used for the title and the WINDOWS
 /// menu. `None` is the plain `DetachableModule::label`.
 pub(in crate::app) fn module_role(module: DetachableModule) -> &'static str {
@@ -144,15 +156,17 @@ fn group<R>(ui: &mut egui::Ui, caption: &str, add: impl FnOnce(&mut egui::Ui) ->
 /// Returns whether it was pressed. A lit button is one whose window is already
 /// out, which is the state SDRuno shows and the only way to tell at a glance
 /// what is open.
+///
+/// **`.strong()` is deliberately absent, and that is load-bearing.** `strong()`
+/// resolves the label's own colour rather than leaving it to the chip — and in
+/// this look the strong ink *is* the cyan that a selected chip is filled with,
+/// so every lit button came out as a blank cyan bar. It was found by looking at
+/// a screenshot of the hub, which is the only way it could be found: the shape
+/// list was correct all along, the sentence was simply invisible.
 fn function_button(ui: &mut egui::Ui, label: &str, lit: bool) -> bool {
     let w = ui.available_width().min(150.0).max(96.0);
-    crate::chrome::chip_sized(
-        ui,
-        lit,
-        RichText::new(label).size(12.0).strong(),
-        egui::vec2(w, 22.0),
-    )
-    .clicked()
+    crate::chrome::chip_sized(ui, lit, RichText::new(label).size(12.0), egui::vec2(w, 22.0))
+        .clicked()
 }
 
 impl super::SdroxideApp {
@@ -420,6 +434,12 @@ mod tests {
     }
 
     #[test]
+    fn the_main_window_keeps_the_radio_in_its_title() {
+        assert_eq!(main_window_title(""), "SDRuno MAIN");
+        assert_eq!(main_window_title("RSP1"), "SDRuno MAIN — RSP1");
+    }
+
+    #[test]
     fn the_float_hint_is_only_offered_in_the_mode() {
         set_active(false);
         assert_eq!(float_hint(), None, "an ordinary window must not be floated");
@@ -450,5 +470,64 @@ mod tests {
         assert_eq!(step_label(10.0), "10");
         assert_eq!(step_label(1_000.0), "1K");
         assert_eq!(step_label(12_500.0), "12.5K");
+    }
+
+    /// A lit function button's label must be readable **on the fill it is drawn
+    /// on**.
+    ///
+    /// This is a regression test for the one bug the hub had, and it was found
+    /// by rendering the window and looking at it: the three lit buttons were
+    /// blank cyan bars. The cause was `RichText::strong()` on the label, which
+    /// resolves the label's own colour instead of leaving it to the chip — and
+    /// this look's `strong_text_color` happens to be the same cyan a selected
+    /// chip is filled with, so the fallback ink (the dark colour chosen for
+    /// text on an accent fill) was never reached. Nothing in the shape list
+    /// said so: the text was there, in the colour of the ground beneath it.
+    ///
+    /// The assertion is on the colour the text will actually be **painted**,
+    /// which is the chip's fallback whenever the galley carries no colour of
+    /// its own — the distinction the whole bug lives in.
+    #[test]
+    fn a_lit_function_button_shows_its_label_on_its_own_fill() {
+        let ctx = egui::Context::default();
+        crate::theme::set_look(
+            sdroxide_types::UiTheme::SdrUno,
+            sdroxide_types::ChromeStyle::Bevel,
+            sdroxide_types::ChromeStyle::Bevel,
+        );
+        crate::theme::apply_visuals(&ctx);
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(400.0, 200.0),
+            )),
+            ..Default::default()
+        };
+        let out = ctx.run_ui(input, |ui| {
+            function_button(ui, "MAIN SP", true);
+        });
+        // The fill a lit chip is drawn in, read while the look is still on: the
+        // cyan below is the *default* theme's once this test has put the look
+        // back, and comparing against that would pass on the bug.
+        let fill = crate::theme::CYAN();
+        let painted = out.shapes.iter().find_map(|c| match &c.shape {
+            egui::Shape::Text(t) => {
+                let own = t.galley.job.sections[0].format.color;
+                Some(if own == egui::Color32::PLACEHOLDER { t.fallback_color } else { own })
+            }
+            _ => None,
+        });
+        crate::theme::set_look(
+            sdroxide_types::UiTheme::Default,
+            sdroxide_types::ChromeStyle::Angled,
+            sdroxide_types::ChromeStyle::Angled,
+        );
+        crate::theme::apply_visuals(&ctx);
+        let painted = painted.expect("a lit function button must draw its label");
+        assert_ne!(
+            painted, fill,
+            "the label is painted in the colour of the chip it sits on — a lit \
+             button with no visible label"
+        );
     }
 }

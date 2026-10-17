@@ -409,9 +409,17 @@ fn detached_spec(module: sdroxide_types::DetachableModule) -> DetachedWindowSpec
     use sdroxide_types::DetachableModule as M;
     let app_id = module.app_id();
     let (name, default_size) = match module {
-        M::Panadapter => ("panadapter", [960.0, 540.0]),
+        M::Panadapter => {
+            ("panadapter", if super::sdruno::active() { [1180.0, 700.0] } else { [960.0, 540.0] })
+        }
         M::Panel => ("panel", [520.0, 700.0]),
-        M::Controls => ("controls", [1280.0, 640.0]),
+        // Tall enough for the workstation's dense page on a first open, so the
+        // MODE / FILTER / AGC / STEP / NR rows are there to be seen rather than
+        // waiting behind a scrollbar. `detached_geometry` shrinks it to the
+        // monitor it lands on.
+        M::Controls => {
+            ("controls", if super::sdruno::active() { [1440.0, 900.0] } else { [1280.0, 640.0] })
+        }
         M::AuxPanadapter => ("aux panadapter", [960.0, 540.0]),
         // Wide enough for the mode sections in five columns — the whole reason
         // it is a window and not the docked column, which cannot be this wide
@@ -685,6 +693,19 @@ impl eframe::App for SdroxideApp {
             super::sdruno::set_active(self.sdruno_active());
             // Open the workstation's window set on the rising edge of the mode.
             self.apply_sdruno_arrangement();
+            // The root window's own title follows the mode too, and it is sent
+            // **only when it changes**: a `Title` command is a round trip to
+            // the window manager, and doing it every frame would be a repaint's
+            // worth of work for a string that almost never moves. SDRuno's MAIN
+            // window is called `SDRuno MAIN`, which is the whole point of the
+            // mode — a desk of windows that reads as one program.
+            if self.sdruno_active() != self.title_sdruno {
+                self.title_sdruno = self.sdruno_active();
+                let label = self.caps.as_ref().map(|c| c.label.clone()).unwrap_or_default();
+                ctx.send_viewport_cmd(egui::ViewportCommand::Title(
+                    self.root_window_title_for(&label),
+                ));
+            }
         }
         // Same idea for the theme and chrome styles: the settings dialog wrote
         // them into `ui_settings` at the end of last frame, and the top of the
@@ -907,7 +928,13 @@ impl eframe::App for SdroxideApp {
         #[cfg(not(target_arch = "wasm32"))]
         {
             let mode = self.state.rx[0].mode;
-            let unavailable = self.ui_settings.is_detached(sdroxide_types::DetachableModule::Panel)
+            // The workstation undocks the panel itself, so "no operating panel
+            // in this mode" is not news to report — the hub is where the
+            // windows are, and a banner over it would sit there in every voice
+            // mode. Everywhere else the notice still stands: it is what tells
+            // an operator why the panel they undocked has not appeared.
+            let unavailable = !self.sdruno_active()
+                && self.ui_settings.is_detached(sdroxide_types::DetachableModule::Panel)
                 && !(mode.has_bottom_panel() || mode == Mode::Cw);
             if unavailable {
                 if self.panel_undock_notice_mode != Some(mode) {
@@ -2783,9 +2810,9 @@ impl SdroxideApp {
                     // The window title belongs to the focused tab; a hidden
                     // radio reconnecting must not retitle the window over it.
                     if self.focused {
-                        ctx.send_viewport_cmd(egui::ViewportCommand::Title(crate::window_title(
-                            &c.label,
-                        )));
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Title(
+                            self.root_window_title_for(&c.label),
+                        ));
                     }
                     // A different interface on this radio: the stored zoom
                     // was taken in another span and means nothing in this one.
