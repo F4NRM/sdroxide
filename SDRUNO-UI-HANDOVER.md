@@ -340,6 +340,41 @@ be as wide as the operator likes with the operating panel keeping its full width
   headless harness, so the arm's own draw is untested here; the registry, the
   predicate, the menu name and the five-column rule are.
 
+## The look is the **structure**, not the theme (operator, 2026-10-16)
+
+Asked to "make a start on the SDRuno look", I read that as the visual style and
+built a palette — SDRuno's steel blue-grey, on branch `fork/sdruno-look`
+(`4f9f4bc1`). **The operator's answer, in as many words: "it is the structure
+100%".** So the palette is not the job. It is a real theme and it can stay on
+that branch, but do not treat it as progress toward the look.
+
+**What "the structure" means, read off the one SDRuno screenshot on this machine
+(`~/Afbeeldingen/sdruno.jpg`)** — these are the candidate differences, and the
+next session should get him to point at which he means rather than build all of
+them:
+
+- **A captioned button matrix per control group.** SDRuno's RX CONTROL is rows of
+  a caption with a dense grid of small rectangles under it — `MODE` over
+  AM/SAM/FM/CW…, `DIGITAL` over BPSK…, `FILTER` over 6000/5000/…, `AGC`, `STEP`,
+  `NR`, `NB/AN`, `VOLUME`, `RF GAIN`. Ours are **chips in rows**, which are
+  larger and carry more text. The band menu already moved part-way with
+  `mode_chip_grid` (fixed-width cells, `MODE_GRID_COLS = 5`), so this is the
+  direction that has been started.
+- **Every window names itself and the program in its own title bar** — *SDRuno RX
+  CONTROL*, *SDRuno MAIN SP*, *SDRuno SCANNER*. Our tool windows carry a title,
+  but not the program, and the identity is in the strip rather than the window.
+- **A vertical stack of function buttons down the left of MAIN** — OPT / SCAN /
+  SCHEDULER / SP1 / SP2 / RX — rather than chips along a top bar.
+- **Tabs inside a window** (SETT / MISC / MAIN across the top of MAIN), which is
+  a different thing from our top-level radio tabs.
+- **Windows are free-floating and each carries its own chrome**, not docked
+  panels. The window set is built; what is not is the density and the identity
+  inside them.
+
+**Do not build all five.** Ask which. The handover's own TODO is complete, so
+this is a new direction on top of finished work, and the difference between
+"denser controls" and "every window announces itself" is a session each.
+
 ## House notes for whoever picks this up
 
 - The wire type is untouched by all of this: `UiSettings` is local `config.toml`.
