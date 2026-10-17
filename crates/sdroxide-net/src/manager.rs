@@ -10,8 +10,8 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crossbeam_channel::Receiver;
 use sdroxide_types::{
-    Band, BandOpening, BandOpeningTracker, BandPath, NetworkConfig, Spot, SpotKind, UploadResult,
-    UploadTarget, WsprSpot, grid_to_latlon, resolve_callsign,
+    Band, BandOpening, BandOpeningTracker, BandPath, NetworkConfig, RbnConfig, Spot, SpotKind,
+    UploadResult, UploadTarget, WsprSpot, grid_to_latlon, resolve_callsign,
 };
 
 use crate::cluster::ClusterHandle;
@@ -57,6 +57,8 @@ pub struct SpotManager {
     /// The Reverse Beacon Network reader. Emits paths, not spots, so unlike
     /// every other feed here it has no entry in `by_kind`.
     rbn: Option<RbnHandle>,
+    /// The second skimmer connection, beside `rbn`.
+    rbn2: Option<RbnHandle>,
     pota: Option<PollHandle>,
     sota: Option<PollHandle>,
     psk: Option<PollHandle>,
@@ -125,6 +127,7 @@ impl SpotManager {
             dial_bits: Arc::new(AtomicU64::new(14_074_000f64.to_bits())),
             cluster: None,
             rbn: None,
+            rbn2: None,
             pota: None,
             sota: None,
             psk: None,
@@ -162,6 +165,9 @@ impl SpotManager {
         }
         if old.rbn != self.cfg.rbn {
             self.rebuild_rbn();
+        }
+        if old.rbn2 != self.cfg.rbn2 {
+            self.rebuild_rbn2();
         }
         if old.pota != self.cfg.pota {
             self.rebuild_pota();
@@ -223,6 +229,9 @@ impl SpotManager {
         // RBN logs in the same way, and wants a real callsign.
         if call_changed && self.cfg.rbn.login.trim().is_empty() {
             self.rebuild_rbn();
+        }
+        if call_changed && self.cfg.rbn2.login.trim().is_empty() {
+            self.rebuild_rbn2();
         }
         self.rebuild_freedv();
         // The callsign and grid (or the SWL identity, if one is set) *are* the
@@ -602,25 +611,39 @@ impl SpotManager {
         if !self.station {
             return;
         }
-        self.rbn = None; // drop stops the thread
-        if !self.cfg.rbn.enabled || self.cfg.rbn.host.trim().is_empty() {
+        self.rbn = None; // drop stops the thread, before a new login opens
+        self.rbn = self.connect_rbn(&self.cfg.rbn);
+    }
+
+    /// (Re)start the second RBN reader. Same rules as [`Self::rebuild_rbn`].
+    fn rebuild_rbn2(&mut self) {
+        if !self.station {
             return;
         }
-        let login = if self.cfg.rbn.login.trim().is_empty() {
+        self.rbn2 = None;
+        self.rbn2 = self.connect_rbn(&self.cfg.rbn2);
+    }
+
+    /// Open one RBN connection for `cfg`, or none when it is off, has no host,
+    /// or there is no callsign to log in as.
+    fn connect_rbn(&self, cfg: &RbnConfig) -> Option<RbnHandle> {
+        if !cfg.enabled || cfg.host.trim().is_empty() {
+            return None;
+        }
+        let login = if cfg.login.trim().is_empty() {
             self.op_call.trim().to_string()
         } else {
-            self.cfg.rbn.login.trim().to_string()
+            cfg.login.trim().to_string()
         };
         // RBN wants a real callsign and will not send spots without one. Since
-        // this feed is on by default, "no operator identity yet" is a state a
-        // fresh install genuinely passes through — connecting anyway would open
-        // a socket that could only ever sit at the prompt. `set_operator`
-        // rebuilds when the callsign arrives.
+        // the first feed is on by default, "no operator identity yet" is a
+        // state a fresh install genuinely passes through — connecting anyway
+        // would open a socket that could only ever sit at the prompt.
+        // `set_operator` rebuilds when the callsign arrives.
         if login.is_empty() {
-            return;
+            return None;
         }
-        self.rbn =
-            Some(RbnHandle::connect(self.cfg.rbn.clone(), login, now_utc, self.event_tx.clone()));
+        Some(RbnHandle::connect(cfg.clone(), login, now_utc, self.event_tx.clone()))
     }
 
     fn rebuild_pota(&mut self) {
@@ -873,6 +896,29 @@ mod tests {
         assert!(m.rbn.is_some(), "an explicit login should have been enough");
     }
 
+    /// The second RBN connection is off out of the box and is its own reader:
+    /// switching it on opens it without touching the first, and off drops it.
+    #[test]
+    fn the_second_rbn_connection_is_independent_and_off_by_default() {
+        let mut m = SpotManager::new();
+        m.set_operator("OE1TEST", "JN88");
+        m.set_config(NetworkConfig::default());
+        assert!(m.rbn.is_some());
+        assert!(m.rbn2.is_none(), "the second RBN connection is meant to be off by default");
+        assert_eq!(m.cfg.rbn2.port, 7001);
+
+        let mut on = NetworkConfig::default();
+        on.rbn2.enabled = true;
+        m.set_config(on);
+        assert!(m.rbn.is_some() && m.rbn2.is_some());
+
+        let mut first_off = NetworkConfig::default();
+        first_off.rbn.enabled = false;
+        first_off.rbn2.enabled = true;
+        m.set_config(first_off);
+        assert!(m.rbn.is_none() && m.rbn2.is_some(), "the two must not drag each other");
+    }
+
     /// Switching it off has to stop the thread, not merely stop reading it.
     #[test]
     fn disabling_rbn_drops_the_connection() {
@@ -906,6 +952,7 @@ mod tests {
         m.set_config(cfg);
 
         assert!(m.rbn.is_none(), "a second radio must not open its own RBN reader");
+        assert!(m.rbn2.is_none(), "nor its own second RBN reader");
         assert!(m.cluster.is_none(), "nor a second DX cluster login");
         assert!(m.freedv.is_none(), "nor a second FreeDV Reporter session");
         assert_eq!(m.cfg.qrz.user, "OE1TEST", "but the credentials must still have landed");

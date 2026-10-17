@@ -3333,6 +3333,7 @@ impl SdroxideApp {
                     if !self.net_cfg_seeded {
                         self.net_cluster_cmds = c.net.cluster.commands.join("\n");
                         self.net_rbn_cmds = c.net.rbn.commands.join("\n");
+                        self.net_rbn2_cmds = c.net.rbn2.commands.join("\n");
                         self.net_cfg_edit = c.net.clone();
                         self.net_cfg_seeded = true;
                     }

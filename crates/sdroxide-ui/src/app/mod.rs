@@ -1206,6 +1206,7 @@ pub struct SdroxideApp {
     /// The same for the RBN reader's post-login commands, which is where an
     /// operator narrows the skimmer firehose to their own continent.
     net_rbn_cmds: String,
+    net_rbn2_cmds: String,
     /// Rolling upload/lookup result log for the spots window (newest first).
     net_log: Vec<String>,
     /// Latest credential-check result per logging service, and which checks are
@@ -2075,6 +2076,7 @@ impl SdroxideApp {
             tci_srv_status: None,
             net_cluster_cmds: String::new(),
             net_rbn_cmds: String::new(),
+            net_rbn2_cmds: String::new(),
             net_log: Vec::new(),
             login_tests: std::collections::HashMap::new(),
             login_tests_pending: std::collections::HashSet::new(),
