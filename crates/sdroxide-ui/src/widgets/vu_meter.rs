@@ -39,6 +39,18 @@ const FLOOR_VU: f32 = -70.0;
 const ATTACK_S: f32 = 0.03;
 const RELEASE_S: f32 = 0.35;
 
+/// The swing. A DAB+ station is compressed so hard that its level moves only
+/// three or four dB with the music, and read straight the column sat between
+/// 0 and +4 VU and barely moved. A hi-fi meter is there to dance, so the
+/// meter reads each moment *against the programme's own running level*: the
+/// running level sits at [`SWING_CENTRE_VU`], and every dB above or below it
+/// moves the column [`SWING_GAIN`] dB. Left and right share the running level,
+/// so a louder ear still reads louder. The running level follows over about
+/// [`SWING_MEAN_S`].
+const SWING_CENTRE_VU: f32 = -6.0;
+const SWING_GAIN: f32 = 3.0;
+const SWING_MEAN_S: f32 = 3.0;
+
 /// How long the peak marker holds before it starts to fall, and how fast it
 /// falls then.
 const PEAK_HOLD_S: f32 = 1.5;
@@ -51,11 +63,19 @@ pub struct VuBallistics {
     pub level: [f32; 2],
     pub peak: [f32; 2],
     peak_age: [f32; 2],
+    /// The programme's running level, in VU, both ears together; `None`
+    /// until something plays. See [`SWING_GAIN`].
+    mean: Option<f32>,
 }
 
 impl Default for VuBallistics {
     fn default() -> Self {
-        VuBallistics { level: [FLOOR_VU; 2], peak: [FLOOR_VU; 2], peak_age: [0.0; 2] }
+        VuBallistics {
+            level: [FLOOR_VU; 2],
+            peak: [FLOOR_VU; 2],
+            peak_age: [0.0; 2],
+            mean: None,
+        }
     }
 }
 
@@ -72,8 +92,21 @@ impl VuBallistics {
         // A first-order integrator whose 99 % time is the attack going up and
         // the release coming down: ln(100) ≈ 4.6.
         let k = |time: f32| 1.0 - (-dt * 4.6 / time).exp();
+        let raw = input.map(|l| [Self::vu_of_dbfs(l[0]), Self::vu_of_dbfs(l[1])]);
+        match raw {
+            Some([l, r]) => {
+                let now = (l + r) / 2.0;
+                let mean = self.mean.get_or_insert(now);
+                *mean += (now - *mean) * k(SWING_MEAN_S);
+            }
+            None => self.mean = None,
+        }
         for ch in 0..2 {
-            let target = input.map_or(FLOOR_VU, |l| Self::vu_of_dbfs(l[ch]));
+            let target = match (raw, self.mean) {
+                (Some(raw), Some(mean)) => (SWING_CENTRE_VU + SWING_GAIN * (raw[ch] - mean))
+                    .clamp(FLOOR_VU, SCALE_VU[0] as f32 + 2.0),
+                _ => FLOOR_VU,
+            };
             let time = if target > self.level[ch] { ATTACK_S } else { RELEASE_S };
             self.level[ch] += (target - self.level[ch]) * k(time);
             if self.level[ch] >= self.peak[ch] {
@@ -448,25 +481,48 @@ mod tests {
     }
 
     /// Like a hi-fi LED meter: a beat lifts the column within a couple of
-    /// frames, and it falls back over a few hundred milliseconds — so it
-    /// pumps with the music rather than sitting on its average.
+    /// frames, and it falls back over a few hundred milliseconds.
     #[test]
     fn the_column_jumps_with_a_beat_and_falls_back_slowly() {
         let mut m = VuBallistics::default();
-        let beat = Some([ALIGN_DBFS; 2]);
+        let (quiet, beat) = (Some([ALIGN_DBFS - 4.0; 2]), Some([ALIGN_DBFS; 2]));
+        for _ in 0..90 {
+            m.step(quiet, 1.0 / 30.0);
+        }
+        let rest = m.level[0];
         m.step(beat, 1.0 / 30.0);
-        assert!(m.level[0] > -3.0, "one frame of a beat is nearly there: {}", m.level[0]);
-        // The beat stops: a tenth of a second on, the column is still well up…
-        let quiet = Some([ALIGN_DBFS - 30.0; 2]);
+        assert!(m.level[0] > rest + 8.0, "one frame of a beat lifts it: {rest} -> {}", m.level[0]);
+        let top = m.level[0];
         for _ in 0..3 {
             m.step(quiet, 1.0 / 30.0);
         }
-        assert!(m.level[0] > -25.0, "it falls back slowly: {}", m.level[0]);
-        // …and by half a second it has settled on the quiet passage.
+        assert!(m.level[0] > rest && m.level[0] < top, "it falls back slowly: {}", m.level[0]);
         for _ in 0..12 {
             m.step(quiet, 1.0 / 30.0);
         }
-        assert!(m.level[0] < -28.0, "then it has come down: {}", m.level[0]);
+        assert!((m.level[0] - rest).abs() < 2.0, "then it is back down: {}", m.level[0]);
+    }
+
+    /// A DAB+ station moves only three or four dB with the music; the meter
+    /// has to swing across most of its scale with it, not sit between 0 and
+    /// +4 (a report: "it hardly ever leaves 0 to 4").
+    #[test]
+    fn a_compressed_station_swings_across_the_scale() {
+        let mut m = VuBallistics::default();
+        let (mut lo, mut hi) = (f32::MAX, f32::MIN);
+        for f in 0..240 {
+            // A beat four times a second: 3.5 dB louder for its first 60 ms.
+            let t = f as f32 / 60.0;
+            let level = if (t % 0.25) < 0.06 { -8.5 } else { -12.0 };
+            m.step(Some([level, level - 0.5]), 1.0 / 60.0);
+            if f >= 120 {
+                lo = lo.min(m.level[0]);
+                hi = hi.max(m.level[0]);
+            }
+        }
+        assert!(hi - lo >= 9.0, "the column swings only {:.1} VU ({lo:.1}..{hi:.1})", hi - lo);
+        assert!(lit_segments(hi) - lit_segments(lo) >= 4, "it lights {lo:.1}..{hi:.1}");
+        assert!(hi < RED_FROM_VU as f32 + 2.0, "and is not pinned at the top: {hi:.1}");
     }
 
     /// The peak marker stays where the loudest moment was for a while, then

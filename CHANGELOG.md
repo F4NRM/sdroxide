@@ -13,6 +13,9 @@ and the [README](https://github.com/madmedicnl/sdroxide-brown#readme).
 
 ## [Unreleased]
 
+### Fixed
+- **DAB plays at the other modes' level**, 9 dB down from where it was, and its VU meter swings with the music instead of sitting between 0 and +4.
+
 ### Added
 - **The S-meter calibration is back, at ±5 S-units** — Kevin's original revision of the per-radio correction, which he says worked perfectly. Per radio, display only, saved with the radio.
 
