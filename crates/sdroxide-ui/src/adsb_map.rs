@@ -203,9 +203,10 @@ fn draw_nav_layer(
     lon_span: f64,
     lat_span: f64,
     project: &impl Fn(f64, f64) -> Pos2,
-) {
+    pointer: Option<Pos2>,
+) -> Option<NavHover> {
     if !layers.nav || !crate::airdata::loaded() {
-        return;
+        return None;
     }
     let zoom = nav_zoom(lon_span);
     let (half_lat, half_lon) = (lat_span * 0.5, lon_span * 0.5);
@@ -213,6 +214,10 @@ fn draw_nav_layer(
         (lat - clat).abs() <= half_lat && wrap180(lon - clon).abs() <= half_lon
     };
     let font = FontId::monospace(9.0);
+    // Only what is *drawn* can be hovered — see the note on the filter above.
+    // A name for something invisible would be a map that answers questions
+    // about things that are not on it.
+    let mut hit: Option<(f32, Pos2, String)> = None;
 
     for a in crate::airdata::airports() {
         if (!a.large && !zoom.medium_airports) || !in_view(a.lat, a.lon) {
@@ -233,10 +238,16 @@ fn draw_nav_layer(
                 alpha(map.city_label, 190.0),
             );
         }
+        if let Some(m) = pointer {
+            let d = c.distance(m);
+            if d <= NAV_HIT_RADIUS && hit.as_ref().is_none_or(|(best, _, _)| d < *best) {
+                hit = Some((d, c, airport_hover_text(a)));
+            }
+        }
     }
 
     if !zoom.navaids {
-        return;
+        return hit.map(|(_, at, text)| NavHover { at, text });
     }
     for n in crate::airdata::navaids() {
         if !in_view(n.lat, n.lon) {
@@ -256,6 +267,12 @@ fn draw_nav_layer(
                 Stroke::new(1.0, alpha(ink, 210.0)),
             ));
         }
+        if let Some(m) = pointer {
+            let d = c.distance(m);
+            if d <= NAV_HIT_RADIUS && hit.as_ref().is_none_or(|(best, _, _)| d < *best) {
+                hit = Some((d, c, navaid_hover_text(n)));
+            }
+        }
         if zoom.navaid_labels && !n.ident.is_empty() {
             p.text(
                 c + vec2(4.5, 3.0),
@@ -266,7 +283,75 @@ fn draw_nav_layer(
             );
         }
     }
+    hit.map(|(_, at, text)| NavHover { at, text })
 }
+
+/// The name of whatever the pointer is over, drawn at it.
+///
+/// Drawn rather than handed to egui as a tooltip: the map is one widget, so a
+/// tooltip could only say "somewhere on the map", and what the operator wants
+/// is the name beside the symbol they are pointing at.
+fn draw_hover_label(p: &Painter, rect: Rect, map: &theme::MapPalette, hover: &NavHover) {
+    let galley =
+        p.layout_no_wrap(hover.text.clone(), FontId::monospace(10.0), alpha(map.city_label, 255.0));
+    let pad = vec2(6.0, 4.0);
+    let size = galley.size() + pad * 2.0;
+    let mut at = hover.at + vec2(11.0, -size.y - 7.0);
+    // Kept on the map: a name for something at the edge is the one that most
+    // needs to move, because the auto-fit leaves the outermost targets close to
+    // the edge.
+    at.x = at.x.clamp(rect.left() + 2.0, (rect.right() - size.x - 2.0).max(rect.left() + 2.0));
+    at.y = at.y.clamp(rect.top() + 2.0, (rect.bottom() - size.y - 2.0).max(rect.top() + 2.0));
+    let box_ = Rect::from_min_size(at, size);
+    p.rect_filled(box_, 3.0, alpha(map.sea, 240.0));
+    p.rect_stroke(
+        box_,
+        3.0,
+        Stroke::new(1.0, alpha(map.border, 210.0)),
+        eframe::egui::StrokeKind::Inside,
+    );
+    p.galley(box_.min + pad, galley, map.city_label);
+    // A ring on the symbol itself, so the name is attached to a mark.
+    p.circle_stroke(hover.at, 4.5, Stroke::new(1.3, alpha(map.city_label, 220.0)));
+}
+
+/// What a hovered airport says: the abbreviation first, because that is what
+/// the operator asked for and what a chart writes, then the name.
+fn airport_hover_text(a: &crate::airdata::Airport) -> String {
+    if a.iata.is_empty() {
+        format!("{} · {}", a.ident, a.name)
+    } else {
+        format!("{} · {}", a.iata, a.name)
+    }
+}
+
+/// What a hovered navaid says: its ident, what kind of aid it is, and the
+/// frequency on the unit it is published in — **kHz for the medium-wave ones,
+/// because those are audible**, which is the half of this table a listener
+/// cares about.
+fn navaid_hover_text(n: &crate::airdata::Navaid) -> String {
+    let freq = if n.kind.is_audible_on_mf() {
+        format!("{} kHz (medium wave)", n.freq_khz)
+    } else {
+        format!("{:.3} MHz", n.freq_khz as f64 / 1000.0)
+    };
+    if n.name.is_empty() {
+        format!("{} · {} · {}", n.ident, n.kind.label(), freq)
+    } else {
+        format!("{} · {} · {} — {}", n.ident, n.kind.label(), freq, n.name)
+    }
+}
+
+/// A feature the pointer is over, and what to say about it.
+struct NavHover {
+    at: Pos2,
+    text: String,
+}
+
+/// How close the pointer has to be to a symbol to name it. Wider than the
+/// aircraft's hit radius: these are small marks on a busy map, and the operator
+/// is asking about a place rather than selecting a target.
+const NAV_HIT_RADIUS: f32 = 9.0;
 
 /// What the view's span allows the navigation layer to draw.
 ///
@@ -404,7 +489,8 @@ pub fn show(
     }
 
     // ── airports and navaids, at the very bottom ──
-    draw_nav_layer(&p, map, state.layers, clat, clon, lon_span, lat_span, &project);
+    let nav_hover =
+        draw_nav_layer(&p, map, state.layers, clat, clon, lon_span, lat_span, &project, pointer);
 
     // ── history, under everything else ──
     for a in &live {
@@ -538,6 +624,15 @@ pub fn show(
         p.circle_stroke(c, 6.5, (1.2, alpha(map.home, 170.0)));
     }
 
+    // ── the name of whatever the pointer is over, on top of all of it ──
+    // An aircraft wins: it carries its own data block, and a place name drawn
+    // over it would be answering a different question than the one being asked.
+    if hover.is_none() {
+        if let Some(h) = &nav_hover {
+            draw_hover_label(&p, rect, map, h);
+        }
+    }
+
     // ── interaction ──
     let mut clicked = None;
     if let Some(i) = hover {
@@ -585,6 +680,108 @@ pub fn show(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// **A hover names the thing under the pointer**, in the words a chart
+    /// would use: the abbreviation first for an airport, and for a navaid its
+    /// ident, what it is, and the frequency on the unit it is published in —
+    /// kHz and "medium wave" for the ones a listener can actually hear.
+    #[test]
+    fn what_a_hovered_nav_feature_says() {
+        let ams = crate::airdata::airports()
+            .iter()
+            .find(|a| a.iata == "AMS")
+            .expect("Schiphol is in the table");
+        // The name is the source's, and the field is wide enough to hold it
+        // whole — the first cut gave names 20 bytes and the hover read
+        // "Amsterdam Airport Sc". Asserted from the table rather than from
+        // memory: this line has been wrong twice.
+        assert_eq!(airport_hover_text(ams), "AMS · Amsterdam Airport Schiphol");
+
+        // An airport with no IATA code falls back to its ident rather than
+        // showing a gap where the abbreviation should be.
+        let mut unnamed = ams.clone();
+        unnamed.iata.clear();
+        unnamed.ident = "EHAM".into();
+        assert!(airport_hover_text(&unnamed).starts_with("EHAM · "));
+
+        // A medium-wave beacon says kHz, because that is what a receiver dial
+        // is marked in, and says that it is audible.
+        let ndb = crate::airdata::navaids()
+            .iter()
+            .find(|n| n.kind == crate::airdata::NavaidKind::Ndb)
+            .expect("there are NDBs");
+        let text = navaid_hover_text(ndb);
+        assert!(text.contains("NDB"), "{text}");
+        assert!(text.contains("kHz (medium wave)"), "{text}");
+
+        // And a VHF aid says MHz, to three places — the spacing the band uses.
+        let vor = crate::airdata::navaids()
+            .iter()
+            .find(|n| n.kind == crate::airdata::NavaidKind::VorDme)
+            .expect("there are VOR/DMEs");
+        let text = navaid_hover_text(vor);
+        assert!(text.contains("VOR/DME"), "{text}");
+        assert!(text.contains("MHz"), "{text}");
+        assert!(!text.contains("kHz"), "{text}");
+    }
+
+    /// **The hover finds the airport under the pointer**, on the real tables
+    /// and the real filter — not a re-implementation of either.
+    ///
+    /// `draw_nav_layer` takes a painter and numbers, so it can be driven without
+    /// a window: a painter over a rect, a span, and a pointer placed where
+    /// Schiphol projects to. That is the whole path the mouse takes.
+    #[test]
+    fn the_hover_finds_the_airport_under_the_pointer() {
+        let ctx = eframe::egui::Context::default();
+        let rect = Rect::from_min_size(pos2(0.0, 0.0), vec2(600.0, 400.0));
+        // Schiphol, and a view tight enough that the layer is switched on.
+        let (clat, clon, lon_span) = (52.3, 4.75, 6.0);
+        let lat_span = lon_span * 0.66;
+        let project = |lat: f64, lon: f64| {
+            pos2(
+                rect.left() + (0.5 + (wrap180(lon - clon) / lon_span) as f32) * rect.width(),
+                rect.top() + (0.5 - ((lat - clat) / lat_span) as f32) * rect.height(),
+            )
+        };
+        let map = theme::map_styled(sdroxide_types::MapStyle::Radar);
+        let ams = crate::airdata::airports()
+            .iter()
+            .find(|a| a.iata == "AMS")
+            .expect("Schiphol is in the table");
+        let at = project(ams.lat, ams.lon);
+        let sea = pos2(rect.left() + 3.0, rect.top() + 3.0);
+
+        // Inside a frame: egui has no fonts until the first `run`, and the
+        // layer lays text out.
+        let mut asked = Vec::new();
+        let input = eframe::egui::RawInput { screen_rect: Some(rect), ..Default::default() };
+        let full = ctx.run_ui(input, |ui| {
+            let p = ui.painter().clone();
+            for (layers, pointer) in [
+                (MapLayers { paths: true, nav: true }, Some(at)),
+                (MapLayers { paths: true, nav: true }, Some(sea)),
+                (MapLayers { paths: true, nav: false }, Some(at)),
+            ] {
+                asked.push(draw_nav_layer(
+                    &p, &map, layers, clat, clon, lon_span, lat_span, &project, pointer,
+                ));
+            }
+        });
+        full.drop_without_applying_deltas();
+
+        let named = asked[0].as_ref().expect("the pointer is on the airport and nothing was named");
+        assert!(named.text.starts_with("AMS · "), "named {:?}", named.text);
+        assert!(
+            asked[1].is_none(),
+            "the sea named something: {:?}",
+            asked[1].as_ref().map(|h| &h.text)
+        );
+        assert!(
+            asked[2].is_none(),
+            "the layer is off and the hover still answered — a name for a mark that is not drawn"
+        );
+    }
 
     /// **The filter is the feature, and it only opens.** Zooming in must never
     /// take something away: a layer that loses the medium airports when you get

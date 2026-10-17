@@ -52,7 +52,13 @@ variable so a reader can index a record without walking the file.
     navaids.bin   "SDXNAV01" u16 count
                   { ident[5] name[16] type u8 country[2] freq_khz u32 lat f32 lon f32 }
     airports.bin  "SDXAPT01" u16 count
-                  { ident[8] name[20] iata[3] icao[4] type u8 lat f32 lon f32 elev_ft i16 }
+                  { ident[8] name[28] iata[3] icao[4] type u8 lat f32 lon f32 elev_ft i16 }
+
+Airport names get 28 bytes rather than 20 because the hover shows them, and 20
+cut **"Amsterdam Airport Schiphol"** to "Amsterdam Airport Sc" — a half-name on
+screen, which is worse than no name. Where even 28 is not enough the name is cut
+at a **word** boundary (`word`), so a short field costs a word rather than a
+letter.
 
 Latitude and longitude are `f32`: about a metre at the equator, and these are
 map positions. `freq_khz` is `u32` because a VOR at 116 300 kHz and an NDB at
@@ -107,6 +113,18 @@ def fixed(text: str, n: int) -> bytes:
     return raw[:n].ljust(n, b"\0")
 
 
+def word(text: str, n: int) -> str:
+    """`text` cut to `n` bytes if it must be — at a word boundary where there is
+    one, because a name shown on hover is read, not parsed."""
+    raw = (text or "").encode("utf-8")
+    if len(raw) <= n:
+        return text or ""
+    cut = raw[:n].decode("utf-8", "ignore")
+    if " " in cut:
+        cut = cut[: cut.rindex(" ")]
+    return cut
+
+
 def number(value, default=0.0) -> float:
     try:
         return float(value)
@@ -146,7 +164,7 @@ def build_airports() -> bytes:
     out.write(struct.pack("<H", len(keep)))
     for r in keep:
         out.write(fixed(r["ident"], 8))
-        out.write(fixed(r["name"], 20))
+        out.write(fixed(word(r["name"], 28), 28))
         out.write(fixed(r["iata_code"], 3))
         out.write(fixed(r["icao_code"] or r["gps_code"], 4))
         out.write(struct.pack("<B", AIRPORT_TYPES.index(r["type"])))
@@ -182,9 +200,9 @@ def main() -> None:
     open(os.path.join(HERE, "airports.bin"), "wb").write(airports)
 
     # Record sizes, kept in step with the structs above and with the Rust
-    # reader: 5+16+1+2+4+4+4 and 8+20+3+4+1+4+4+2.
+    # reader: 5+16+1+2+4+4+4 and 8+28+3+4+1+4+4+2.
     verify(os.path.join(HERE, "navaids.bin"), b"SDXNAV01", 36)
-    verify(os.path.join(HERE, "airports.bin"), b"SDXAPT01", 46)
+    verify(os.path.join(HERE, "airports.bin"), b"SDXAPT01", 54)
 
 
 if __name__ == "__main__":

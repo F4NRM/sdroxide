@@ -73,12 +73,8 @@ impl NavaidKind {
         matches!(self, NavaidKind::Ndb | NavaidKind::NdbDme)
     }
 
-    /// The three or four letters a chart writes beside the symbol.
-    ///
-    /// `allow(dead_code)`: the map writes the *ident* beside a navaid today,
-    /// and this is what the data block and the hover will say when the nearest
-    /// aid is named there — the next step of the layer this table was added for.
-    #[allow(dead_code)]
+    /// The three or four letters a chart writes beside the symbol, and what the
+    /// hover over a navaid says beside its ident.
     pub fn label(self) -> &'static str {
         match self {
             NavaidKind::Ndb => "NDB",
@@ -145,7 +141,7 @@ fn f32_at(b: &[u8], at: usize) -> f64 {
 
 /// The record size the generator writes, asserted against the count on load.
 const NAVAID_LEN: usize = 36;
-const AIRPORT_LEN: usize = 46;
+const AIRPORT_LEN: usize = 54;
 
 fn parse_navaids(blob: &[u8]) -> Vec<Navaid> {
     let Some(rest) = blob.strip_prefix(b"SDXNAV01") else {
@@ -190,13 +186,13 @@ fn parse_airports(blob: &[u8]) -> Vec<Airport> {
             let r = &body[i * AIRPORT_LEN..(i + 1) * AIRPORT_LEN];
             Airport {
                 ident: field(&r[0..8]),
-                name: field(&r[8..28]),
-                iata: field(&r[28..31]),
-                icao: field(&r[31..35]),
-                large: r[35] == 0,
-                lat: f32_at(r, 36),
-                lon: f32_at(r, 40),
-                elev_ft: i16::from_le_bytes([r[44], r[45]]),
+                name: field(&r[8..36]),
+                iata: field(&r[36..39]),
+                icao: field(&r[39..43]),
+                large: r[43] == 0,
+                lat: f32_at(r, 44),
+                lon: f32_at(r, 48),
+                elev_ft: i16::from_le_bytes([r[52], r[53]]),
             }
         })
         .collect()
@@ -232,9 +228,9 @@ pub fn loaded() -> bool {
 
 /// The nearest navaid of any kind to a position, within `max_km`.
 ///
-/// `allow(dead_code)`: added with the tables and used by the aircraft data
-/// block, which names the nearest aid — the step after the map layer. Tested
-/// here in the meantime, so it is not untried code waiting for a caller.
+/// `allow(dead_code)`: used by the aircraft data block, which names the nearest
+/// aid — the step after the map layer, and tested here in the meantime so it is
+/// not untried code waiting for a caller.
 ///
 /// A linear scan, and deliberately: 11 000 records is a few hundred
 /// microseconds, and this is asked once per aircraft per *fix* rather than once
