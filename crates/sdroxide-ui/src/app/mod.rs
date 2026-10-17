@@ -4039,12 +4039,6 @@ mod tests {
             "the strip draws its System box to begin with; it drew: {before}"
         );
         app.ui_settings.classic_ui = true;
-        if std::env::var("CLASSIC_SWL").is_ok() {
-            app.ui_settings.swl = true;
-        }
-        if std::env::var("CLASSIC_SIMPLE").is_ok() {
-            app.ui_settings.simple_ui = true;
-        }
         frame(&mut app);
         let (during, left_during, big_during) = frame(&mut app);
         assert!(
@@ -4052,14 +4046,88 @@ mod tests {
             "the strip's System box left with the setting; it drew: {during}"
         );
         assert!(
-            during.contains('☰'),
-            "the fold chip is how the column is folded, so it is drawn with it"
+            during.contains('◀'),
+            "the column carries the fold, on its own right edge; it drew: {during}"
+        );
+        assert!(
+            !during.contains('▶'),
+            "the unfold chip belongs to the folded rail, not to the open column; it drew: \
+             {during}"
         );
         assert!(
             left_during > left_before + 120.0,
             "the column took the picture's left edge ({left_during} against {left_before}; \
              the big rects were {big_during:?})"
         );
+        // **Folded it is a rail, not nothing** — the operator's idea: leave it a
+        // few points wide so the chip that opens it stays on screen, which is
+        // what lets the fold live on the column at all.
+        app.classic_collapsed = true;
+        frame(&mut app);
+        let (folded, left_folded, big_folded) = frame(&mut app);
+        assert!(
+            folded.contains('▶'),
+            "the folded column leaves the chip that opens it again; it drew: {folded}"
+        );
+        assert!(
+            left_folded < 60.0,
+            "the rail takes a few points, not the column's width ({left_folded}; the big \
+             rects were {big_folded:?})"
+        );
+        assert!(
+            !folded.contains("PUBLIC SDR"),
+            "the strip's own boxes stay away while the column is folded — the rail is the \
+             controls, one click away; it drew: {folded}"
+        );
+        app.classic_collapsed = false;
+        // A fold animates open over a few frames, and a header drawn on its
+        // first frame shows no body at all — so the sections are read after the
+        // animation has settled, not on the frame the click produced.
+        for _ in 0..8 {
+            frame(&mut app);
+        }
+        let (_, left_unfolded, big_unfolded) = frame(&mut app);
+        assert!(
+            left_unfolded > left_before + 120.0,
+            "the column came back at its own width, not at the rail's ({left_unfolded}; the \
+             big rects were {big_unfolded:?})"
+        );
+        // **Every section has to be *drawn*.** A section that silently does not
+        // appear is the failure this arrangement cannot afford, and in a
+        // 900-point window the later ones are below the fold — so this reading
+        // is taken on a window tall enough to hold all of them.
+        let tall = |app: &mut SdroxideApp| {
+            let input = egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(1400.0, 2600.0),
+                )),
+                ..Default::default()
+            };
+            texts(&ctx.run_ui(input, |ui| app.ui(ui, &mut eframe::Frame::_new_kittest())).shapes)
+        };
+        for _ in 0..8 {
+            tall(&mut app);
+        }
+        let all = tall(&mut app);
+        for section in [
+            "Source",
+            "Band & mode",
+            "Receiver",
+            "Tuning",
+            "Transmit",
+            "Recorder",
+            "Display",
+            "Windows & tools",
+        ] {
+            // Transmit is for a radio that can transmit: a listening source
+            // gets the section not at all, which is what the strip's own
+            // transmit box does too.
+            if section == "Transmit" && !app.tx_capable() {
+                continue;
+            }
+            assert!(all.contains(section), "the {section} section is not drawn: {all}");
+        }
         app.ui_settings.classic_ui = false;
         frame(&mut app);
         let (after, left_after, big_after) = frame(&mut app);
@@ -4072,7 +4140,10 @@ mod tests {
             "the picture did not go back to the left edge: {left_after} against {left_before}; \
              the big rects were {big_after:?}"
         );
-        assert!(!after.contains('☰'), "the fold chip stayed after the column was turned off");
+        assert!(
+            !after.contains('◀') && !after.contains('▶'),
+            "no fold chip of any kind is drawn when Classic UI is off; it drew: {after}"
+        );
         // **And the layout override must not put the arrangement out of reach.**
         // The override folds the *strip* into fewer rows; the classic strip has
         // no rows to fold, so it is drawn whatever the override says. Left to
@@ -4089,8 +4160,8 @@ mod tests {
         frame(&mut app);
         let (overridden, _, _) = frame(&mut app);
         assert!(
-            overridden.contains('☰'),
-            "the classic strip is drawn even with the strip folded to Small"
+            overridden.contains('◀'),
+            "the column is drawn even with the strip folded to Small"
         );
         assert!(
             !overridden.contains("PUBLIC SDR"),

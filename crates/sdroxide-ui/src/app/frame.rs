@@ -1009,9 +1009,9 @@ impl eframe::App for SdroxideApp {
         // two arrangements are the same program.
         #[cfg(not(target_arch = "wasm32"))]
         if self.ui_settings.classic_ui
-            && !self.classic_collapsed
             && tier != crate::layout::Tier::Phone
-            && let Some((min, max)) = super::classic::classic_column_width(ui.available_width())
+            && let super::classic::ClassicSurface::Column(min, max) =
+                super::classic::classic_surface(tier, ui.available_width(), self.classic_collapsed)
         {
             egui::Panel::left(crate::layout::salted_id(&ctx, "classic-column-panel"))
                 .resizable(true)
@@ -1034,6 +1034,30 @@ impl eframe::App for SdroxideApp {
                     // did nothing.
                     ui.take_available_space();
                     self.classic_column(ui, &mut cmds);
+                });
+        }
+        // **The folded column**, which is a rail and not nothing: the chip that
+        // opens it again has to be on screen, and the operator's own idea — leave
+        // it a few points wide — is what keeps the fold and the unfold in the
+        // same place. Not resizable: a rail has one width.
+        #[cfg(not(target_arch = "wasm32"))]
+        if self.ui_settings.classic_ui
+            && tier != crate::layout::Tier::Phone
+            && self.classic_collapsed
+        {
+            // Its **own id**, not the column's: a panel stores its width, and a
+            // rail that wrote 22 points into the column's state would bring the
+            // column back 22 points wide.
+            egui::Panel::left(crate::layout::salted_id(&ctx, "classic-rail-panel"))
+                .resizable(false)
+                .exact_size(super::classic::CLASSIC_RAIL_W)
+                .frame(
+                    egui::Frame::new()
+                        .fill(crate::theme::PANEL())
+                        .inner_margin(egui::Margin::symmetric(3, 7)),
+                )
+                .show(ui, |ui| {
+                    self.classic_rail(ui, &mut cmds);
                 });
         }
         // A docked band/mode selector takes a column off the right of the
@@ -2559,7 +2583,10 @@ impl SdroxideApp {
         }
         #[cfg(not(target_arch = "wasm32"))]
         {
-            self.ui_settings.classic_ui && super::classic::classic_column_shown(tier, window_w)
+            use super::classic::ClassicSurface;
+            self.ui_settings.classic_ui
+                && super::classic::classic_surface(tier, window_w, self.classic_collapsed)
+                    != ClassicSurface::None
         }
     }
 

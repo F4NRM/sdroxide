@@ -847,25 +847,12 @@ impl SdroxideApp {
         // controls wherever it is not, or a window too narrow for the column
         // would lose them entirely.
         if self.classic_column_this_frame(tier, avail) {
+            // The two things that belong beside the *picture*: the readout it is
+            // tuned with and the meter it is judged by. The fold has moved to
+            // the column itself — and to its rail when folded — so nothing here
+            // has to stay reachable from the folded arrangement, and none of
+            // this is drawn at all when Classic UI is off.
             ui.horizontal(|ui| {
-                // **The fold leads the row**, because that is where the thing it
-                // moves is: SDR++ puts its ☰ at the left of the toolbar, and the
-                // control that opens and closes a bar belongs beside the bar
-                // rather than in the middle of the readout. One glyph in both
-                // states, so the readout does not shift sideways under the press,
-                // and it is lit while the column is on screen.
-                if crate::chrome::chip(ui, !self.classic_collapsed, RichText::new("☰").size(12.0))
-                    .on_hover_text(if self.classic_collapsed {
-                        "Classic UI: the control column is folded away. Click to bring it back \
-                         — the readout and the meter stay on the bar either way."
-                    } else {
-                        "Classic UI: every control in the column down the left, SDR++-style. \
-                         Click to fold it away and give the whole window to the picture."
-                    })
-                    .clicked()
-                {
-                    self.classic_collapsed = !self.classic_collapsed;
-                }
                 self.freq_module_at(ui, cmds, &freq);
                 let used = ui.min_rect().width();
                 let meter = (avail - used - gap).clamp(120.0, SMETER_W);
@@ -2244,7 +2231,12 @@ impl SdroxideApp {
 
     /// The VFO utility chips — the top row of the VFO/RIT box, and the head of
     /// the VFO menu. `extra` stretches each chip; the popup passes 0.
-    fn vfo_util_chips(&mut self, ui: &mut egui::Ui, cmds: &mut Vec<Command>, extra: f32) {
+    pub(in crate::app) fn vfo_util_chips(
+        &mut self,
+        ui: &mut egui::Ui,
+        cmds: &mut Vec<Command>,
+        extra: f32,
+    ) {
         let [swap, copy, split, sub] = VFO_CHIPS;
         if chip_stretched(ui, false, swap, extra).on_hover_text("Swap VFOs").clicked() {
             cmds.push(Command::SwapVfos);
@@ -2273,7 +2265,7 @@ impl SdroxideApp {
 
     /// The RIT/XIT tuning offsets — the bottom row of the VFO/RIT box, and the
     /// tail of the VFO menu. `extra` widens each Hz field; the popup passes 0.
-    fn vfo_offset_row(
+    pub(in crate::app) fn vfo_offset_row(
         &mut self,
         ui: &mut egui::Ui,
         cmds: &mut Vec<Command>,
@@ -3053,7 +3045,7 @@ impl SdroxideApp {
     /// Hermes-Lite 2's LNA, a SoapySDR device's first RX stage. A rig with none
     /// (a CAT radio on a sound card) gets no slider and no extra module width,
     /// so nothing moves for the people who can't use it.
-    fn rx_gains(&self) -> Vec<GainElement> {
+    pub(in crate::app) fn rx_gains(&self) -> Vec<GainElement> {
         self.caps
             .as_ref()
             .map(|c| c.gains.iter().filter(|g| g.direction == Direction::Rx).cloned().collect())
@@ -3068,7 +3060,7 @@ impl SdroxideApp {
     /// AGC runs — when the part ignores the register, so a slider on it would
     /// move nothing. Read from the AGC mode the source publishes beside the
     /// gain.
-    fn pluto_agc_owns_gain(&self, element: &str) -> bool {
+    pub(in crate::app) fn pluto_agc_owns_gain(&self, element: &str) -> bool {
         self.caps.as_ref().is_some_and(|c| c.driver == "pluto")
             && element == sdroxide_types::PlutoConfig::RF_GAIN_ELEMENT
             && self.state.gains.iter().any(|(n, v)| {
@@ -3110,7 +3102,7 @@ impl SdroxideApp {
     /// rather than with the noise chips because it is the same kind of control
     /// — what the receiver is given to work with, decided once for the whole
     /// radio, rather than something done to one receiver's audio afterwards.
-    fn decim_chip(&mut self, ui: &mut egui::Ui, cmds: &mut Vec<Command>) {
+    pub(in crate::app) fn decim_chip(&mut self, ui: &mut egui::Ui, cmds: &mut Vec<Command>) {
         let Some((device_hz, max)) = self.decim_range() else { return };
         let now = self.state.decimation.max(1);
         let label = if now > 1 { format!("DEC /{now}") } else { "DEC off".to_string() };
@@ -3470,7 +3462,13 @@ impl SdroxideApp {
     /// business; what the chip does is here. `narrow` is the menu column, where
     /// the NR chip stands in for a picker that cannot be opened from inside a
     /// menu.
-    fn rx_chip(&mut self, ui: &mut egui::Ui, cmds: &mut Vec<Command>, chip: RxChip, narrow: bool) {
+    pub(in crate::app) fn rx_chip(
+        &mut self,
+        ui: &mut egui::Ui,
+        cmds: &mut Vec<Command>,
+        chip: RxChip,
+        narrow: bool,
+    ) {
         // A chip that would open a popup is not drawn in a menu column at all;
         // its rows are inlined below instead. See [`RxChip::inlined_in_a_menu`].
         if narrow && chip.inlined_in_a_menu() {
@@ -3839,7 +3837,7 @@ impl SdroxideApp {
     /// undershooting until the readout agrees (issue #371). These fields are
     /// the other half: type the number, or take the width the mode is
     /// conventionally worked at.
-    fn filter_controls(&mut self, ui: &mut egui::Ui, cmds: &mut Vec<Command>) {
+    pub(in crate::app) fn filter_controls(&mut self, ui: &mut egui::Ui, cmds: &mut Vec<Command>) {
         let rx0 = self.state.rx[0];
         let mode = rx0.mode;
         let max = mode.max_filter_hz();
@@ -4148,7 +4146,7 @@ impl SdroxideApp {
 
     /// The rows inside the REC popup. Split out for the same reason
     /// [`Self::nr_controls`] is: a menu inlines them.
-    fn rec_controls(&mut self, ui: &mut egui::Ui, cmds: &mut Vec<Command>) {
+    pub(in crate::app) fn rec_controls(&mut self, ui: &mut egui::Ui, cmds: &mut Vec<Command>) {
         let audio = self.state.recording;
         let iq = self.state.iq_recording;
 
@@ -4441,7 +4439,7 @@ impl SdroxideApp {
 
     /// The engine row and the strength row. Its own function because a menu has
     /// to inline this rather than open it as a popup — see [`Self::rx_controls`].
-    fn nr_controls(&mut self, ui: &mut egui::Ui, cmds: &mut Vec<Command>) {
+    pub(in crate::app) fn nr_controls(&mut self, ui: &mut egui::Ui, cmds: &mut Vec<Command>) {
         let nr = self.state.rx[0].noise_reduction;
         let pick = |app: &mut Self, cmds: &mut Vec<Command>, level: NrLevel| {
             app.state.rx[0].noise_reduction = level; // optimistic echo
@@ -5077,7 +5075,7 @@ impl SdroxideApp {
     /// draws it here: a compact layout keys the transmitter from the menu row
     /// instead, where it is one tap away rather than two — burying
     /// push-to-talk in a menu is not a thing to do to an operator.
-    fn tx_ptt_chip(&mut self, ui: &mut egui::Ui, cmds: &mut Vec<Command>) {
+    pub(in crate::app) fn tx_ptt_chip(&mut self, ui: &mut egui::Ui, cmds: &mut Vec<Command>) {
         let tx = self.state.tx;
         let label = RichText::new(" PTT ").size(15.0).strong();
         // Tinted only while idle: keyed, the chip fills red and the label
@@ -5099,7 +5097,7 @@ impl SdroxideApp {
 
     /// The TUNE latching chip: keys a carrier at the tune level drawn beside
     /// it.
-    fn tx_tune_chip(&mut self, ui: &mut egui::Ui, cmds: &mut Vec<Command>) {
+    pub(in crate::app) fn tx_tune_chip(&mut self, ui: &mut egui::Ui, cmds: &mut Vec<Command>) {
         let tx = self.state.tx;
         if crate::chrome::chip_accent_sized(
             ui,
@@ -5117,7 +5115,7 @@ impl SdroxideApp {
 
     /// The voice keyer's chip, where the keyer can transmit — every voice mode
     /// plus RADE, which takes a message as its microphone.
-    fn tx_keyer_chip(&mut self, ui: &mut egui::Ui) {
+    pub(in crate::app) fn tx_keyer_chip(&mut self, ui: &mut egui::Ui) {
         if !self.state.rx[0].mode.allows_voice_keyer() {
             return;
         }
@@ -5185,7 +5183,7 @@ impl SdroxideApp {
     }
 
     /// The Drive label + rail + readout.
-    fn tx_drive(&mut self, ui: &mut egui::Ui, cmds: &mut Vec<Command>) {
+    pub(in crate::app) fn tx_drive(&mut self, ui: &mut egui::Ui, cmds: &mut Vec<Command>) {
         let mut drive = self.state.tx.drive;
         let hover = self.drive_hover();
         ui.label("Drive").on_hover_text(&hover);
@@ -5204,7 +5202,7 @@ impl SdroxideApp {
     }
 
     /// The tune-carrier level: label + rail + readout.
-    fn tx_tune_level(&mut self, ui: &mut egui::Ui, cmds: &mut Vec<Command>) {
+    pub(in crate::app) fn tx_tune_level(&mut self, ui: &mut egui::Ui, cmds: &mut Vec<Command>) {
         let mut tune_drive = self.state.tx.tune_drive;
         ui.label("Tune");
         if crate::chrome::slider_readout(
@@ -5248,7 +5246,7 @@ impl SdroxideApp {
     ///
     /// A control that is present but inert is a control an operator will spend
     /// an evening turning up.
-    fn cessb_applies(&self) -> bool {
+    pub(in crate::app) fn cessb_applies(&self) -> bool {
         cessb_applies_to(self.state.rx[0].mode, self.caps.as_ref())
     }
 
@@ -5358,12 +5356,12 @@ impl SdroxideApp {
     /// Not gated on the mode being *digital*: RADE is, and its microphone is
     /// the payload, so it keeps the mic rail and reaches this one from the TX
     /// menu instead — see [`Self::tx_controls`].
-    fn digi_tx_level_applies(&self) -> bool {
+    pub(in crate::app) fn digi_tx_level_applies(&self) -> bool {
         digi_tx_level_applies_to(self.state.rx[0].mode, self.caps.as_ref())
     }
 
     /// The mode's transmit-audio level as the strip should draw it, in dB.
-    fn digi_tx_level_db(&self) -> f32 {
+    pub(in crate::app) fn digi_tx_level_db(&self) -> f32 {
         sdroxide_types::tx_level_db(self.digi_cfg_edit.tx_level_for(self.state.rx[0].mode))
     }
 
@@ -5373,7 +5371,7 @@ impl SdroxideApp {
     /// Gated on `digi_cfg_seeded` like every other write to this configuration:
     /// before the first status the local copy is `DigiConfig::default()`, and a
     /// command built from it would be a level nobody asked for.
-    fn set_digi_tx_level(&mut self, db: f32, cmds: &mut Vec<Command>) {
+    pub(in crate::app) fn set_digi_tx_level(&mut self, db: f32, cmds: &mut Vec<Command>) {
         if !self.digi_cfg_seeded {
             return;
         }
@@ -5384,7 +5382,7 @@ impl SdroxideApp {
     }
 
     /// The hover that explains the transmit-audio level wherever it is drawn.
-    fn digi_tx_level_hover(&self) -> &'static str {
+    pub(in crate::app) fn digi_tx_level_hover(&self) -> &'static str {
         if self.state.rx[0].mode.is_fm_carrier() {
             "Deviation: how far this mode's burst swings a radio that modulates \
              it itself. An FM transmitter turns audio level into frequency swing \
@@ -5726,7 +5724,12 @@ impl SdroxideApp {
     /// opened from a popup counts as a click outside the first and closes it,
     /// exactly as for SKIM and FFT below — so the menu leaves the chip out here
     /// and [`Self::display_controls`] inlines its contents instead.
-    fn display_view_chips(&mut self, ui: &mut egui::Ui, narrow: bool, extra: f32) {
+    pub(in crate::app) fn display_view_chips(
+        &mut self,
+        ui: &mut egui::Ui,
+        narrow: bool,
+        extra: f32,
+    ) {
         let [_, spec, wide] = DISPLAY_VIEW_CHIPS;
         // Only a front end with a full-band lane has ever sent one of these, so
         // its presence is what says the strip is on offer at all — there is no
@@ -6098,7 +6101,7 @@ impl SdroxideApp {
 
     /// The level fit, the skimmers and the FFT popup — the condensed Display
     /// box's bottom row, and the tail of the DISP menu's row.
-    fn display_tool_chips(
+    pub(in crate::app) fn display_tool_chips(
         &mut self,
         ui: &mut egui::Ui,
         cmds: &mut Vec<Command>,
@@ -6312,7 +6315,7 @@ impl SdroxideApp {
 
     /// The first five window chips — the condensed System box's top row.
     /// `extra` stretches each chip past its label; the popup passes 0.
-    fn system_chips_top(&mut self, ui: &mut egui::Ui, extra: f32) {
+    pub(in crate::app) fn system_chips_top(&mut self, ui: &mut egui::Ui, extra: f32) {
         let [log, spots, awards, bands, sat_label, ism] = SYSTEM_CHIPS_TOP;
         let simple = self.ui_settings.simple_ui;
         // SWL mode is the listener's screen, and it takes the row the way the
@@ -6464,7 +6467,12 @@ impl SdroxideApp {
     }
 
     /// The remaining window chips — the condensed System box's bottom row.
-    fn system_chips_bottom(&mut self, ui: &mut egui::Ui, extra: f32, cmds: &mut Vec<Command>) {
+    pub(in crate::app) fn system_chips_bottom(
+        &mut self,
+        ui: &mut egui::Ui,
+        extra: f32,
+        cmds: &mut Vec<Command>,
+    ) {
         let [mail, mem, scan_label, hfdl_label, grid_label, public_sdrs, settings, help] =
             SYSTEM_CHIPS_BOTTOM;
         let simple = self.ui_settings.simple_ui;
@@ -7155,7 +7163,7 @@ fn db_rail_w(ui: &egui::Ui) -> f32 {
 /// along the row and cost the System box its last chips over the edge of the
 /// window (issue #152) — exactly what ANC and MONO had done before it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum RxChip {
+pub(in crate::app) enum RxChip {
     /// The receive filter: width, edges and the mode's presets.
     Bw,
     Nb,
@@ -7381,7 +7389,7 @@ fn bw_chip_hint(mode: Mode, lo: f32, hi: f32) -> String {
 
 /// The RX box's chip run in a mode: the six every mode carries, then whatever
 /// the mode itself brings — a subcarrier to read, a tone to gate on.
-fn rx_chips(mode: Mode, listener: bool) -> Vec<RxChip> {
+pub(in crate::app) fn rx_chips(mode: Mode, listener: bool) -> Vec<RxChip> {
     // MONO is not among them: it is the *recording's* channel layout, and it
     // now sits beside the recording controls it belongs to, inside the REC
     // popup (issue #217). That is also one chip fewer on a strip that has to
