@@ -6776,6 +6776,42 @@ the operator's report was about — the boxes leave with the setting, the fold c
 is drawn only with the column, and the picture's left edge goes back to where it
 was (8 pt, against 280 with the column).
 
+**The column is a panel, and it is drawn like one.** `chrome::angled_frame` gives
+it the same cut-corner outline and fill the waterfall and the operating panel
+have — the operator's *"I just miss the border around it"*, and the right reading
+of it: without the border the column is a region of the window rather than a panel
+in it. The panel itself is only space now (a 4-point margin, no fill); the frame
+is the look. The folded rail gets a line on its right edge for the same reason.
+
+**The readout is centred over the picture.** It sat at the left edge, above a
+column it has nothing to do with. The S-meter is pinned right first, then the
+readout is centred in what is left of the row — and since the column has already
+taken its width off that row, "centred" is the middle of the waterfall. (This is
+the operator's one *visual* preference in the whole arrangement: *"I would love to
+have the frequency centered so it's above the waterfall"*.)
+
+**The sections are the operator's own order, dragged into place.** Wanted first
+for the Recorder, and wanted as a category order nobody else can guess. Every
+heading is a bar in an accent wash (`header_fill` — the 0.14 the notice bars use)
+so where a section starts is visible without reading; the heading is the drag
+handle, and dropping it on another section swaps them. The order is
+`UiSettings::classic_sections`, a comma-separated list of section keys read
+through `ClassicSection::order`. **It is a `String` on purpose**: a list of enum
+names would make `config.toml` unparseable the day a section is added or removed,
+and `Settings::load` answers an unparseable config by **quarantining the whole
+file and returning defaults** — an arrangement would then cost a theme, a font
+size and a layout. Read as text, an unknown name costs the arrangement and
+nothing else: `order` keeps what he placed, drops what this build does not know,
+and appends anything missing in the shipped order.
+`a_section_order_survives_what_it_does_not_know` pins all four properties, and
+`unchecking_classic_ui_gives_the_strip_back` asserts the *drawn* column follows
+the stored order rather than the shipped one.
+
+`UiSettings` is **no longer `Copy`** (it carries a list now). That cost one
+`clone()` in `sdroxide-config`, a few `&self` on its accessors, and nothing else
+— worth knowing, because "it is `Copy`" is the reason a `Vec` field looks
+impossible at first.
+
 **Left to do**: a skinned section header rather than egui's default, SDR++'s
 vertical Zoom/Max/Min rails beside the waterfall, and splitting the Receiver
 section — it currently carries the passband presets and the noise-reduction
