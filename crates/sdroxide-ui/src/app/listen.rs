@@ -154,8 +154,8 @@ pub(in crate::app) fn station_near(
 
 #[cfg(test)]
 mod tests {
-    use sdroxide_types::BroadcastScope;
     use super::{listen_set, station_near};
+    use sdroxide_types::BroadcastScope;
     use sdroxide_types::BroadcastStation;
     use sdroxide_types::SwlEntry;
 
@@ -180,12 +180,21 @@ mod tests {
         .collect();
 
         // 20 kHz of span at 6190 kHz reaches none of the others.
-        let inview = listen_set(&stations, 6_190_000.0, 20_000.0, None, false, &[], BroadcastScope::InView);
+        let inview =
+            listen_set(&stations, 6_190_000.0, 20_000.0, None, false, &[], BroadcastScope::InView);
         assert_eq!(inview.near.len(), 1, "the span should hold only what it holds");
         assert_eq!(inview.on_band, 1);
 
         // The whole band is all of them, which is what a listener asked for.
-        let whole = listen_set(&stations, 6_190_000.0, 20_000.0, None, false, &[], BroadcastScope::WholeBand);
+        let whole = listen_set(
+            &stations,
+            6_190_000.0,
+            20_000.0,
+            None,
+            false,
+            &[],
+            BroadcastScope::WholeBand,
+        );
         assert_eq!(whole.near.len(), 3, "the whole band should hold every station");
         assert_eq!(whole.on_band, 3);
     }
@@ -251,10 +260,19 @@ mod tests {
         };
         let s = vec![station("on band", 6_190.0, Some(50.0), Some(5.0))];
 
-        let off = listen_set(&s, 6_190_000.0, 20_000.0, None, false, &[logged.clone()], BroadcastScope::InView);
+        let off = listen_set(
+            &s,
+            6_190_000.0,
+            20_000.0,
+            None,
+            false,
+            &[logged.clone()],
+            BroadcastScope::InView,
+        );
         assert!(off.logged.is_empty(), "history off must draw nothing of it");
 
-        let on = listen_set(&s, 6_190_000.0, 20_000.0, None, true, &[logged], BroadcastScope::InView);
+        let on =
+            listen_set(&s, 6_190_000.0, 20_000.0, None, true, &[logged], BroadcastScope::InView);
         assert_eq!(on.logged.len(), 1, "history on draws what was logged");
         assert_eq!(on.stations.len(), 1, "and does not disturb what is on now");
     }
@@ -264,7 +282,8 @@ mod tests {
     #[test]
     fn a_logged_station_without_coordinates_is_not_drawn_at_zero() {
         let logged = SwlEntry { station: "typed by hand".into(), ..Default::default() };
-        let set = listen_set(&[], 6_190_000.0, 20_000.0, None, true, &[logged], BroadcastScope::InView);
+        let set =
+            listen_set(&[], 6_190_000.0, 20_000.0, None, true, &[logged], BroadcastScope::InView);
         assert!(set.logged.is_empty(), "absent coordinates must not become 0,0");
     }
 
@@ -286,7 +305,15 @@ mod tests {
             lon: Some(12.0),
             ..Default::default()
         };
-        let set = listen_set(&[], 6_190_000.0, 20_000.0, None, true, &[pirate, ordinary], BroadcastScope::InView);
+        let set = listen_set(
+            &[],
+            6_190_000.0,
+            20_000.0,
+            None,
+            true,
+            &[pirate, ordinary],
+            BroadcastScope::InView,
+        );
         assert_eq!(set.logged.len(), 2);
         assert_ne!(
             set.logged[0].2, set.logged[1].2,
@@ -388,7 +415,8 @@ mod tests {
             station("our own local tx", 6_190.0, Some(52.0), Some(5.0)),
             station("a real one", 6_191.0, Some(50.0), Some(6.0)),
         ];
-        let set = listen_set(&s, 6_190_000.0, 20_000.0, Some(home), false, &[], BroadcastScope::InView);
+        let set =
+            listen_set(&s, 6_190_000.0, 20_000.0, Some(home), false, &[], BroadcastScope::InView);
         assert_eq!(set.stations.len(), 1, "the local one must not cover home");
     }
 }

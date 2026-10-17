@@ -391,6 +391,174 @@ pub(crate) fn draw_base(
     dot_r
 }
 
+/// The ground painted as a **map** rather than a stipple.
+///
+/// The dot matrix above is the FT8/WSPR propagation idiom: a pattern of dots
+/// reads well under a scatter of stations, and the ½ coverage contour puts the
+/// coastline in the right place. Under an **air picture** it is the wrong
+/// ground — an operator watching aircraft wants a shoreline and a landmass, and
+/// two r/ShortwavePlus readers said so about the ADS-B map on 2026-10-17:
+/// *"the map is dismal"*.
+///
+/// Same data, same assets, different ink. The land is a coverage raster, so it
+/// wants to be an image with a soft ½ edge — bilinear-filtered, the coastline
+/// falls between texels instead of stepping along them. Rivers and borders are
+/// polylines, so they are stamped into the same grid, exactly as
+/// [`draw_ground`] does. Nothing here is new data and nothing is fetched.
+#[derive(Default)]
+pub struct GroundCache {
+    key: Option<GroundKey>,
+    tex: Option<eframe::egui::TextureHandle>,
+}
+
+/// What the cached image was built for. Anything in here changing rebuilds it;
+/// nothing else does.
+#[derive(Clone, Copy, PartialEq)]
+struct GroundKey {
+    clat: f64,
+    clon: f64,
+    lon_span: f64,
+    w: u32,
+    h: u32,
+    seas: [u8; 4],
+    lands: [u8; 4],
+    rivers: [u8; 4],
+    borders: [u8; 4],
+}
+
+/// Roughly how many points one texel of the ground covers. Two is where a
+/// coastline stops looking stepped without the image becoming a megabyte;
+/// the image is bilinear-filtered, so it reads smoother than its resolution.
+const GROUND_POINTS_PER_TEXEL: f32 = 2.0;
+/// A cap on either dimension, so a very large window cannot make the build
+/// expensive — the map is a picture, not a survey.
+const GROUND_MAX_TEXELS: u32 = 1024;
+
+/// The ground for one view, as an image: sea, land, rivers, borders.
+///
+/// Pure but for the two `basemap` statics it reads, so a test can ask it what
+/// colour a given place came out.
+pub fn ground_image(
+    (clat, clon, lon_span, lat_span): (f64, f64, f64, f64),
+    (w, h): (u32, u32),
+    map: &theme::MapPalette,
+) -> eframe::egui::ColorImage {
+    let (w, h) = (w.max(2) as usize, h.max(2) as usize);
+    let mut px = vec![eframe::egui::Color32::TRANSPARENT; w * h];
+
+    // The land first, in one pass: which mip level is read is a property of the
+    // whole view, so it is worked out once.
+    let land = crate::basemap::land().sampler(lon_span / w as f64);
+    for row in 0..h {
+        let fy = (row as f64 + 0.5) / h as f64;
+        let lat = clat + (0.5 - fy) * lat_span;
+        for col in 0..w {
+            let fx = (col as f64 + 0.5) / w as f64;
+            let lon = wrap180(clon + (fx - 0.5) * lon_span);
+            // **Not** `land_ink` with the sampler's magnification: that
+            // steepens the ramp as the view zooms in, which a dot needs (it is
+            // standing in for a whole cell) and a painted map must not have —
+            // it turns the coastline into an edge at exactly the zoom where the
+            // raster is being magnified and the edge is blocky. The gentlest
+            // ramp the data has, so there is a gradient for the filter to
+            // smooth. Looked at: `examples/survey_ground_probe.rs`.
+            let ink =
+                if (-90.0..=90.0).contains(&lat) { land_ink(land.at(lon, lat), 1.0) } else { 0.0 };
+            // Sea to land, through the ½ contour: one texel of ramp either side
+            // of it, and the filter does the rest.
+            px[row * w + col] = blend(map.sea, map.land, ink);
+        }
+    }
+
+    // Then the lines, stamped into the same grid — the weights are the ones
+    // `draw_ground` uses, so a border and a river are as loud on a painted map
+    // as they are on a stippled one.
+    for (layer, ink, weight, base, spread) in [
+        (&crate::basemap::lines().rivers, map.river, 215.0, 0.42, 0.58),
+        (&crate::basemap::lines().borders, map.border, 195.0, 0.62, 0.0),
+    ] {
+        let mut marks = vec![0u8; w * h];
+        stamp_lines(layer, (clat, clon, lon_span, lat_span), (w, h), &mut marks);
+        for (i, &rank) in marks.iter().enumerate() {
+            if rank == 0 {
+                continue;
+            }
+            let a = base + spread * (f32::from(rank - 1) / 12.0).min(1.0);
+            px[i] = blend(px[i], ink, (weight * a) / 255.0);
+        }
+    }
+
+    eframe::egui::ColorImage::new([w, h], px)
+}
+
+/// `a` taken `t` of the way to `b`, with `t` clamped.
+fn blend(a: eframe::egui::Color32, b: eframe::egui::Color32, t: f32) -> eframe::egui::Color32 {
+    let t = t.clamp(0.0, 1.0);
+    let mix = |x: u8, y: u8| (f32::from(x) + (f32::from(y) - f32::from(x)) * t).round() as u8;
+    eframe::egui::Color32::from_rgb(mix(a.r(), b.r()), mix(a.g(), b.g()), mix(a.b(), b.b()))
+}
+
+/// [`draw_base`] with the ground painted rather than stippled — for the survey
+/// views, where the map is looked at rather than decorated.
+///
+/// The image is rebuilt only when the view or the size has moved by more than a
+/// texel, so panning and the ADS-B view's own easing do not rebuild it on every
+/// frame. Returns the dot radius the callers pass on to their own marks, which
+/// is a property of the pitch and not of the ground.
+pub(crate) fn draw_painted_base(
+    ctx: &eframe::egui::Context,
+    p: &eframe::egui::Painter,
+    rect: eframe::egui::Rect,
+    clat: f64,
+    clon: f64,
+    lon_span: f64,
+    lat_span: f64,
+    map: &theme::MapPalette,
+    cache: &mut GroundCache,
+) -> f32 {
+    let dot_r = (DOT_PITCH * 0.44).max(0.7);
+    let w = ((rect.width() / GROUND_POINTS_PER_TEXEL) as u32).clamp(2, GROUND_MAX_TEXELS);
+    let h = ((rect.height() / GROUND_POINTS_PER_TEXEL) as u32).clamp(2, GROUND_MAX_TEXELS);
+
+    // A full rebuild is a few hundred thousand samples, so the key is compared
+    // at texel granularity: a view that has eased a hundredth of a degree does
+    // not need its map redrawn.
+    let texel = (lon_span / f64::from(w)).max(1e-9);
+    let quant = |v: f64| (v / (texel * 0.5)).round();
+    let key = GroundKey {
+        clat: quant(clat),
+        clon: quant(clon),
+        lon_span: (lon_span / texel).round(),
+        w,
+        h,
+        seas: map.sea.to_array(),
+        lands: map.land.to_array(),
+        rivers: map.river.to_array(),
+        borders: map.border.to_array(),
+    };
+    if cache.key != Some(key) {
+        let image = ground_image((clat, clon, lon_span, lat_span), (w, h), map);
+        cache.tex =
+            Some(ctx.load_texture("survey-ground", image, eframe::egui::TextureOptions::LINEAR));
+        cache.key = Some(key);
+    }
+    if let Some(tex) = &cache.tex {
+        p.image(
+            tex.id(),
+            rect,
+            eframe::egui::Rect::from_min_max(
+                eframe::egui::pos2(0.0, 0.0),
+                eframe::egui::pos2(1.0, 1.0),
+            ),
+            eframe::egui::Color32::WHITE,
+        );
+    }
+    if theme::map_cities() {
+        draw_cities(p, rect, clat, clon, lon_span, lat_span, dot_r, map);
+    }
+    dot_r
+}
+
 /// [`draw_base`] without the cities: land, rivers and borders. Apart for the
 /// map that shades the night side, where the ground goes under the grey line
 /// and the cities — marks and names to be read — go over it.
@@ -980,6 +1148,38 @@ pub fn show(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// **The painted ground is a map**: land where the land is, sea where the
+    /// sea is. The complaint it answers — *"the map is dismal"* — is not that
+    /// the ink is the wrong shade, so the assertion is about a place on the
+    /// Earth rather than about a colour being drawn at all.
+    #[test]
+    fn the_painted_ground_puts_land_where_the_land_is() {
+        let map = theme::map();
+        // Europe, and enough Atlantic either side of it to have both.
+        let (clat, clon, lon_span, lat_span) = (50.0, 5.0, 60.0, 36.0);
+        let (w, h) = (240u32, 140u32);
+        let img = ground_image((clat, clon, lon_span, lat_span), (w, h), map);
+
+        let at = |lat: f64, lon: f64| {
+            let fx = 0.5 + wrap180(lon - clon) / lon_span;
+            let fy = 0.5 - (lat - clat) / lat_span;
+            let col = ((fx * f64::from(w)) as usize).min(w as usize - 1);
+            let row = ((fy * f64::from(h)) as usize).min(h as usize - 1);
+            img.pixels[row * w as usize + col]
+        };
+        let dist = |a: eframe::egui::Color32, b: eframe::egui::Color32| {
+            (i32::from(a.r()) - i32::from(b.r())).abs()
+                + (i32::from(a.g()) - i32::from(b.g())).abs()
+                + (i32::from(a.b()) - i32::from(b.b())).abs()
+        };
+        let landish = |c: eframe::egui::Color32| dist(c, map.land) < dist(c, map.sea);
+
+        assert!(landish(at(52.0, 5.5)), "the Netherlands came out as sea");
+        assert!(landish(at(48.0, 2.5)), "France came out as sea");
+        assert!(!landish(at(52.0, -30.0)), "the mid-Atlantic came out as land");
+        assert!(!landish(at(40.0, -40.0)), "the western Atlantic came out as land");
+    }
 
     /// Issue #312: the cities can be turned off, and turning them off takes the
     /// *names* with them — those are what get written across the dot somebody

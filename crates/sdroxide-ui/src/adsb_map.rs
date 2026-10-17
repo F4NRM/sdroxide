@@ -36,7 +36,7 @@ use sdroxide_types::{AdsbAircraft, AdsbSettings};
 
 use crate::theme;
 use crate::widgets::map_labels::{self, MapLabel};
-use crate::widgets::worldmap::{MapView, alpha, draw_base, interact, paint_night, wrap180};
+use crate::widgets::worldmap::{MapView, alpha, draw_painted_base, interact, paint_night, wrap180};
 
 /// Below this height the map is not worth drawing.
 pub const MIN_HEIGHT: f32 = 90.0;
@@ -68,6 +68,10 @@ pub struct AdsbMapState {
     pub view: MapView,
     /// The aircraft whose card is open, by ICAO address.
     pub selected: Option<u32>,
+    /// The map under the picture: land, rivers and borders as an image rather
+    /// than the dot stipple the propagation maps use. Rebuilt only when the
+    /// view moves by more than a texel.
+    pub ground: crate::widgets::worldmap::GroundCache,
 }
 
 /// The view to ease toward: every target that can be drawn, plus us, framed.
@@ -218,7 +222,19 @@ pub fn show(
     let lat_span = lon_span * aspect;
     let manual = view.manual;
 
-    let dot_r = draw_base(&p, rect, clat, clon, lon_span, lat_span, map);
+    // A painted map, not the dot stipple: an air picture is looked at, and a
+    // stippled ground is the propagation panel's idiom (see `draw_painted_base`).
+    let dot_r = draw_painted_base(
+        ui.ctx(),
+        &p,
+        rect,
+        clat,
+        clon,
+        lon_span,
+        lat_span,
+        map,
+        &mut state.ground,
+    );
     // Over the continents, so land darkens with the sea on the night side; the
     // marks drawn below stay lit.
     paint_night(&p, rect, clat, clon, lon_span, lat_span, night);

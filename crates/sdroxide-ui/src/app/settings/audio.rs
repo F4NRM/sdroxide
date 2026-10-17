@@ -23,8 +23,8 @@
 use eframe::egui::{self, ComboBox, RichText};
 
 use super::general::{device_field, settings_rx_audio_gain};
-use crate::chrome::StyledCombo as _;
 use crate::app::SdroxideApp;
+use crate::chrome::StyledCombo as _;
 use crate::theme::gray;
 
 /// Whether this device belongs to the machine's sound server rather than to a
@@ -271,7 +271,11 @@ impl SdroxideApp {
     /// nothing on screen could turn it on.
     ///
     /// Per radio, because the audio is: two radios here have two streams.
-    fn stream_audio_out(&self, ui: &mut egui::Ui, radio_edit: &mut Option<sdroxide_types::RadioConfig>) {
+    fn stream_audio_out(
+        &self,
+        ui: &mut egui::Ui,
+        radio_edit: &mut Option<sdroxide_types::RadioConfig>,
+    ) {
         let Some(cfg) = radio_edit.as_mut() else { return };
         section(
             ui,

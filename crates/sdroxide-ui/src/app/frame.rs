@@ -323,17 +323,17 @@ fn tool_window_title_button(
     // `Area` rather than a widget in the body's `Ui`, because the title bar is
     // outside the body's clip rect and a widget there would be clipped away —
     // which is why this was an overlay to begin with.
-    egui::Area::new(win_id.with("title-btn"))
-        .fixed_pos(rect.min)
-        .order(egui::Order::Middle)
-        .show(ctx, |ui| {
+    egui::Area::new(win_id.with("title-btn")).fixed_pos(rect.min).order(egui::Order::Middle).show(
+        ctx,
+        |ui| {
             ui.set_min_size(rect.size());
             clicked = crate::chrome::chip_window_icon(ui, crate::chrome::WindowIcon::Out)
                 .on_hover_text(
                     "WINDOW — move this window into its own OS window, put it on another monitor",
                 )
                 .clicked();
-        });
+        },
+    );
     clicked
 }
 

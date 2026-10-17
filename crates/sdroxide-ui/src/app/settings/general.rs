@@ -727,7 +727,6 @@ impl SdroxideApp {
             .color(crate::theme::gray(140)),
         );
     }
-
 }
 
 #[cfg(test)]
@@ -743,11 +742,7 @@ mod device_entry_tests {
     }
 
     /// One frame: draw the picker, and optionally feed the entry field keys.
-    fn frame(
-        ctx: &egui::Context,
-        selected: &mut Option<String>,
-        keys: &[egui::Event],
-    ) {
+    fn frame(ctx: &egui::Context, selected: &mut Option<String>, keys: &[egui::Event]) {
         let names: Vec<String> = LIST.iter().map(|s| (*s).into()).collect();
         let input = egui::RawInput {
             screen_rect: Some(egui::Rect::from_min_size(

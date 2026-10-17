@@ -35,9 +35,7 @@ use sdroxide_types::{Command, LoginTarget, LookupProvider, NetworkConfig, Upload
 
 use self::alerts::alerts_settings;
 use self::controls::settings_controls_tab;
-use self::general::{
-    cb_plan_combo, region_combo, remote_access_settings, signed_in_station,
-};
+use self::general::{cb_plan_combo, region_combo, remote_access_settings, signed_in_station};
 use self::net::{
     broadcast_stations_settings, net_heading, net_row, net_secret, operator_identity_note,
     settings_freedv_tab,
@@ -2426,7 +2424,7 @@ impl SdroxideApp {
                 ui.add_space(10.0);
                 ui.separator();
                 ui.add_space(6.0);
-    
+
                 ui.add_space(10.0);
                 ui.separator();
                 ui.add_space(6.0);
@@ -2447,7 +2445,7 @@ impl SdroxideApp {
                 // running two rigs at once runs two interfaces at once, and one
                 // pair of pickers on a shared page could only describe one of
                 // them (issue #474).
-    
+
                 // Which station this client is signed in to, and the way out of
                 // it. Above the server-side blocks below, because those are drawn
                 // only for a station in this process while this is drawn for a
@@ -5220,8 +5218,7 @@ mod settings_probe {
         );
         // `target/` is relative to the crate a test binary runs in, so the
         // path is anchored on the manifest directory rather than the cwd.
-        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../target");
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target");
         let _ = std::fs::create_dir_all(&dir);
         let path = dir.join(format!("settings-probe-{name}.png"));
         img.save(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
@@ -5330,14 +5327,16 @@ mod settings_menu_tests {
         );
         for tab in EVERY_TAB {
             let n = seen.iter().filter(|t| *t == tab).count();
-            assert_eq!(n, 1, "{} appears {n} times in the menu — exactly once, or not at all", tab_name(*tab));
+            assert_eq!(
+                n,
+                1,
+                "{} appears {n} times in the menu — exactly once, or not at all",
+                tab_name(*tab)
+            );
         }
         seen.dedup();
-        let missing: Vec<&str> = EVERY_TAB
-            .iter()
-            .filter(|t| !seen.contains(t))
-            .map(|t| tab_name(*t))
-            .collect();
+        let missing: Vec<&str> =
+            EVERY_TAB.iter().filter(|t| !seen.contains(t)).map(|t| tab_name(*t)).collect();
         assert!(missing.is_empty(), "these tabs are missing from the menu: {missing:?}");
     }
 
@@ -5373,7 +5372,10 @@ mod settings_menu_tests {
         // readable width, where at the window's floor it would not.
         let page_at_threshold = 620.0 - super::MENU_WIDTH;
         let page_at_floor = 380.0 - super::MENU_WIDTH;
-        assert!(page_at_threshold >= 400.0, "a page of {page_at_threshold} pt is too narrow to read");
+        assert!(
+            page_at_threshold >= 400.0,
+            "a page of {page_at_threshold} pt is too narrow to read"
+        );
         assert!(page_at_floor < 260.0, "which is why the floor keeps the strip");
     }
 }
@@ -5406,10 +5408,7 @@ mod apply_interface_tests {
         // raise the other — which is the whole of what went wrong.
         let rescan = true;
         assert!(rescan, "the rescan flag stands on its own");
-        assert!(
-            !apply.is_requested(),
-            "a rescan must never be read as an apply"
-        );
+        assert!(!apply.is_requested(), "a rescan must never be read as an apply");
 
         apply.request();
         assert!(apply.is_requested());

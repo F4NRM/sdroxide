@@ -36,7 +36,6 @@ pub(in crate::app) mod hfdl;
 pub(in crate::app) mod ignore;
 pub(in crate::app) mod ism;
 pub(in crate::app) mod known_calls;
-mod weather;
 pub(in crate::app) mod konami;
 pub(in crate::app) mod listen;
 pub(in crate::app) mod logbook;
@@ -67,6 +66,7 @@ pub(in crate::app) mod top_bar;
 #[cfg(not(target_arch = "wasm32"))]
 pub(in crate::app) mod update;
 pub(crate) mod util;
+mod weather;
 pub(in crate::app) mod windows;
 pub(in crate::app) mod winlink;
 
@@ -2995,7 +2995,12 @@ mod tests {
         let above_the_stack: Vec<egui::LayerId> = ctx
             .memory(|m| m.areas().visible_layer_ids())
             .into_iter()
-            .filter(|l| matches!(l.order, egui::Order::Foreground | egui::Order::Tooltip | egui::Order::Debug))
+            .filter(|l| {
+                matches!(
+                    l.order,
+                    egui::Order::Foreground | egui::Order::Tooltip | egui::Order::Debug
+                )
+            })
             .collect();
         assert!(
             above_the_stack.is_empty(),
@@ -4818,4 +4823,3 @@ mod tests {
         }
     }
 }
-
