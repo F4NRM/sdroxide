@@ -25,6 +25,16 @@
 > the operator expects to **switch models when the work reaches MAIN SP** (the
 > panadapter window's toolbar), so that file says where the seam is.
 >
+> ⛔ **PARKED, AND DO NOT BRING IT UP.** The operator's standing instruction,
+> 2026-10-17: *"don't mention the sdruno again till i call for it."* It is his own
+> pet project, kept **out of the main project**: what exists is on branch
+> **`fork/sdruno-clone`** (off `fork/sdruno-look`, which carries the theme), it is
+> **not** to be merged into `main`, and it is **not** to appear in a proposal list,
+> a reply, a release note or the TODO. Do not raise it as the next thing to do,
+> and do not answer an unrelated question by pointing at it. The branch and
+> `SDRUNO-UI-HANDOVER.md` stay where they are as the record. **He will call for it
+> when he has session room, and not before.**
+>
 > **Where the SDRuno work stands (2026-10-09): items 1, 2 and 3 are built** —
 > the band keypad in the console's left column (digits 0–9 naming the HF
 > allocations, **Bands**/**MHz** above, the full band list beside it, not behind
