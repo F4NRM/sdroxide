@@ -1533,6 +1533,74 @@ pub fn map() -> &'static MapPalette {
     &MAP_PALETTES[THEME.load(Ordering::Relaxed) as usize]
 }
 
+/// The current theme's map inks in one of the **survey styles**.
+///
+/// Derived from the theme rather than written out per theme, because there are
+/// eighteen themes and three styles and the alternative is fifty-four hand-made
+/// palettes that have to be kept in step — the same reason the instrument
+/// palettes above are derived from their theme's own hues.
+///
+/// The moves are chosen to answer the question each style is asked:
+///
+/// - **Radar** is the theme's own palette, untouched. It is what this program
+///   drew first, and an air picture reads against it.
+/// - **Terrain** lifts the land toward the theme's bright ink and dims the
+///   politics — a border is not a feature of the ground, and at this size the
+///   borders are the busiest thing on the map. The sea stays dark on a dark
+///   theme so the land is what shows, and goes pale on a light one so the
+///   same relationship holds.
+/// - **Chart** takes the land most of the way to the paper colour and picks
+///   the borders back out, which is the inversion a chart is: the *marks* are
+///   what you read, not the land.
+pub fn map_styled(style: sdroxide_types::MapStyle) -> MapPalette {
+    use sdroxide_types::MapStyle;
+    let base = *map();
+    // The brightest ink the theme has, and the darkest: a style is built by
+    // moving the ground toward one and its *marks* toward the other, so a pale
+    // map gets dark aircraft and a dark one gets pale — the mistake this first
+    // went in with was lifting the land and leaving the marks where they were,
+    // which is legible on terrain and invisible on chart.
+    let paper = base.city_label;
+    let ink = base.sea;
+    let mut out = base;
+    match style {
+        MapStyle::Radar => {}
+        // **Terrain**: the ground, and not the politics. The borders go almost
+        // into the land (they are the busiest thing on the map at this size)
+        // and the rivers stay, because a river is a feature of the ground.
+        MapStyle::Terrain => {
+            out.land = blend(base.land, paper, 42, 100);
+            out.border = blend(base.border, out.land, 72, 100);
+            out.river = blend(base.river, out.land, 25, 100);
+            out.city = blend(base.city, paper, 25, 100);
+        }
+        // **Chart**: the pale marked-up map, marks dark and the graticule on.
+        // The whole palette inverts, not just the ground.
+        MapStyle::Chart => {
+            out.land = blend(base.land, paper, 92, 100);
+            out.sea = blend(base.sea, paper, 52, 100);
+            out.border = blend(base.border, ink, 62, 100);
+            out.river = blend(base.river, ink, 35, 100);
+            out.city = blend(base.city, ink, 70, 100);
+            out.city_label = blend(base.city_label, ink, 70, 100);
+            out.station = blend(base.station, ink, 78, 100);
+            out.trail = blend(base.trail, out.sea, 35, 100);
+            out.comet = blend(base.comet, ink, 55, 100);
+            out.home = blend(base.home, ink, 45, 100);
+            out.dx = blend(base.dx, ink, 55, 100);
+            out.hover = blend(base.hover, ink, 45, 100);
+            out.preview = blend(base.preview, ink, 45, 100);
+            out.hint = blend(base.hint, ink, 62, 100);
+            out.frame = blend(base.frame, ink, 45, 100);
+            out.shell = blend(base.shell, out.sea, 30, 100);
+            // The night shade is *dark* ink laid over the map; on paper it has
+            // to be gentler or the whole chart goes out.
+            out.night_max = base.night_max * 0.55;
+        }
+    }
+    out
+}
+
 /// Indexed by [`style_index`].
 const STYLE_ORDER: [ChromeStyle; 6] = [
     ChromeStyle::Angled,

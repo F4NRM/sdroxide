@@ -944,7 +944,8 @@ mod tests {
     #[test]
     fn coming_back_to_a_band_does_not_open_a_path_that_was_pruned_away() {
         let now = 1_700_000_000;
-        let opts = OpenOptions { short_window_s: 300, baseline_window_s: 9_900, ..Default::default() };
+        let opts =
+            OpenOptions { short_window_s: 300, baseline_window_s: 9_900, ..Default::default() };
         let mut t = BandOpeningTracker::with_options(opts);
 
         // Watched for hours, and one quiet stretch so the clock is warm.
@@ -965,16 +966,11 @@ mod tests {
         // five, because `min_distinct_calls` is five and one spot is not an
         // opening by anyone's definition.
         let back = now;
-        let burst: Vec<BandPath> = ["K1ABC", "K2ABC", "K3ABC", "K4ABC", "K5ABC"]
-            .iter()
-            .map(|c| at(c, back))
-            .collect();
+        let burst: Vec<BandPath> =
+            ["K1ABC", "K2ABC", "K3ABC", "K4ABC", "K5ABC"].iter().map(|c| at(c, back)).collect();
         t.ingest(&burst, back);
         let openings = t.analyze(back);
-        assert!(
-            openings.is_empty(),
-            "returning to a band opened a path on one spot: {openings:?}"
-        );
+        assert!(openings.is_empty(), "returning to a band opened a path on one spot: {openings:?}");
     }
 
     /// **A DX-cluster spot must not start a clock that no feed ever started.**
@@ -990,7 +986,8 @@ mod tests {
     #[test]
     fn a_first_ever_spot_does_not_start_a_warm_up_clock() {
         let now = 1_700_000_000;
-        let opts = OpenOptions { short_window_s: 300, baseline_window_s: 9_900, ..Default::default() };
+        let opts =
+            OpenOptions { short_window_s: 300, baseline_window_s: 9_900, ..Default::default() };
         let mut t = BandOpeningTracker::with_options(opts);
 
         // Six hours of nothing at all for this path.
@@ -998,10 +995,8 @@ mod tests {
             t.ingest(&[], now - 21_600 + step * 300);
         }
         // Then one cluster spot. Nothing has ever watched this path.
-        let burst: Vec<BandPath> = ["W1AW", "W2AW", "W3AW", "W4AW", "W5AW"]
-            .iter()
-            .map(|c| at(c, now))
-            .collect();
+        let burst: Vec<BandPath> =
+            ["W1AW", "W2AW", "W3AW", "W4AW", "W5AW"].iter().map(|c| at(c, now)).collect();
         t.ingest(&burst, now);
         let openings = t.analyze(now);
         assert!(

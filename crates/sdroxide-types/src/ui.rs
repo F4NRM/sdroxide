@@ -1136,6 +1136,82 @@ pub struct UiSettings {
     /// before the choice existed.
     #[serde(default)]
     pub broadcast_scope: BroadcastScope,
+    /// How the **survey maps** are painted — the aircraft picture today, and
+    /// the shipping and datalink ones if they take it up.
+    ///
+    /// Three answers, because the two are for different questions. *Radar* is
+    /// the dark high-contrast ground an air picture wants and the one this
+    /// program drew first. *Terrain* fills the land so a country reads as a
+    /// country. *Chart* is the pale marked-up look of an aeronautical chart,
+    /// graticule and all.
+    ///
+    /// Asked for by two readers on r/ShortwavePlus (2026-10-17), the moderator
+    /// putting it precisely: *"a choice between nav maps and regular
+    /// terrain/road maps"*. Roads are not ours to give — see the note on the
+    /// data in `sdroxide-ui`'s `basemap` — but the choice is.
+    #[serde(default)]
+    pub survey_map_style: MapStyle,
+    /// **Classic UI** — every control in one column down the left, the way
+    /// SDR++ and SDR++Brown lay theirs out, with each group a section that
+    /// folds away.
+    ///
+    /// It exists because that is the layout most short-wave listeners already
+    /// know: the two readers who called this program "too complicated, controls
+    /// all over the place" on r/ShortwavePlus were both SDR++ users, and what
+    /// they were describing is the difference between a strip of boxes with
+    /// twelve menus behind it and one visible column. Same program, same
+    /// controls, arranged the way a hand already knows.
+    ///
+    /// Off by default: the strip is what this program's own screens are built
+    /// around, and a layout is a bigger thing than a preference to change under
+    /// someone. Local `config.toml`, not [`ClientScreen`] — it arranges *this*
+    /// window, which is the machine's business and not a station's.
+    #[serde(default)]
+    pub classic_ui: bool,
+}
+
+/// How a survey map is painted. See [`UiSettings::survey_map_style`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum MapStyle {
+    /// The dark ground with the land filled: what an air picture is read
+    /// against, and the default because it is what this program drew first.
+    Radar,
+    /// Land lifted and warmed so it reads as ground; politics dimmed, because
+    /// terrain does not care where a border is.
+    Terrain,
+    /// Pale land, mid sea, borders picked out, and a **graticule** — the
+    /// latitude and longitude lines of a chart, which is what makes it read as
+    /// one rather than as a bright map.
+    Chart,
+}
+
+impl MapStyle {
+    pub const ALL: [MapStyle; 3] = [MapStyle::Radar, MapStyle::Terrain, MapStyle::Chart];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            MapStyle::Radar => "Radar",
+            MapStyle::Terrain => "Terrain",
+            MapStyle::Chart => "Chart",
+        }
+    }
+
+    /// The next one round, for a chip that cycles. Three states is a button,
+    /// not a menu — the noise-reduction picker at sixteen is the other case.
+    pub fn next(self) -> MapStyle {
+        match self {
+            MapStyle::Radar => MapStyle::Terrain,
+            MapStyle::Terrain => MapStyle::Chart,
+            MapStyle::Chart => MapStyle::Radar,
+        }
+    }
+}
+
+impl Default for MapStyle {
+    fn default() -> Self {
+        // What the aircraft picture has always been drawn as.
+        MapStyle::Radar
+    }
 }
 
 /// Default for [`UiSettings::spot_colors`] — every kind on its stock tint.
@@ -1336,6 +1412,8 @@ impl Default for UiSettings {
             panadapter_detached_legacy: false,
             panadapter_window_legacy: None,
             broadcast_scope: BroadcastScope::default(),
+            survey_map_style: MapStyle::default(),
+            classic_ui: false,
         }
     }
 }

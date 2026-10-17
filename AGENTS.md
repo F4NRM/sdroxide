@@ -25,6 +25,16 @@
 > the operator expects to **switch models when the work reaches MAIN SP** (the
 > panadapter window's toolbar), so that file says where the seam is.
 >
+> ⛔ **PARKED, AND DO NOT BRING IT UP.** The operator's standing instruction,
+> 2026-10-17: *"don't mention the sdruno again till i call for it."* It is his own
+> pet project, kept **out of the main project**: what exists is on branch
+> **`fork/sdruno-clone`** (off `fork/sdruno-look`, which carries the theme), it is
+> **not** to be merged into `main`, and it is **not** to appear in a proposal list,
+> a reply, a release note or the TODO. Do not raise it as the next thing to do,
+> and do not answer an unrelated question by pointing at it. The branch and
+> `SDRUNO-UI-HANDOVER.md` stay where they are as the record. **He will call for it
+> when he has session room, and not before.**
+>
 > **Where the SDRuno work stands (2026-10-09): items 1, 2 and 3 are built** —
 > the band keypad in the console's left column (digits 0–9 naming the HF
 > allocations, **Bands**/**MHz** above, the full band list beside it, not behind
@@ -2335,7 +2345,7 @@ live. Re-count rather than trusting any number written here.
 |---|---|---|---|
 | **#72** | drdatapi | RTL-SDR start frequency on QO-100 — an I.F. offset saved as the start frequency, so the dongle was asked for 6 GHz and did not open | **answered and fixed** (`ba565a56`): `set_center` refuses a centre above the tuner's ceiling and names it. The *saving* of an impossible start frequency is **not** fixed — asked of the reporter |
 | **#69** | bebepip | Import a broadcast schedule other than EiBi (Aoki / HFCC / own CSV) | **answered, not built.** The parser is hard-wired to EiBi's column layout and code tables; the display side is already source-neutral. Three questions put to the reporter (which source, replace or sit alongside, where entries appear). Called a real job, not promised as quick |
-| **#68** | bebepip | S-meter uncalibrated — S9+10 on pure noise | **answered** (`f45b00d9`): only the SDRplay and Pluto implemented `rx_gain_db`, so an RTL-SDR's whole tuner gain was added to the reading. **Then withdrawn, 2026-10-15**: Kevin asked for the calibration control to be removed, having established the reading behind it came from the *wrong build* — so the premise under the whole feature was never established. The dropdown is gone; the field stays on the wire inert because `udp_audio` follows it and the struct is positional. **Upstream has its own at #642**, so ours was redundant as well as wrong-premised |
+| **#68** | bebepip | S-meter uncalibrated — S9+10 on pure noise | **answered** (`f45b00d9`): only the SDRplay and Pluto implemented `rx_gain_db`, so an RTL-SDR's whole tuner gain was added to the reading. **Withdrawn 2026-10-15, then RESTORED 2026-10-16** — and the round trip is the lesson. Kevin asked for it to be removed, having established the reading behind it came from the *wrong build*. But **the correction was never wrong, the range was**: ±5 had been widened to ±15 on that bad reading. He asked for his first revision back — PR **#74**'s, `27b79ed3` — so the calibration is **in and at ±5** (`6f95a06f`), which is what he says worked perfectly. **No `PROTO_VERSION` bump**: the field was never taken off the wire, so the layout is byte-identical and the revert only put it back to work. Upstream has its own at #642. |
 | **#51** | drdatapi | DELETE button for recorded MP3s | answered — the **CLEAR** chip in the playback window |
 | **#28** | dig647 | Channel spacing, and DMR | spacing answered (6.25 / 12.5 kHz added). **DMR re-answered 2026-10-12**: Kevin's "the codec is a big project" was right in its conclusion and wrong in its reason. The codec is `mbelib-neo` (GPL-2.0-or-later, compatible, no licence wall), and the blocker is **US Patent 8,359,197**, which covers the AMBE+2 variant DMR uses until **2028-05-20**. A clean Rust crate exists for D-STAR and declines DMR for exactly that reason |
 
@@ -6381,6 +6391,31 @@ button on.
 - **Not sensible, or not clean?** Leave it and say why on the PR. The point is
   to stop good work idling, not to lower the bar.
 
+## The settings trace — a tool, and why it exists (2026-10-16)
+
+**`SDROXIDE_SETTINGS_TRACE=1 sdroxide`** draws a ruled scale down the settings
+page's left margin, numbered every 25 points, and every skinned widget labels
+itself with its own y (`chk`, `sld`, `rdo`). Two rows drawn on top of each other
+then read as **two identical numbers** in a screenshot.
+
+It exists because **four settings pages were reported with rows overlapping and
+no render here reproduces it** — three widths, two display scales, measuring ink
+as well as geometry, and three separate theories each died by measurement. So the
+next report of this class starts from a number rather than another guess. Off
+unless the variable is set, read once at startup.
+
+**The harness trap it exposed, which is the part worth keeping.** My first
+"no overlaps" readings meant nothing, three times over: the Settings probe draws
+a **stub** unless it has a `radio_cfg` **and** `caps` **and** a controller that
+returns a config — the window re-reads `radio_cfg` from the controller when it
+opens, which overwrote what I had set. A probe that cannot reach the code under
+test reports success. It is the same shape as the sound-device bug the same day.
+
+**And a colour guard caught a theme draft**, which is worth knowing about:
+`every_dark_theme_keeps_its_accents_readable` refuses any accent under 4.5:1 on
+its panel, because these colours are used as *text*. SDRuno's own dim cyan is
+about 2.7:1 — fine for a lamp, not for a caption.
+
 ## House rules
 
 - **Release pages are checked, not requested.** `release.yml` fails a release
@@ -6421,6 +6456,33 @@ button on.
   rule was written down somewhere and still got broken, so it lives where a
   session starts. Markdown is for the *repository* — commit messages, the manual,
   this file. A reply in an issue, a discussion or a chat is prose.
+- **Ask a reporter one thing, not three.** The operator, 2026-10-17: *"don't
+  overask Kevin please.. you have a tendency to keep asking like you did now"* —
+  after a reply that carried three questions, one of which (whether the sound went
+  to a Bluetooth device) he had already ruled out. **A report is usually enough to
+  work from**, and the questions are the cheapest part to cut: ask the one that
+  decides the fix, and leave the others until that one is answered. Same failure
+  as the release notes — a rule about being short, broken by adding.
+- **No paid service, no API key, no account. Ever.** The operator, 2026-10-17,
+  on map tiles: *"that goes against everything this software stands for."* This
+  program is given away free and has to work with the network unplugged, so the
+  answer to "where do the data come from" is always **a dataset we may ship** —
+  public domain or a free licence, committed as an asset like `assets/earth/`,
+  regenerated by a committed script, fetched at build or run time by nobody.
+  The line was drawn over map tiles (Google and Mapbox want a key and a card;
+  OpenStreetMap's own tileserver asks apps not to hammer it) and it holds for
+  everything else: no weather API, no callsign service, no geocoder. Where a
+  paid or keyed source is the only one, **the feature does not ship**, and that
+  is the answer rather than a caveat.
+  **And the program must work offline**, which is the same principle seen from
+  the other side: a "hot" online resource that a feature *needs* is a failure
+  even when it is free. Everything that matters — receive, transmit, the
+  decoders, the maps, the log — is local, and the things that do reach out
+  (spots, TLEs, space weather, the schedule, callbook, log uploads, the update
+  check) are extras that are off until asked for and degrade quietly. New work
+  that only works connected is in the wrong fork. The user-facing statement is
+  the manual's **Offline by default** table under §2.1 and the README's Running
+  section; keep both true when adding a feature that fetches anything.
 - **A contributor's PR that is sensible and merges cleanly is approved and
   merged without waiting.** In particular **Kevin's PRs (kevin2008-01, from
   Claude sessions) are auto-merged** — see "Pull requests to this fork" for what
@@ -6588,3 +6650,68 @@ is wrong; do not bundle it silently. Also open: whether the client should adopt
 `client_settings_from` from the reply's `from` (harmless now the server is
 authoritative, but the client still believes it is on `default`).
 
+
+## Classic UI — the SDR++-style left column (2026-10-17)
+
+**What the name means, because it will come up.** *Classic UI* is the arrangement
+where every control sits in one column down the **left**, each group folding
+away, and the picture takes the rest — SDR++'s and SDR++Brown's layout. The
+operator's brief: *"most SWL use SDR++ (SDRPP) or SDRPP BROWN. They are very
+familiar with that layout… all controls on the left (collapsable bar)"*, and he
+named it. It is `UiSettings::classic_ui`, off by default, on Settings → UI beside
+**Layout**, local `config.toml` and **not** `ClientScreen`.
+
+**Why it is on `main` rather than parked**: it answers the complaint this fork
+keeps hearing. Both r/ShortwavePlus readers who called the program *"too
+complicated, controls all over the place"* are SDR++ users — SDR++Brown's own
+docs say *"In Brown, expand the left **Source** panel"* — so the fix is the
+arrangement they already know, not fewer features.
+
+**The rule that keeps it honest: the sections reuse the strip's own bodies.**
+The `Radio` section *is* `rx_controls` (the RX menu, inlined with `narrow =
+true`, the same flag the compact strip uses because a popup cannot open inside a
+popup); `Mode` *is* `mode_chip_grid`; `Bands` *is* `band_menu_body` (so the docked
+column, the detached band window and this one are one body in one place); and
+`Tuning` / `Transmit` / `Display` / `Windows & tools` are `vfo_rit_module`,
+`rx_filter_module`, `tx_condensed`, `display_condensed` and `windows_condensed`
+called with the column's width. `Source` reads the published state and puts the
+route to Settings → Radio beside the values. **A second implementation of TUNE or
+of the squelch would be a second thing to fix twice** — do not add one when a
+section is extended. When the column is in use the strip draws **only the readout,
+the S-meter and the fold chip** (`desktop_strip`'s early branch): the two things
+that belong beside the picture, and the one control that has to be reachable from
+the folded arrangement.
+
+**One decision, asked once.** `classic_column_this_frame(tier, width)` is whether
+the arrangement is in use *and* the column is drawn, and both the frame and the
+strip ask it. Two copies of that decision is how the pair drifts, and it did: the
+strip folded while the column was left out for want of room (592 pt = 232 for the
+column + 360 for the picture), leaving the bands, the VFO and the tools in neither
+place. Where the column is not drawn, the strip keeps its own controls.
+
+**The handle works, and the mechanism is the scroll area.** egui's note on
+`resizable` — the ui must use the space it was given — is necessary and **not
+sufficient**: a row wider than the column still drags the panel out to its own
+width and the handle springs back. `ScrollArea::both` is what fixes it, measured
+in `the_column_keeps_its_width_when_a_row_does_not_fit` (240 pt where it was asked
+for 240, against ~600 unscrolled). The ceiling is 640, not 420: a drag that stops
+reads as a drag that does not work, and the operator's first report was exactly
+that.
+
+**Two traps around the setting itself, both found by using it.** The strip's
+layout override folds the *strip* into fewer rows, and the classic strip has no
+rows to fold — left to the override, a `Small` setting would draw the compact
+strip's chips beside a column carrying the same controls, so Classic UI is drawn
+by the desktop strip at every tier but the phone. And the classic strip is mostly
+bare ground, where the strip's **double-click layout switch** was registered and
+*persisted*: an invisible target that changes the arrangement for good. Neither is
+reachable now, and `unchecking_classic_ui_gives_the_strip_back` drives the frames
+the operator's report was about — the boxes leave with the setting, the fold chip
+is drawn only with the column, and the picture's left edge goes back to where it
+was (8 pt, against 280 with the column).
+
+**Left to do**: a skinned section header rather than egui's default, SDR++'s
+vertical Zoom/Max/Min rails beside the waterfall, and the Recorder/Rigs sections
+if the four folds prove thin. It has been looked at on the operator's own screen
+(2026-10-17), which is how the missing sections and the stuck handle were found;
+nothing has been rendered here.

@@ -8,6 +8,7 @@
 //! targets.
 
 mod adsb_map;
+mod airdata;
 mod ais_map;
 mod app;
 mod aprs_icons;
@@ -59,6 +60,15 @@ mod wake_lock;
 pub mod waterfall_gpu;
 mod wefax;
 mod widgets;
+
+/// The ground the survey maps are painted on — land, rivers and borders as an
+/// image, built from the same Natural Earth data the globe is textured with.
+///
+/// Re-exported rather than reached through `widgets`, which is private: the
+/// committed probe `examples/survey_ground_probe.rs` draws *this* image with
+/// *this* palette so that what is looked at is what the air map draws. A probe
+/// that reimplemented it would be testing itself.
+pub use widgets::worldmap::ground_image;
 
 pub use app::SdroxideApp;
 pub use multi::{MultiApp, RadioFactory, RadioTab, RemoteFactory};

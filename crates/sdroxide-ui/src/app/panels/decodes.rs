@@ -567,7 +567,7 @@ impl SdroxideApp {
         // decodes and the log index, and taking the whole app into it would
         // collide with them.
         let flags = &mut self.flags;
-        egui::ScrollArea::vertical().auto_shrink([false, false]).show_themed(ui, |ui| {
+        crate::chrome::anchored_list_scroll(ui, "decode-list", |ui| {
             let mut gi = 0;
             while gi < items.len() {
                 // A turn is one slot: group the contiguous same-slot decodes.

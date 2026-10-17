@@ -33,9 +33,10 @@ impl SdroxideApp {
         if !self.weather.show {
             return;
         }
-        let show = self.tool_window(ctx, "weather", "WEATHER REPORTS", [720.0, 640.0], true, |me, ui| {
-            me.weather_body(ui);
-        });
+        let show =
+            self.tool_window(ctx, "weather", "WEATHER REPORTS", [720.0, 640.0], true, |me, ui| {
+                me.weather_body(ui);
+            });
         self.weather.show = show;
     }
 
@@ -87,11 +88,7 @@ impl SdroxideApp {
                                     .size(10.0)
                                     .color(ui.visuals().weak_text_color()),
                             );
-                            ui.label(
-                                RichText::new(ago(when))
-                                    .size(10.0)
-                                    .color(gray(110)),
-                            );
+                            ui.label(RichText::new(ago(when)).size(10.0).color(gray(110)));
                         });
 
                         if let Some(p) = r.position {
@@ -113,10 +110,7 @@ impl SdroxideApp {
                         // with.
                         ui.add_space(4.0);
                         ui.label(
-                            RichText::new(r.raw.clone())
-                                .size(9.5)
-                                .color(gray(110))
-                                .monospace(),
+                            RichText::new(r.raw.clone()).size(9.5).color(gray(110)).monospace(),
                         );
                         ui.add_space(4.0);
 
@@ -138,7 +132,6 @@ impl SdroxideApp {
                                     .color(gray(200)),
                             );
                         }
-
                     });
             }
         });
@@ -176,7 +169,10 @@ mod tests {
              00280 20405 31705 40506 50407=",
         )
         .unwrap();
-        assert!(r.fields.iter().all(|f| f.value.is_some()), "a blank group would read as our fault");
+        assert!(
+            r.fields.iter().all(|f| f.value.is_some()),
+            "a blank group would read as our fault"
+        );
         assert_eq!(r.callsign.as_deref(), Some("BRAVO"));
         // And the raw line is kept, which is the whole point of showing it.
         assert!(r.raw.starts_with("BBXX BRAVO"));

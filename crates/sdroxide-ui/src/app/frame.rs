@@ -228,7 +228,7 @@ fn paint_panadapter_clock(ui: &egui::Ui, area: egui::Rect) {
 /// The dial as a large readout string, MHz with trailing zeros trimmed —
 /// "27.265", "144.8", "10.1206". Shared by the detached panadapter's overlay.
 #[cfg(not(target_arch = "wasm32"))]
-fn readout_text(hz: f64) -> String {
+pub(in crate::app) fn readout_text(hz: f64) -> String {
     let mhz = format!("{:.6}", hz.max(0.0) / 1e6);
     format!("{} MHz", mhz.trim_end_matches('0').trim_end_matches('.'))
 }
@@ -323,17 +323,17 @@ fn tool_window_title_button(
     // `Area` rather than a widget in the body's `Ui`, because the title bar is
     // outside the body's clip rect and a widget there would be clipped away —
     // which is why this was an overlay to begin with.
-    egui::Area::new(win_id.with("title-btn"))
-        .fixed_pos(rect.min)
-        .order(egui::Order::Middle)
-        .show(ctx, |ui| {
+    egui::Area::new(win_id.with("title-btn")).fixed_pos(rect.min).order(egui::Order::Middle).show(
+        ctx,
+        |ui| {
             ui.set_min_size(rect.size());
             clicked = crate::chrome::chip_window_icon(ui, crate::chrome::WindowIcon::Out)
                 .on_hover_text(
                     "WINDOW — move this window into its own OS window, put it on another monitor",
                 )
                 .clicked();
-        });
+        },
+    );
     clicked
 }
 
@@ -1001,6 +1001,41 @@ impl eframe::App for SdroxideApp {
         // it (`band_menu_fill`), and the narrow dock is not also drawn.
         let cur_mode = self.state.rx[0].mode;
         let center_empty = !self.center_has_content(cur_mode);
+        // **Classic UI**: every control in a column down the left, SDR++-style.
+        // Drawn here — after the top bar and the notices, before the operating
+        // panel and before the right dock — so the column takes its width off
+        // the waterfall and nothing else has to know about it. Left out entirely
+        // where there is no room, and the strip behaves as it always has: the
+        // two arrangements are the same program.
+        #[cfg(not(target_arch = "wasm32"))]
+        if self.ui_settings.classic_ui
+            && !self.classic_collapsed
+            && tier != crate::layout::Tier::Phone
+            && let Some((min, max)) = super::classic::classic_column_width(ui.available_width())
+        {
+            egui::Panel::left(crate::layout::salted_id(&ctx, "classic-column-panel"))
+                .resizable(true)
+                .default_size(280.0_f32.clamp(min, max))
+                // Re-applied every frame, as the band dock's range is: a column
+                // dragged wide on a big window gives the width back when the
+                // window narrows.
+                .size_range(min..=max)
+                .frame(
+                    egui::Frame::new()
+                        .fill(crate::theme::PANEL())
+                        .inner_margin(egui::Margin::symmetric(9, 7)),
+                )
+                .show(ui, |ui| {
+                    // **What makes the handle work.** egui's own note: a
+                    // resizable panel needs its ui to *use* the space it was
+                    // given, or the content's own minimum becomes the panel's
+                    // width and the handle stops moving — which is exactly what
+                    // the first version did, with a drag that looked live and
+                    // did nothing.
+                    ui.take_available_space();
+                    self.classic_column(ui, &mut cmds);
+                });
+        }
         // A docked band/mode selector takes a column off the right of the
         // panadapter before either draws. Shown here, after the top bar and the
         // notices, so the column sits beside the waterfall rather than under the
@@ -2505,6 +2540,26 @@ impl SdroxideApp {
         #[cfg(not(target_arch = "wasm32"))]
         {
             self.ui_settings.is_detached(sdroxide_types::DetachableModule::Controls) && self.focused
+        }
+    }
+
+    /// **Classic UI** is in use *and* its column is drawn this frame — which the
+    /// strip has to know, because wherever the column is not drawn the strip
+    /// keeps its own controls. One place answers it so the two cannot disagree;
+    /// the column is native only, so the browser answers `false`.
+    pub(in crate::app) fn classic_column_this_frame(
+        &self,
+        tier: crate::layout::Tier,
+        window_w: f32,
+    ) -> bool {
+        #[cfg(target_arch = "wasm32")]
+        {
+            let _ = (tier, window_w);
+            false
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.ui_settings.classic_ui && super::classic::classic_column_shown(tier, window_w)
         }
     }
 

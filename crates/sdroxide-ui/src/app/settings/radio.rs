@@ -27,7 +27,11 @@ const NO_ANSWER_YET: &str = "Waiting for the machine the radio is attached to: t
 
 /// Draw a control that has to ask the radio's own machine, greyed out and
 /// explained while that machine has not answered.
-pub(in crate::app) fn probe_only<R>(ui: &mut egui::Ui, can_probe: bool, add: impl FnOnce(&mut egui::Ui) -> R) {
+pub(in crate::app) fn probe_only<R>(
+    ui: &mut egui::Ui,
+    can_probe: bool,
+    add: impl FnOnce(&mut egui::Ui) -> R,
+) {
     let group = ui.add_enabled_ui(can_probe, add);
     if !can_probe {
         group.response.on_hover_text(NO_ANSWER_YET);
@@ -1026,11 +1030,11 @@ fn cat_radio_audio(ui: &mut egui::Ui) {
     ui.add(
         egui::Label::new(
             RichText::new(
-            "Which sound card carries this radio's audio is under **Audio**, with your own \
+                "Which sound card carries this radio's audio is under **Audio**, with your own \
             speakers and microphone \u{2014} it is the same pair of settings whichever radio \
             you are working, so it is one page.",
             )
-            .weak()
+            .weak(),
         )
         .wrap(),
     );
@@ -1050,11 +1054,11 @@ pub(in crate::app) fn settings_usb_audio_tab(ui: &mut egui::Ui) {
     ui.add(
         egui::Label::new(
             RichText::new(
-            "Which sound card carries this radio's audio is under **Audio**, with your own \
+                "Which sound card carries this radio's audio is under **Audio**, with your own \
             speakers and microphone \u{2014} it is the same pair of settings whichever radio \
             you are working, so it is one page.",
             )
-            .weak()
+            .weak(),
         )
         .wrap(),
     );
@@ -1127,11 +1131,11 @@ pub(in crate::app) fn settings_atsmini_tab(
     ui.add(
         egui::Label::new(
             RichText::new(
-            "Which sound card carries this radio's audio is under **Audio**, with your own \
+                "Which sound card carries this radio's audio is under **Audio**, with your own \
             speakers and microphone \u{2014} it is the same pair of settings whichever radio \
             you are working, so it is one page.",
             )
-            .weak()
+            .weak(),
         )
         .wrap(),
     );
@@ -1140,25 +1144,25 @@ pub(in crate::app) fn settings_atsmini_tab(
     ui.add(
         egui::Label::new(
             RichText::new(
-            "Receive only: the Si4732 demodulates in hardware, so the mode picked here is \
+                "Receive only: the Si4732 demodulates in hardware, so the mode picked here is \
             commanded to the radio and everything else — detection, decoding, the log — is \
             done on this computer.",
             )
-            .weak()
+            .weak(),
         )
         .wrap(),
     );
     ui.add(
         egui::Label::new(
             RichText::new(
-            "Tuning follows the receiver's own band cycle, so the dial lags your scroll by a \
+                "Tuning follows the receiver's own band cycle, so the dial lags your scroll by a \
             moment — most when the frequency crosses into another band. Let it settle before \
             scrolling on, and it will always land on the frequency you asked for.\n\nThe \
             receiver's tuning step is its own (the STEP control above): a change finer than \
             that step rounds away on the radio, and the dial snaps back to the step it \
             actually landed on.",
             )
-            .weak()
+            .weak(),
         )
         .wrap(),
     );
@@ -1196,10 +1200,10 @@ pub(in crate::app) fn settings_atsmini_tab(
     ui.add(
         egui::Label::new(
             RichText::new(
-            "Sent to the radio at once. VOL is the receiver's own volume (its knob, and the \
+                "Sent to the radio at once. VOL is the receiver's own volume (its knob, and the \
             Si4732's), not sdroxide's AF slider.",
             )
-            .weak()
+            .weak(),
         )
         .wrap(),
     );
@@ -1677,14 +1681,14 @@ fn hpsdr_oc_table(ui: &mut egui::Ui, cfg: &mut sdroxide_types::RadioConfig) {
     ui.add(
         egui::Label::new(
             RichText::new(
-            "One control word per band, as your hardware's documentation states it: bit 0 is \
+                "One control word per band, as your hardware's documentation states it: bit 0 is \
             output 1, bit 6 is output 7. RX is asserted while receiving on that band and TX \
             while the transmitter is keyed — give them the same value for a filter, and \
             different ones for anything that belongs on one side of the changeover only \
             (an amplifier's key line, a receive preamplifier's bypass). Bands left at 00 \
             assert nothing. Applies on Apply / reconnect.",
             )
-            .weak()
+            .weak(),
         )
         .wrap(),
     );
@@ -2021,10 +2025,10 @@ pub(in crate::app) fn settings_rtlsdr_tab(
     ui.add(
         egui::Label::new(
             RichText::new(
-            "Receive only. The dongle and sample rate take effect on Apply; \
+                "Receive only. The dongle and sample rate take effect on Apply; \
             everything else applies as you change it.",
             )
-            .weak()
+            .weak(),
         )
         .wrap(),
     );
@@ -2247,13 +2251,13 @@ pub(in crate::app) fn settings_rtltcp_tab(
     ui.add(
         egui::Label::new(
             RichText::new(
-            "An SDRplay server greets exactly like a dongle, so these are shown \
+                "An SDRplay server greets exactly like a dongle, so these are shown \
             always rather than when one is detected. Against an ordinary \
             rtl_tcp server they are simply ignored — the protocol has no \
             replies and discards commands it does not know. The Device tab \
             names the server as rsp_tcp once one has identified itself.",
             )
-            .weak()
+            .weak(),
         )
         .wrap(),
     );
@@ -2363,12 +2367,12 @@ pub(in crate::app) fn settings_rtltcp_tab(
     ui.add(
         egui::Label::new(
             RichText::new(
-            "Receive only. The address and sample rate take effect on Apply; \
+                "Receive only. The address and sample rate take effect on Apply; \
             everything else applies as you change it. A dropped connection is \
             retried on its own, so a server that is restarted comes back \
             without touching anything here.",
             )
-            .weak()
+            .weak(),
         )
         .wrap(),
     );
@@ -2925,13 +2929,13 @@ pub(in crate::app) fn settings_kiwisdr_tab(
     ui.add(
         egui::Label::new(
             RichText::new(format!(
-            "Receive only — this is somebody else's antenna. The panadapter is the ~12 kHz \
+                "Receive only — this is somebody else's antenna. The panadapter is the ~12 kHz \
             the receiver sends as I/Q, which follows the dial; the band view above it is its \
             own waterfall, and tuning across it retunes the receiver. About {:.0} kB/s while \
             connected. Press \"Apply / reconnect\" to switch without a restart.",
-            cfg.link_kbytes_s(),
+                cfg.link_kbytes_s(),
             ))
-            .weak()
+            .weak(),
         )
         .wrap(),
     );
@@ -3290,11 +3294,11 @@ pub(in crate::app) fn settings_icomnet_tab(
     ui.add(
         egui::Label::new(
             RichText::new(
-            "Control, audio and the radio's own scope over one network connection — no \
+                "Control, audio and the radio's own scope over one network connection — no \
             serial cable and no sound card. Press \"Apply / reconnect\" to switch without \
             a restart.",
             )
-            .weak()
+            .weak(),
         )
         .wrap(),
     );
@@ -3330,10 +3334,10 @@ fn test_result_line(ui: &mut egui::Ui, result: &Option<crate::app::settings::Tes
             ui.add(
                 egui::Label::new(
                     RichText::new(
-                    "That was only a check — press Apply / reconnect below to start \
+                        "That was only a check — press Apply / reconnect below to start \
                     using this radio.",
                     )
-                    .weak()
+                    .weak(),
                 )
                 .wrap(),
             );
@@ -3778,11 +3782,11 @@ pub(in crate::app) fn settings_pluto_tab(
     ui.add(
         egui::Label::new(
             RichText::new(
-            "Wideband IQ receive and transmit. Half duplex — receive stops for the \
+                "Wideband IQ receive and transmit. Half duplex — receive stops for the \
             length of an over, because the USB network link will not carry both at \
             once. No SoapySDR and no libiio needed.",
             )
-            .weak()
+            .weak(),
         )
         .wrap(),
     );
@@ -4008,10 +4012,10 @@ pub(in crate::app) fn settings_smartsdr_tab(
     ui.add(
         egui::Label::new(
             RichText::new(
-            "Wideband IQ receive over DAX, audio transmit the radio modulates. Press \
+                "Wideband IQ receive over DAX, audio transmit the radio modulates. Press \
             \"Apply / reconnect\" to switch without a restart.",
             )
-            .weak()
+            .weak(),
         )
         .wrap(),
     );
@@ -4049,11 +4053,11 @@ pub(in crate::app) fn settings_soapy_devices(
         ui.add(
             egui::Label::new(
                 RichText::new(
-                "Waiting for the machine the radio is attached to, where the modules are \
+                    "Waiting for the machine the radio is attached to, where the modules are \
                 installed. Which device it opens is `device_args` in that machine's \
                 config.toml, or its --device.",
                 )
-                .weak()
+                .weak(),
             )
             .wrap(),
         );
@@ -4084,10 +4088,10 @@ pub(in crate::app) fn settings_soapy_devices(
         ui.add(
             egui::Label::new(
                 RichText::new(
-                "No SoapySDR devices found. Check that the module for your radio is \
+                    "No SoapySDR devices found. Check that the module for your radio is \
                 installed and that you may access the device.",
                 )
-                .weak()
+                .weak(),
             )
             .wrap(),
         );
@@ -4145,10 +4149,10 @@ pub(in crate::app) fn settings_soapy_devices(
     ui.add(
         egui::Label::new(
             RichText::new(
-            "Which one opens is set by --device or device_args in config.toml; with \
+                "Which one opens is set by --device or device_args in config.toml; with \
             neither, the first radio listed wins.",
             )
-            .weak()
+            .weak(),
         )
         .wrap(),
     );
@@ -4316,10 +4320,10 @@ pub(in crate::app) fn settings_soapy_tab(
         ui.add(
             egui::Label::new(
                 RichText::new(
-                "These controls appear once a SoapySDR device is open — they are the \
+                    "These controls appear once a SoapySDR device is open — they are the \
                 device's own, and it has to be asked.",
                 )
-                .weak()
+                .weak(),
             )
             .wrap(),
         );
@@ -4871,7 +4875,7 @@ pub(in crate::app) fn settings_rx888_tab(
     ui.add(
         egui::Label::new(
             egui::RichText::new(
-            "Receive only. Below the ADC's Nyquist limit the antenna is sampled \
+                "Receive only. Below the ADC's Nyquist limit the antenna is sampled \
             directly and retuning is instant, because there is no hardware \
             downconverter — the full ADC stream is converted to baseband on the \
             host. Above it the receiver switches to its R828D tuner and the VHF \
@@ -4881,7 +4885,7 @@ pub(in crate::app) fn settings_rx888_tab(
             nothing can reach. Every setting here applies straight away — there \
             is no Apply button to press.",
             )
-            .weak()
+            .weak(),
         )
         .wrap(),
     );
@@ -5073,20 +5077,20 @@ pub(in crate::app) fn settings_elad_tab(
     ui.add(
         egui::Label::new(
             RichText::new(
-            "The transceiver's CAT USB port, which is a separate cable from the \
+                "The transceiver's CAT USB port, which is a separate cable from the \
             receive one. Leave the port unset on an FDM-S1 or FDM-S2, which have \
             none — and on an FDM-DUO you would rather drive through its receive \
             cable alone, where it can still be tuned and keyed but no meter can \
             be read.",
             )
-            .weak()
+            .weak(),
         )
         .wrap(),
     );
     ui.add(
         egui::Label::new(
             RichText::new(
-            "With the port set, the radio's display and this dial are the same \
+                "With the port set, the radio's display and this dial are the same \
             number in both directions: the FDM-DUO's receive window is built \
             around its VFO, so tuning here moves the front panel and turning the \
             front-panel knob moves the readout here. The panadapter re-centres on \
@@ -5094,7 +5098,7 @@ pub(in crate::app) fn settings_elad_tab(
             there is no VFO to command, and tuning stays inside the window the \
             radio is already sending.",
             )
-            .weak()
+            .weak(),
         )
         .wrap(),
     );
@@ -5278,10 +5282,10 @@ pub(in crate::app) fn settings_elad_tab(
     ui.add(
         egui::Label::new(
             RichText::new(
-            "CW is keyed by the radio's own key or paddle: the FDM-DUO has no \
+                "CW is keyed by the radio's own key or paddle: the FDM-DUO has no \
             command that accepts text, so the CW panel cannot key it.",
             )
-            .weak()
+            .weak(),
         )
         .wrap(),
     );
@@ -5582,12 +5586,12 @@ pub(in crate::app) fn settings_airspyhf_tab(
     ui.add(
         egui::Label::new(
             RichText::new(
-            "Receive only. No SoapySDR and no libairspyhf needed. Below the \
+                "Receive only. No SoapySDR and no libairspyhf needed. Below the \
             synthesiser's floor the host oscillator does the tuning, which is how \
             this receiver reaches VLF. The receiver and sample rate take effect on \
             Apply; everything else applies as you change it.",
             )
-            .weak()
+            .weak(),
         )
         .wrap(),
     );
@@ -5864,11 +5868,11 @@ pub(in crate::app) fn settings_airspy_tab(
     ui.add(
         egui::Label::new(
             RichText::new(
-            "Receive only, 24–1800 MHz. No SoapySDR and no libairspy needed. The \
+                "Receive only, 24–1800 MHz. No SoapySDR and no libairspy needed. The \
             receiver, sample rate and packing take effect on Apply; everything \
             else applies as you change it.",
             )
-            .weak()
+            .weak(),
         )
         .wrap(),
     );
@@ -6173,12 +6177,12 @@ pub(in crate::app) fn settings_hydrasdr_tab(
         ui.add(
             egui::Label::new(
                 RichText::new(
-                "One of these boards is on 1d50:60a1, the USB id HydraSDR's prototypes \
+                    "One of these boards is on 1d50:60a1, the USB id HydraSDR's prototypes \
                 share with the Airspy R2 and Mini. sdroxide checks the firmware after \
                 opening and will say so if the wrong interface has been picked, in \
                 either direction.",
                 )
-                .weak()
+                .weak(),
             )
             .wrap(),
         );
@@ -6206,11 +6210,11 @@ pub(in crate::app) fn settings_hydrasdr_tab(
     ui.add(
         egui::Label::new(
             RichText::new(
-            "Receive only, 24–1800 MHz. No SoapySDR and no libhydrasdr needed. The \
+                "Receive only, 24–1800 MHz. No SoapySDR and no libhydrasdr needed. The \
             receiver, sample rate and packing take effect on Apply; everything \
             else applies as you change it.",
             )
-            .weak()
+            .weak(),
         )
         .wrap(),
     );
@@ -6437,10 +6441,10 @@ pub(in crate::app) fn settings_fobos_tab(
                 ui.add(
                     egui::Label::new(
                         RichText::new(diversity_cost_note(
-                        cfg.fobos.div_taps,
-                        cfg.fobos.sample_rate_hz,
+                            cfg.fobos.div_taps,
+                            cfg.fobos.sample_rate_hz,
                         ))
-                        .weak()
+                        .weak(),
                     )
                     .wrap(),
                 );
@@ -6457,13 +6461,13 @@ pub(in crate::app) fn settings_fobos_tab(
     ui.add(
         egui::Label::new(
             RichText::new(
-            "Receive only. RF port (tuner), HF1/HF2 (direct sampling, decoded in software) \
+                "Receive only. RF port (tuner), HF1/HF2 (direct sampling, decoded in software) \
             and HF1+HF2 (both at once, combined by the diversity filter) all work. The \
             receiver, input and sample rate take effect on Apply; gain, clock source and \
             taps apply as you change them — the diversity filter's mode, adapt rate and \
             hold are on the main window's own DIV box once this radio is selected.",
             )
-            .weak()
+            .weak(),
         )
         .wrap(),
     );
@@ -6840,14 +6844,14 @@ pub(in crate::app) fn settings_hackrf_tab(
     ui.add(
         egui::Label::new(
             RichText::new(
-            "DC – 7.25 GHz, half duplex. No SoapySDR, no libusb and no libhackrf \
+                "DC – 7.25 GHz, half duplex. No SoapySDR, no libusb and no libhackrf \
             needed. The radio and the sample rate take effect on Apply; \
             everything else applies as you change it. The band edges are the \
             firmware's: a HackRF is specified for 1 MHz – 6 GHz (100 kHz on a \
             Pro) and is heavily attenuated outside that, but it does tune \
             there.",
             )
-            .weak()
+            .weak(),
         )
         .wrap(),
     );
@@ -7002,9 +7006,9 @@ pub(in crate::app) fn settings_sdrplay_tab(
                             ui.add(
                                 egui::Label::new(
                                     RichText::new(
-                                    "no RSPs — press Rescan (needs the SDRplay API service)",
+                                        "no RSPs — press Rescan (needs the SDRplay API service)",
                                     )
-                                    .weak()
+                                    .weak(),
                                 )
                                 .wrap(),
                             );
@@ -7421,14 +7425,14 @@ pub(in crate::app) fn settings_sdrplay_tab(
         ui.add(
             egui::Label::new(
                 RichText::new(
-                "An RSPduo is two whole tuners on one board, clocked from one reference. \
+                    "An RSPduo is two whole tuners on one board, clocked from one reference. \
                 Run both and they hear their spans at the same instant from the same \
                 clock — which makes two aerials on them coherent, with a relative phase \
                 set by the feedlines rather than by chance, and lets the pair be combined. \
                 Or leave them apart: the tuners tune separately, so the other one can be a \
                 second radio on its own band.",
                 )
-                .weak()
+                .weak(),
             )
             .wrap(),
         );
@@ -7474,7 +7478,7 @@ pub(in crate::app) fn settings_sdrplay_tab(
             ui.add(
                 egui::Label::new(
                     RichText::new(
-                    "Add a second radio (Settings → Radio → +), give it this same receiver \
+                        "Add a second radio (Settings → Radio → +), give it this same receiver \
                     and the RSPduo's other tuner, and set it to run both tuners too — \
                     whichever radio opens the board puts it in dual-tuner mode, so both \
                     have to be expecting it. The two then tune independently: HF in one \
@@ -7482,7 +7486,7 @@ pub(in crate::app) fn settings_sdrplay_tab(
                     both run at the sample rate whichever radio opened the board asked \
                     for, and neither can transmit.",
                     )
-                    .weak()
+                    .weak(),
                 )
                 .wrap(),
             );
@@ -7583,10 +7587,10 @@ pub(in crate::app) fn settings_sdrplay_tab(
                         ui.add(
                             egui::Label::new(
                                 RichText::new(diversity_cost_note(
-                                div.taps,
-                                cfg.sdrplay.sample_rate_hz.min(2_000_000.0),
+                                    div.taps,
+                                    cfg.sdrplay.sample_rate_hz.min(2_000_000.0),
                                 ))
-                                .weak()
+                                .weak(),
                             )
                             .wrap(),
                         );
@@ -7638,14 +7642,14 @@ pub(in crate::app) fn settings_sdrplay_tab(
             ui.add(
                 egui::Label::new(
                     RichText::new(
-                    "Nothing here can tell a wanted signal from an unwanted one — the filter \
+                        "Nothing here can tell a wanted signal from an unwanted one — the filter \
                     only knows what the two aerials have in common. In Cancel, the second \
                     aerial wants to hear the noise source and as little of the band as \
                     possible, or it will dutifully cancel the station too. In Combine, both \
                     want to hear the same station. How deep the null is going runs to the \
                     log every few seconds.",
                     )
-                    .weak()
+                    .weak(),
                 )
                 .wrap(),
             );
@@ -7675,10 +7679,10 @@ pub(in crate::app) fn settings_sdrplay_tab(
                 ui.add(
                     egui::Label::new(
                         RichText::new(
-                        "No receiver is listed to check this against — press Rescan, or read \
+                            "No receiver is listed to check this against — press Rescan, or read \
                         the log for what actually opened.",
                         )
-                        .weak()
+                        .weak(),
                     )
                     .wrap(),
                 );
@@ -7715,12 +7719,12 @@ pub(in crate::app) fn settings_sdrplay_tab(
     ui.add(
         egui::Label::new(
             RichText::new(
-            "Receive only, 1 kHz–2 GHz. Needs the vendor's SDRplay API service \
+                "Receive only, 1 kHz–2 GHz. Needs the vendor's SDRplay API service \
             (sdrplay.com/api) — the RSPs after the original RSP1 have no open \
             protocol. Device, sample rate, bandwidth and RSPduo tuner take \
             effect on Apply; everything else applies as you change it.",
             )
-            .weak()
+            .weak(),
         )
         .wrap(),
     );
@@ -7845,12 +7849,12 @@ pub(in crate::app) fn settings_lime_tab(
                 ui.add(
                     egui::Label::new(
                         egui::RichText::new(
-                        "Both chains tune together — they share one synthesiser — but they are \
+                            "Both chains tune together — they share one synthesiser — but they are \
                         separate front ends on separate sockets. Pick the one your aerial is \
                         on, which is the setting to reach for when one chain has had the HF \
                         matching modification and the other is stock.",
                         )
-                        .weak()
+                        .weak(),
                     )
                     .wrap(),
                 );
@@ -7942,12 +7946,12 @@ pub(in crate::app) fn settings_lime_tab(
             ui.add(
                 egui::Label::new(
                     egui::RichText::new(
-                    "Automatic follows the frequency: LNAL low, LNAH high — unless a LimeRFE \
+                        "Automatic follows the frequency: LNAL low, LNAH high — unless a LimeRFE \
                     is connected below, which is one cable into one socket, and then it is \
                     LNAW at every frequency. Name the socket yours is wired to if it is not \
                     that one. Which chain the socket belongs to is the picker above.",
                     )
-                    .weak()
+                    .weak(),
                 )
                 .wrap(),
             );
@@ -8019,13 +8023,13 @@ pub(in crate::app) fn settings_lime_tab(
         ui.add(
             egui::Label::new(
                 egui::RichText::new(format!(
-                "The board's other receive chain, on the {} sockets. It shares the \
+                    "The board's other receive chain, on the {} sockets. It shares the \
                 synthesiser, so it hears the same span at the same instant as the first — \
                 which is what lets it carry a second aerial, or a sample of your own \
                 transmitter.",
-                format_args!("RX{}_*", cfg.lime.aux_channel() + 1)
+                    format_args!("RX{}_*", cfg.lime.aux_channel() + 1)
                 ))
-                .weak()
+                .weak(),
             )
             .wrap(),
         );
@@ -8153,10 +8157,10 @@ pub(in crate::app) fn settings_lime_tab(
                     ui.add(
                         egui::Label::new(
                             egui::RichText::new(LimeAuxConfig::cost_note(
-                            cfg.lime.aux.taps,
-                            cfg.lime.sample_rate_hz,
+                                cfg.lime.aux.taps,
+                                cfg.lime.sample_rate_hz,
                             ))
-                            .weak()
+                            .weak(),
                         )
                         .wrap(),
                     );
@@ -8282,7 +8286,7 @@ pub(in crate::app) fn settings_lime_tab(
             ui.add(
                 egui::Label::new(
                     egui::RichText::new(
-                    "A directional coupler on the amplifier's output goes into this chain, \
+                        "A directional coupler on the amplifier's output goes into this chain, \
                     and the transmitter compares what came back with what it meant to send \
                     — then sends the inverse of the difference, so what leaves the amplifier \
                     is straight. Twenty-odd decibels less intermodulation on other people's \
@@ -8293,7 +8297,7 @@ pub(in crate::app) fn settings_lime_tab(
                     over-drive anything. How it is getting on runs to the log while you \
                     transmit.",
                     )
-                    .weak()
+                    .weak(),
                 )
                 .wrap(),
             );
@@ -8310,14 +8314,14 @@ pub(in crate::app) fn settings_lime_tab(
             ui.add(
                 egui::Label::new(
                     egui::RichText::new(
-                    "Nothing here can tell a wanted signal from an unwanted one — the filter \
+                        "Nothing here can tell a wanted signal from an unwanted one — the filter \
                     only knows what the two aerials have in common. In Cancel, the second \
                     aerial wants to hear the noise source and as little of the band as \
                     possible, or it will dutifully cancel the station too. In Combine, both \
                     want to hear the same station. How deep the null is going runs to the \
                     log every few seconds.",
                     )
-                    .weak()
+                    .weak(),
                 )
                 .wrap(),
             );
@@ -8457,10 +8461,10 @@ pub(in crate::app) fn settings_lime_tab(
                     ui.add(
                         egui::Label::new(
                             egui::RichText::new(
-                            "The LimeRFE's own micro-USB port, not the radio's. 9600 baud, \
+                                "The LimeRFE's own micro-USB port, not the radio's. 9600 baud, \
                             fixed by its firmware.",
                             )
-                            .weak()
+                            .weak(),
                         )
                         .wrap(),
                     );
@@ -8618,7 +8622,7 @@ pub(in crate::app) fn settings_lime_tab(
         ui.add(
             egui::Label::new(
                 egui::RichText::new(
-                "On Automatic the board receives, and is switched to transmit at key-down and \
+                    "On Automatic the board receives, and is switched to transmit at key-down and \
                 back at key-up — on either cabling. Its amateur channels have one filter \
                 with a transmit/receive switch either side of it, so a board asked for both \
                 at once puts that switch on the transmitter and stops hearing anything. \
@@ -8626,7 +8630,7 @@ pub(in crate::app) fn settings_lime_tab(
                 both directions; above it, transmitting from J4 keeps the receive path off \
                 the connector the amplifier is driving.",
                 )
-                .weak()
+                .weak(),
             )
             .wrap(),
         );
@@ -8681,12 +8685,12 @@ pub(in crate::app) fn settings_lime_tab(
     ui.add(
         egui::Label::new(
             egui::RichText::new(
-            "Gains, filters, corrections, the antenna sockets and every LimeRFE control — its \
+                "Gains, filters, corrections, the antenna sockets and every LimeRFE control — its \
             connectors, band, relays, attenuator, notch and fan — apply immediately. The \
             board, the receive chain, the sample rate, arming transmit and the LimeRFE's \
             connection take effect on Apply.",
             )
-            .weak()
+            .weak(),
         )
         .wrap(),
     );

@@ -314,6 +314,33 @@ impl SdroxideApp {
         }
     }
 
+    /// The **map style** chip: the ground the survey maps are painted on.
+    ///
+    /// Three states, so it cycles rather than opening a picker — the same
+    /// judgement as the RX strip's NR chip in reverse: that one had sixteen and
+    /// needed a menu, this has three and needs a click.
+    pub(in crate::app) fn map_style_chip(&mut self, ui: &mut egui::Ui) {
+        let style = self.ui_settings.survey_map_style;
+        let hover = format!(
+            "The ground under the picture: {}. Click for the next one.",
+            match style {
+                sdroxide_types::MapStyle::Radar =>
+                    "Radar — the dark ground, land filled. What an air picture is read against",
+                sdroxide_types::MapStyle::Terrain =>
+                    "Terrain — land lifted and warmed so it reads as ground, borders dimmed",
+                sdroxide_types::MapStyle::Chart =>
+                    "Chart — pale land, picked-out borders and a graticule, the aeronautical look",
+            }
+        );
+        if crate::chrome::chip(ui, false, RichText::new(style.label().to_uppercase()).size(9.5))
+            .on_hover_text(hover)
+            .clicked()
+        {
+            self.ui_settings.survey_map_style = style.next();
+            crate::app::persist::persist_ui_settings(&self.ui_settings);
+        }
+    }
+
     /// The chip row that turns the flat map's propagation heat on and picks
     /// what it shows. Drawn just above the map by every panel that has one.
     pub(in crate::app) fn prop_map_controls(&mut self, ui: &mut egui::Ui) {

@@ -390,13 +390,52 @@ impl SdroxideApp {
             });
     }
 
+    /// The map pane's own row: NIGHT, and the ground it is drawn on.
     fn adsb_map_pane(&mut self, ui: &mut egui::Ui, st: &AdsbStatus, now: i64, h: f32) {
-        ui.horizontal(|ui| self.night_chip(ui));
+        ui.horizontal(|ui| {
+            self.night_chip(ui);
+            self.map_style_chip(ui);
+            // The two layers the picture is read *for*: where the flight has
+            // been and is going, and what is on the ground under it.
+            let mut layers = self.adsb_map.layers;
+            if crate::chrome::chip(ui, layers.paths, RichText::new("PATHS").size(9.5))
+                .on_hover_text(
+                    "Draw each flight's path as one line — where it has been, through where it is, \
+                 into where it is going. Off, the track is drawn as a trail of dots instead.",
+                )
+                .clicked()
+            {
+                layers.paths = !layers.paths;
+                self.adsb_map.layers = layers;
+            }
+            if crate::chrome::chip(ui, layers.nav, RichText::new("NAV").size(9.5))
+                .on_hover_text(
+                    "Airports and radio navigation aids under the picture, from the built-in \
+                     tables — large airports always, medium ones closer in, and the navaids once \
+                     the view is tight enough for a station to be a place. The medium-wave \
+                     beacons, which are the ones you can hear, are drawn in their own colour.",
+                )
+                .clicked()
+            {
+                layers.nav = !layers.nav;
+                self.adsb_map.layers = layers;
+            }
+        });
         let home = self.adsb_home();
         let cfg = self.state.adsb;
         let night = self.night_texture(ui.ctx());
         let state = &mut self.adsb_map;
-        crate::adsb_map::show(ui, state, &st.aircraft, home, now, cfg, night, h);
+        crate::adsb_map::show(
+            ui,
+            state,
+            &st.aircraft,
+            home,
+            now,
+            cfg,
+            night,
+            self.ui_settings.survey_map_style,
+            h,
+        );
     }
 
     /// The operator's own position, from the grid in the digital-mode setup.

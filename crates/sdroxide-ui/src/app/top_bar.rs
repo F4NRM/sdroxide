@@ -678,7 +678,14 @@ impl SdroxideApp {
         // the bare space between the main elements reaches this. Phones are left
         // out — a phone is already the smallest layout there is, and forcing the
         // tablet tier down onto it is nobody's shortcut.
-        if tier != crate::layout::Tier::Phone {
+        // Not while the column is in use. With every control in the column this
+        // strip is the readout, the meter and one chip, so almost all of it is
+        // bare ground — a large invisible target that flips the layout override
+        // (and *persists* it) on a double click. An operator clearing a stuck
+        // column would find the strip folded into another arrangement with
+        // nothing on screen to say what did it.
+        let classic = self.classic_column_this_frame(tier, ui.available_width());
+        if tier != crate::layout::Tier::Phone && !classic {
             let toggle = ui.interact(
                 ui.max_rect(),
                 crate::layout::salted_id(ui.ctx(), "strip-layout-toggle"),
@@ -693,8 +700,14 @@ impl SdroxideApp {
             }
         }
         // The desktop plans its own rows; only the compact strips still lean
-        // on a wrapping layout.
-        if !tier.compact() {
+        // on a wrapping layout. Classic UI is drawn by the desktop strip at
+        // every tier but the phone, whatever the layout override says: the
+        // override folds the *strip* into fewer rows, and the classic strip has
+        // no rows left to fold — the column is the arrangement. Left to the
+        // override, a Small setting would draw the compact strip's own chips
+        // beside a column carrying the same controls, which is the duplication
+        // this arrangement exists to remove.
+        if !tier.compact() || classic {
             self.desktop_strip(ui, cmds);
             return;
         }
@@ -824,6 +837,41 @@ impl SdroxideApp {
             boxes[0].1 = StripBox { w: freq.box_w, flex: 0.0, max_w: freq.box_w };
         }
 
+        // **Classic UI**: the column is the control surface, so this window keeps
+        // the two things that belong beside the *picture* — the readout it is
+        // tuned with and the meter it is judged by — and every other box is
+        // drawn as a section of the column instead. Same modules, same commands:
+        // `classic_column` calls the very methods the match below calls, so
+        // there is no second implementation of any of them.
+        // Only where the column is actually drawn: the strip must keep its own
+        // controls wherever it is not, or a window too narrow for the column
+        // would lose them entirely.
+        if self.classic_column_this_frame(tier, avail) {
+            ui.horizontal(|ui| {
+                self.freq_module_at(ui, cmds, &freq);
+                // The fold lives here because this row is what is *left* when
+                // the column is away: a control that put the column back has to
+                // be somewhere the folded arrangement still draws. SDR++ puts
+                // its ☰ in the same place for the same reason.
+                let label = if self.classic_collapsed { "☰ CONTROLS" } else { "◀" };
+                if crate::chrome::chip(ui, self.classic_collapsed, RichText::new(label).size(11.0))
+                    .on_hover_text(if self.classic_collapsed {
+                        "Bring the control column back. For the length of a session only — the \
+                         setting on Settings → UI decides whether this arrangement is used at all."
+                    } else {
+                        "Fold the control column away and give the whole window to the picture. \
+                         The readout and the meter stay, and this chip brings it back."
+                    })
+                    .clicked()
+                {
+                    self.classic_collapsed = !self.classic_collapsed;
+                }
+                let used = ui.min_rect().width();
+                let meter = (avail - used - gap).clamp(120.0, SMETER_W);
+                self.smeter_box(ui, meter, crate::chrome::MODULE_TALL_H, false);
+            });
+            return;
+        }
         let plan = plan_top_strip(avail, gap, &boxes.iter().map(|(_, b)| *b).collect::<Vec<_>>());
         for row in &plan.rows {
             ui.horizontal(|ui| {
@@ -2172,7 +2220,12 @@ impl SdroxideApp {
     /// replaces the separate VFO and RIT/XIT boxes. Width past
     /// [`Self::vfo_rows_w`] is spent by the controls themselves: the utility
     /// chips widen, and the offset fields grow.
-    fn vfo_rit_module(&mut self, ui: &mut egui::Ui, cmds: &mut Vec<Command>, w: f32) {
+    pub(in crate::app) fn vfo_rit_module(
+        &mut self,
+        ui: &mut egui::Ui,
+        cmds: &mut Vec<Command>,
+        w: f32,
+    ) {
         let tx_capable = self.tx_capable();
         let inner = w - 2.0 * crate::chrome::MODULE_MARGIN_X - 4.0;
         let chips = vfo_chip_labels(tx_capable);
@@ -2760,6 +2813,12 @@ impl SdroxideApp {
         // waterfall its share. Hidden rather than undocked: the band chip
         // opens the popup meanwhile, and widening the window brings the column
         // back where it was.
+        // The column carries the selector when Classic UI is on — `band_menu_body`
+        // is one body drawn in one place, and two of it is two answers to
+        // "which band am I on".
+        if self.ui_settings.classic_ui {
+            return;
+        }
         let Some(max_w) = self.band_dock_room else { return };
         // The selector is in its own window: leave the column out, so there is
         // one selector on screen rather than two.
@@ -2973,7 +3032,12 @@ impl SdroxideApp {
     /// tall, like the VFO/RIT box. Width past [`Self::rx_filter_w`] goes to
     /// the Vol and SQL rails — one per row, so both rows grow by the same
     /// amount (the Gain and Man rails pin their own width and stay put).
-    fn rx_filter_module(&mut self, ui: &mut egui::Ui, cmds: &mut Vec<Command>, w: f32) {
+    pub(in crate::app) fn rx_filter_module(
+        &mut self,
+        ui: &mut egui::Ui,
+        cmds: &mut Vec<Command>,
+        w: f32,
+    ) {
         let extra = (w - self.rx_filter_w(ui)).clamp(0.0, RAIL_STRETCH_MAX);
         crate::chrome::module_bare_h(ui, w, crate::chrome::MODULE_TALL_H, |ui| {
             ui.with_layout(egui::Layout::top_down(egui::Align::Center), |ui| {
@@ -3088,7 +3152,12 @@ impl SdroxideApp {
     /// says rather than at a fixed place: what the receive row carries is the
     /// rig's business, and a run left whole under the squelch rail makes the
     /// box wider than the strip can pay for.
-    fn rx_controls(&mut self, ui: &mut egui::Ui, cmds: &mut Vec<Command>, narrow: bool) {
+    pub(in crate::app) fn rx_controls(
+        &mut self,
+        ui: &mut egui::Ui,
+        cmds: &mut Vec<Command>,
+        narrow: bool,
+    ) {
         let rx_gains = self.rx_gains();
         let rx_gain = rx_gains.first().cloned();
         let chips = rx_chips(self.state.rx[0].mode, self.listener_screen());
@@ -3443,16 +3512,25 @@ impl SdroxideApp {
                     let nr = self.state.rx[0].noise_reduction;
                     let hover = match nr.engine() {
                         Some(e) => format!(
-                            "Noise reduction: {} — {}\n\nClick to cycle the strength: \
-                             Low / Med / High / Off. The engine is in the rows below.",
+                            "Noise reduction: {} — {}\n\n{}\n\nClick to cycle the strength: \
+                             Low / Med / High / Off. The engine is the row below this one.",
                             nr.label(),
-                            e.name()
+                            e.name(),
+                            e.advice()
                         ),
-                        None => "Noise reduction, off — click to switch it on, or pick an engine \
-                                 in the rows below"
+                        // Off is where a listener meets this, so the hover is
+                        // where the five are named — otherwise a chip carrying
+                        // sixteen settings says nothing about any of them.
+                        None => "Noise reduction is off. Five denoisers are offered in the row \
+                                 below this one — RNNoise, DeepFilterNet3, spectral-bleach, NR2 \
+                                 and the original spectral — and clicking here switches it on \
+                                 at a strength. Start with RNNoise on voice."
                             .to_string(),
                     };
-                    if crate::chrome::chip(ui, nr.is_on(), "NR").on_hover_text(hover).clicked() {
+                    if crate::chrome::chip(ui, nr.is_on(), nr_chip_label(nr))
+                        .on_hover_text(hover)
+                        .clicked()
+                    {
                         let next = nr.next();
                         self.state.rx[0].noise_reduction = next; // optimistic echo
                         cmds.push(Command::SetNoiseReduction { rx: RxId::Main, level: next });
@@ -3728,7 +3806,7 @@ impl SdroxideApp {
     /// One route for the presets, the width field and the two edge fields, so
     /// none of them can reach a shape the others cannot — the same floor and
     /// ceiling the panadapter's grips enforce.
-    fn set_rx_filter(&mut self, lo: f32, hi: f32, cmds: &mut Vec<Command>) {
+    pub(in crate::app) fn set_rx_filter(&mut self, lo: f32, hi: f32, cmds: &mut Vec<Command>) {
         let max = self.state.rx[0].mode.max_filter_hz();
         let lo = lo.clamp(-max, max);
         let hi = hi.clamp(-max, max);
@@ -4375,8 +4453,12 @@ impl SdroxideApp {
                 pick(self, cmds, NrLevel::Off);
             }
             for e in NrEngine::ALL {
+                // The name says what it is; the advice says when to pick it,
+                // which is the question five denoisers raise. Without it the
+                // row reads as five acronyms and the whole feature as one thin
+                // option (see `NrEngine::advice`).
                 if crate::chrome::chip(ui, nr.engine() == Some(e), e.tag())
-                    .on_hover_text(e.name())
+                    .on_hover_text(format!("{}\n\n{}", e.name(), e.advice()))
                     .clicked()
                 {
                     pick(self, cmds, nr.with_engine(e));
@@ -5432,7 +5514,12 @@ impl SdroxideApp {
     /// processor where it applies. Each row's rail is sized so the two
     /// readouts end flush with each other at the box edge, whatever width the
     /// packer granted.
-    fn tx_condensed(&mut self, ui: &mut egui::Ui, cmds: &mut Vec<Command>, w: f32) {
+    pub(in crate::app) fn tx_condensed(
+        &mut self,
+        ui: &mut egui::Ui,
+        cmds: &mut Vec<Command>,
+        w: f32,
+    ) {
         let keyer = self.state.rx[0].mode.allows_voice_keyer();
         let level = self.digi_tx_level_applies();
         let cessb = self.cessb_applies();
@@ -6115,7 +6202,12 @@ impl SdroxideApp {
 
     /// The condensed Display box: the view chips on top, the tool chips below,
     /// each row's chips splitting its share of the packer's stretch evenly.
-    fn display_condensed(&mut self, ui: &mut egui::Ui, cmds: &mut Vec<Command>, w: f32) {
+    pub(in crate::app) fn display_condensed(
+        &mut self,
+        ui: &mut egui::Ui,
+        cmds: &mut Vec<Command>,
+        w: f32,
+    ) {
         let inner = w - 2.0 * crate::chrome::MODULE_MARGIN_X;
         let row1 = self.display_view_row();
         let row2 = self.display_tool_row();
@@ -6543,7 +6635,12 @@ impl SdroxideApp {
 
     /// The condensed System box: the window chips over two rows, each row's
     /// chips splitting its share of the packer's stretch evenly.
-    fn windows_condensed(&mut self, ui: &mut egui::Ui, w: f32, cmds: &mut Vec<Command>) {
+    pub(in crate::app) fn windows_condensed(
+        &mut self,
+        ui: &mut egui::Ui,
+        w: f32,
+        cmds: &mut Vec<Command>,
+    ) {
         let inner = w - 2.0 * crate::chrome::MODULE_MARGIN_X;
         let simple = self.ui_settings.simple_ui;
         let top = system_top_row(simple, self.swl_mode());
@@ -7237,6 +7334,27 @@ fn bw_chip_label(mode: Mode, lo: f32, hi: f32) -> String {
         format!("BW {:.1}k", w / 1e3)
     } else {
         format!("BW {w:.0}")
+    }
+}
+
+/// The compact NR chip's label.
+///
+/// `NR` alone says only whether noise reduction is in circuit — which is right
+/// on the **desktop strip**, where the chip opens the picker with all five
+/// engines in it and a label that grew and shrank would move every chip beside
+/// it (see [`SdroxideApp::nr_button`]). On the **compact** layouts the chip
+/// cycles the strength instead and the engines are a row inside the RX menu
+/// below it, so a listener sees the bare `NR` and never learns there is a
+/// choice to make. There the label carries the engine, which costs a little
+/// width inside a menu and buys the whole feature.
+///
+/// The original spectral engine keeps the bare label: it is what the chip said
+/// before there were five, and an operator coming from an older build sees the
+/// chip they know.
+fn nr_chip_label(nr: sdroxide_types::NrLevel) -> String {
+    match nr.engine() {
+        Some(e) if e != NrEngine::Spectral => format!("NR {}", e.tag()),
+        _ => "NR".to_string(),
     }
 }
 
@@ -8058,7 +8176,7 @@ const WIDEBAND_MODES: [Mode; 5] = [Mode::Adsb, Mode::Vdl2, Mode::Ais, Mode::Hfdl
 /// gap after it (the operator: *"remove the alignment"*). The chips pack tight
 /// and the row simply holds up to [`MODE_GRID_COLS`] of them; where even one
 /// column will not fit, a wrapped row reflows instead.
-fn mode_chip_grid(
+pub(in crate::app) fn mode_chip_grid(
     ui: &mut egui::Ui,
     cur: Mode,
     modes: &[Mode],
@@ -8128,7 +8246,7 @@ const MODE_GRID_CELL_SLACK: f32 = 26.0;
 /// OPERATE's `Mode` section: the analog and voice modes, the broadcast
 /// demodulators (DRM, HD Radio) among them because that is what they are — a
 /// demodulator, like WFM, not a digi-engine mode.
-const OPERATE_MODES: [Mode; 15] = [
+pub(in crate::app) const OPERATE_MODES: [Mode; 15] = [
     Mode::Am,
     Mode::Nfm,
     Mode::Usb,
@@ -9060,6 +9178,31 @@ mod tests {
         // The minute must only roll at the top of the minute, not before.
         assert_eq!(iq_recording_caption(119, RATE), "119 MB · 1:59");
         assert_eq!(iq_recording_caption(120, RATE), "120 MB · 2:00");
+    }
+
+    /// The compact NR chip names the engine it cycles the strength of, so the
+    /// five denoisers are not hidden behind a bare `NR`; and the original
+    /// spectral one keeps the bare label every older build showed.
+    #[test]
+    fn the_compact_nr_chip_names_the_engine() {
+        use sdroxide_types::{NrEngine, NrLevel, NrStrength};
+        assert_eq!(nr_chip_label(NrLevel::Off), "NR");
+        assert_eq!(
+            nr_chip_label(NrLevel::Medium),
+            "NR",
+            "the original spectral engine keeps the chip every older build had"
+        );
+        for e in NrEngine::ALL {
+            if e == NrEngine::Spectral {
+                continue;
+            }
+            let l = e.at(NrStrength::Med);
+            assert_eq!(
+                nr_chip_label(l),
+                format!("NR {}", e.tag()),
+                "{e:?} is running and the compact chip does not say so"
+            );
+        }
     }
 
     /// The auto-stop deadline fires once, only while recording, and only at or

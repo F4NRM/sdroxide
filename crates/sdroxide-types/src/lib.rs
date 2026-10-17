@@ -9,7 +9,6 @@ mod ais;
 mod ale;
 mod alert;
 mod aprs;
-pub mod synop;
 mod atchat;
 pub mod atsmini;
 mod audio;
@@ -84,6 +83,7 @@ mod sstv;
 mod state;
 mod station;
 mod swl;
+pub mod synop;
 mod tciserver;
 pub mod text;
 mod tone;
@@ -339,10 +339,9 @@ pub use swl::{
 pub use tciserver::TciServerConfig;
 pub use tone::{CTCSS_TONES, SubTone};
 pub use ui::{
-    BroadcastScope,
-    BandplanKind, ChromeStyle, ClientAcks, ClientScreen, DetachableModule, DetachedState,
-    DetachedWindow, FontSize, LayoutMode, SmeterStyle, Solar3dWindow, SpectrumDetail,
-    SpectrumFillStyle, Speed, UiSettings, UiTheme, WORKSPACE_MAX, Workspace,
+    BandplanKind, BroadcastScope, ChromeStyle, ClientAcks, ClientScreen, DetachableModule,
+    DetachedState, DetachedWindow, FontSize, LayoutMode, MapStyle, SmeterStyle, Solar3dWindow,
+    SpectrumDetail, SpectrumFillStyle, Speed, UiSettings, UiTheme, WORKSPACE_MAX, Workspace,
 };
 pub use ui::{force_swl, set_force_swl};
 pub use uvpacket::{

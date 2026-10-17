@@ -1,0 +1,23 @@
+# The toolchain this tree is built and tested with.
+#
+# **This file exists because `mfsk-core` does not compile on every rustc, and
+# `cargo build --release` hangs rather than failing.** On aarch64 — which
+# includes every Apple Silicon Mac — rustc 1.99.0 hangs in LLVM codegen on the
+# FT8/FT4 decoder: one rustc process, one thread pegged at 100 %, flat memory,
+# no output at all, forever. It cost three releases here before it was found
+# (see "Rust 1.99.0 cannot compile `mfsk-core` for aarch64" in `AGENTS.md` for
+# the measurement). x86_64 is not affected, which is why this box and every CI
+# job bar the ARM ones never saw it.
+#
+# CI has pinned 1.98.1 in `release.yml`, `windows-msi.yml` and the armv7 probe
+# since the day it was found. **What was missing is this file**, so a person
+# building from source on an M-series Mac got the hang and had nothing to tell
+# them why. With it, rustup selects the pinned toolchain for any `cargo` command
+# run in the tree, and `rustup toolchain install 1.98.1` is the only thing
+# anyone has to do by hand.
+#
+# It is ignored by a distribution rustc (Arch's, for one), where the system
+# toolchain is used as before — so this changes nothing on the bench.
+[toolchain]
+channel = "1.98.1"
+components = ["rustfmt", "clippy"]

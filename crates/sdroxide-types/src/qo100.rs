@@ -52,6 +52,32 @@ pub struct Qo100Settings {
     pub auto_apply: bool,
 }
 
+impl Qo100Settings {
+    /// The settings with every field inside the range the lane can honour —
+    /// the same discipline [`crate::AdsbSettings::sane`] applies, and for the
+    /// same reason: this comes back from a config file and from a remote
+    /// client.
+    ///
+    /// The parking window is the field that matters. It is a low..high pair
+    /// the tracker scans for the beacon's shape, so a reversed or collapsed
+    /// one searches nothing and the tracker looks broken while the beacon sits
+    /// in plain view on the panadapter — the failure that would take longest
+    /// to attribute to a config file. A window out of range is put back to the
+    /// default rather than clamped to an edge, because an edge is not a window
+    /// anybody chose.
+    pub fn sane(mut self) -> Qo100Settings {
+        self.park_lo_hz = self.park_lo_hz.clamp(-100_000.0, 100_000.0);
+        self.park_hi_hz = self.park_hi_hz.clamp(-100_000.0, 100_000.0);
+        if self.park_hi_hz - self.park_lo_hz < 500.0 {
+            let d = Qo100Settings::default();
+            self.park_lo_hz = d.park_lo_hz;
+            self.park_hi_hz = d.park_hi_hz;
+        }
+        self.search_half_width_hz = self.search_half_width_hz.clamp(1_000.0, 200_000.0);
+        self
+    }
+}
+
 impl Default for Qo100Settings {
     fn default() -> Self {
         Self {
@@ -161,4 +187,32 @@ pub struct Qo100Status {
     /// (0 if the loop has not acted yet).
     pub auto_last_hz: f64,
     pub auto_last_unix: i64,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A parking window a hand-edited file or a remote client got wrong is put
+    /// back to the default, never left as a window the tracker cannot search —
+    /// the tracker would then look broken while the beacon sits in plain view.
+    #[test]
+    fn a_parking_window_that_is_not_a_window_is_put_back() {
+        let d = Qo100Settings::default();
+        let reversed = Qo100Settings { park_lo_hz: 12_000.0, park_hi_hz: 5_000.0, ..d };
+        assert_eq!(reversed.sane().park_lo_hz, d.park_lo_hz);
+        assert_eq!(reversed.sane().park_hi_hz, d.park_hi_hz);
+
+        let collapsed = Qo100Settings { park_lo_hz: 5_000.0, park_hi_hz: 5_100.0, ..d };
+        assert_eq!(collapsed.sane().park_hi_hz, d.park_hi_hz);
+
+        // A real window is left exactly as the operator set it, and the
+        // telemetry sweep is bounded rather than unbounded.
+        let mine = Qo100Settings { park_lo_hz: 3_000.0, park_hi_hz: 9_000.0, ..d };
+        assert_eq!(mine.sane(), mine);
+        assert_eq!(
+            Qo100Settings { search_half_width_hz: 0.0, ..d }.sane().search_half_width_hz,
+            1_000.0
+        );
+    }
 }

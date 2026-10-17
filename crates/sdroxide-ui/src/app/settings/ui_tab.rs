@@ -86,6 +86,23 @@ pub(in crate::app) fn settings_ui_tab(
         enum_combo(ui, "ui-layout", &mut cfg.layout, &LayoutMode::ALL, LayoutMode::label);
         ui.end_row();
 
+        // The two arrangements of the desktop. It is beside Layout because it
+        // is the same kind of choice — where things live on this screen — and
+        // not under it, because it is not a size: the column is offered at
+        // every desktop size and left out where there is no room for it.
+        ui.label("Classic UI").on_hover_text(
+            "Put every control in one column down the left with the groups folding away, \
+             the way SDR++ and SDR++Brown lay theirs out, and give the picture everything \
+             else. Same controls, same settings, arranged the way most short-wave \
+             listeners already have in their hands.\n\n\
+             It needs a window wide enough to keep the waterfall its share: below that the \
+             column is left out and the strip is drawn as usual, and the panel is dragged \
+             wider or narrower from its right edge. Off, this program's own strip is used \
+             exactly as before.",
+        );
+        crate::chrome::checkbox(ui, &mut cfg.classic_ui, "controls in a left column");
+        ui.end_row();
+
         ui.label("Theme");
         enum_combo(ui, "ui-theme", &mut cfg.theme, &UiTheme::ALL, UiTheme::label);
         ui.end_row();

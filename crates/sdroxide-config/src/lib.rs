@@ -2187,6 +2187,31 @@ pub fn save_vdl2_config(cfg: &sdroxide_types::Vdl2Settings) -> Result<(), Config
     save_json("vdl2.json", cfg)
 }
 
+/// QO-100 beacon-tracker preferences.
+///
+/// Kept apart from the live `RadioState.qo100` for the same reason the ADS-B
+/// and AIS configs are: a front end with no downconverter, or one too narrow
+/// to hold the parking window, forces the live lane off, and that must not
+/// overwrite what the operator chose for a receiver that can run it.
+pub fn load_qo100_config() -> sdroxide_types::Qo100Settings {
+    load_json::<sdroxide_types::Qo100Settings>("qo100.json").sane()
+}
+
+pub fn save_qo100_config(cfg: &sdroxide_types::Qo100Settings) -> Result<(), ConfigError> {
+    save_json("qo100.json", cfg)
+}
+
+/// HFDL decoder preferences — the lane's on/off and the assigned frequency it
+/// sits on. The operator's own list of channels is separate and lives beside
+/// it, in `hfdl_channels.json` (see [`load_hfdl_channels`]).
+pub fn load_hfdl_config() -> sdroxide_types::HfdlSettings {
+    load_json::<sdroxide_types::HfdlSettings>("hfdl.json").sane()
+}
+
+pub fn save_hfdl_config(cfg: &sdroxide_types::HfdlSettings) -> Result<(), ConfigError> {
+    save_json("hfdl.json", cfg)
+}
+
 /// Scanner settings: what to scan, how hard a signal has to be to stop it, and
 /// which memories to pass over. Restored at startup so a scan set up once is
 /// one keypress away afterwards.
