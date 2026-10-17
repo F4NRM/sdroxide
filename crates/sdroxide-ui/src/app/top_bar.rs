@@ -678,7 +678,13 @@ impl SdroxideApp {
         // the bare space between the main elements reaches this. Phones are left
         // out — a phone is already the smallest layout there is, and forcing the
         // tablet tier down onto it is nobody's shortcut.
-        if tier != crate::layout::Tier::Phone {
+        // Not while the column is in use. With every control in the column this
+        // strip is the readout, the meter and one chip, so almost all of it is
+        // bare ground — a large invisible target that flips the layout override
+        // (and *persists* it) on a double click. An operator clearing a stuck
+        // column would find the strip folded into another arrangement with
+        // nothing on screen to say what did it.
+        if tier != crate::layout::Tier::Phone && !self.ui_settings.classic_ui {
             let toggle = ui.interact(
                 ui.max_rect(),
                 crate::layout::salted_id(ui.ctx(), "strip-layout-toggle"),
@@ -693,8 +699,14 @@ impl SdroxideApp {
             }
         }
         // The desktop plans its own rows; only the compact strips still lean
-        // on a wrapping layout.
-        if !tier.compact() {
+        // on a wrapping layout. Classic UI is drawn by the desktop strip at
+        // every tier but the phone, whatever the layout override says: the
+        // override folds the *strip* into fewer rows, and the classic strip has
+        // no rows left to fold — the column is the arrangement. Left to the
+        // override, a Small setting would draw the compact strip's own chips
+        // beside a column carrying the same controls, which is the duplication
+        // this arrangement exists to remove.
+        if !tier.compact() || (self.ui_settings.classic_ui && tier != crate::layout::Tier::Phone) {
             self.desktop_strip(ui, cmds);
             return;
         }
@@ -824,6 +836,38 @@ impl SdroxideApp {
             boxes[0].1 = StripBox { w: freq.box_w, flex: 0.0, max_w: freq.box_w };
         }
 
+        // **Classic UI**: the column is the control surface, so this window keeps
+        // the two things that belong beside the *picture* — the readout it is
+        // tuned with and the meter it is judged by — and every other box is
+        // drawn as a section of the column instead. Same modules, same commands:
+        // `classic_column` calls the very methods the match below calls, so
+        // there is no second implementation of any of them.
+        if self.ui_settings.classic_ui {
+            ui.horizontal(|ui| {
+                self.freq_module_at(ui, cmds, &freq);
+                // The fold lives here because this row is what is *left* when
+                // the column is away: a control that put the column back has to
+                // be somewhere the folded arrangement still draws. SDR++ puts
+                // its ☰ in the same place for the same reason.
+                let label = if self.classic_collapsed { "☰ CONTROLS" } else { "◀" };
+                if crate::chrome::chip(ui, self.classic_collapsed, RichText::new(label).size(11.0))
+                    .on_hover_text(if self.classic_collapsed {
+                        "Bring the control column back. For the length of a session only — the \
+                         setting on Settings → UI decides whether this arrangement is used at all."
+                    } else {
+                        "Fold the control column away and give the whole window to the picture. \
+                         The readout and the meter stay, and this chip brings it back."
+                    })
+                    .clicked()
+                {
+                    self.classic_collapsed = !self.classic_collapsed;
+                }
+                let used = ui.min_rect().width();
+                let meter = (avail - used - gap).clamp(120.0, SMETER_W);
+                self.smeter_box(ui, meter, crate::chrome::MODULE_TALL_H, false);
+            });
+            return;
+        }
         let plan = plan_top_strip(avail, gap, &boxes.iter().map(|(_, b)| *b).collect::<Vec<_>>());
         for row in &plan.rows {
             ui.horizontal(|ui| {
@@ -2172,7 +2216,12 @@ impl SdroxideApp {
     /// replaces the separate VFO and RIT/XIT boxes. Width past
     /// [`Self::vfo_rows_w`] is spent by the controls themselves: the utility
     /// chips widen, and the offset fields grow.
-    fn vfo_rit_module(&mut self, ui: &mut egui::Ui, cmds: &mut Vec<Command>, w: f32) {
+    pub(in crate::app) fn vfo_rit_module(
+        &mut self,
+        ui: &mut egui::Ui,
+        cmds: &mut Vec<Command>,
+        w: f32,
+    ) {
         let tx_capable = self.tx_capable();
         let inner = w - 2.0 * crate::chrome::MODULE_MARGIN_X - 4.0;
         let chips = vfo_chip_labels(tx_capable);
@@ -2760,6 +2809,12 @@ impl SdroxideApp {
         // waterfall its share. Hidden rather than undocked: the band chip
         // opens the popup meanwhile, and widening the window brings the column
         // back where it was.
+        // The column carries the selector when Classic UI is on — `band_menu_body`
+        // is one body drawn in one place, and two of it is two answers to
+        // "which band am I on".
+        if self.ui_settings.classic_ui {
+            return;
+        }
         let Some(max_w) = self.band_dock_room else { return };
         // The selector is in its own window: leave the column out, so there is
         // one selector on screen rather than two.
@@ -2973,7 +3028,12 @@ impl SdroxideApp {
     /// tall, like the VFO/RIT box. Width past [`Self::rx_filter_w`] goes to
     /// the Vol and SQL rails — one per row, so both rows grow by the same
     /// amount (the Gain and Man rails pin their own width and stay put).
-    fn rx_filter_module(&mut self, ui: &mut egui::Ui, cmds: &mut Vec<Command>, w: f32) {
+    pub(in crate::app) fn rx_filter_module(
+        &mut self,
+        ui: &mut egui::Ui,
+        cmds: &mut Vec<Command>,
+        w: f32,
+    ) {
         let extra = (w - self.rx_filter_w(ui)).clamp(0.0, RAIL_STRETCH_MAX);
         crate::chrome::module_bare_h(ui, w, crate::chrome::MODULE_TALL_H, |ui| {
             ui.with_layout(egui::Layout::top_down(egui::Align::Center), |ui| {
@@ -5450,7 +5510,12 @@ impl SdroxideApp {
     /// processor where it applies. Each row's rail is sized so the two
     /// readouts end flush with each other at the box edge, whatever width the
     /// packer granted.
-    fn tx_condensed(&mut self, ui: &mut egui::Ui, cmds: &mut Vec<Command>, w: f32) {
+    pub(in crate::app) fn tx_condensed(
+        &mut self,
+        ui: &mut egui::Ui,
+        cmds: &mut Vec<Command>,
+        w: f32,
+    ) {
         let keyer = self.state.rx[0].mode.allows_voice_keyer();
         let level = self.digi_tx_level_applies();
         let cessb = self.cessb_applies();
@@ -6133,7 +6198,12 @@ impl SdroxideApp {
 
     /// The condensed Display box: the view chips on top, the tool chips below,
     /// each row's chips splitting its share of the packer's stretch evenly.
-    fn display_condensed(&mut self, ui: &mut egui::Ui, cmds: &mut Vec<Command>, w: f32) {
+    pub(in crate::app) fn display_condensed(
+        &mut self,
+        ui: &mut egui::Ui,
+        cmds: &mut Vec<Command>,
+        w: f32,
+    ) {
         let inner = w - 2.0 * crate::chrome::MODULE_MARGIN_X;
         let row1 = self.display_view_row();
         let row2 = self.display_tool_row();
@@ -6561,7 +6631,12 @@ impl SdroxideApp {
 
     /// The condensed System box: the window chips over two rows, each row's
     /// chips splitting its share of the packer's stretch evenly.
-    fn windows_condensed(&mut self, ui: &mut egui::Ui, w: f32, cmds: &mut Vec<Command>) {
+    pub(in crate::app) fn windows_condensed(
+        &mut self,
+        ui: &mut egui::Ui,
+        w: f32,
+        cmds: &mut Vec<Command>,
+    ) {
         let inner = w - 2.0 * crate::chrome::MODULE_MARGIN_X;
         let simple = self.ui_settings.simple_ui;
         let top = system_top_row(simple, self.swl_mode());

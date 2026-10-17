@@ -383,6 +383,11 @@ pub struct SdroxideApp {
     /// the settings dialog changes any of them — no restart.
     applied_look:
         (sdroxide_types::UiTheme, sdroxide_types::ChromeStyle, sdroxide_types::ChromeStyle),
+    /// **Classic UI**: the column is folded away. Session-only, and separate
+    /// from the setting, because folding a column to see the picture is a thing
+    /// done for a minute rather than a preference — SDR++'s ☰ is the same
+    /// gesture. The setting decides whether the arrangement is in use at all.
+    pub(in crate::app) classic_collapsed: bool,
     /// The interface font size last written into the context as its zoom
     /// factor, for the same reason — and so the zoom is left alone in between,
     /// where it belongs to egui's own ctrl+plus / ctrl+minus.
@@ -1774,6 +1779,7 @@ impl SdroxideApp {
             // that persists now.
             swl_start: ui_settings.start_swl || ui_settings.swl || sdroxide_types::force_swl(),
             applied_look: (ui_settings.theme, ui_settings.button_style, ui_settings.window_style),
+            classic_collapsed: false,
             applied_ui_font: ui_settings.menu_font_size,
             speech: speech::SpeechRuntime::new(load_speech_settings(storage)),
             speech_voices: Vec::new(),
@@ -3949,6 +3955,136 @@ mod tests {
         });
         img.save(&out).expect("write the preview");
         println!("wrote {out}");
+    }
+
+    /// **Unchecking Classic UI gives the window back.** The operator reported
+    /// that it does not, and this is the frame that has to hold for it to: the
+    /// strip's own boxes leave with the setting and come back with it, the fold
+    /// chip is drawn only while the column is in use, and — the part that would
+    /// show as "the normal window state does not return" — the picture goes back
+    /// to the left edge it had.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn unchecking_classic_ui_gives_the_strip_back() {
+        use crate::multi::frame_test_lock;
+        let _guard = frame_test_lock();
+        fn texts(shapes: &[egui::epaint::ClippedShape]) -> String {
+            fn walk(s: &egui::Shape, out: &mut String) {
+                match s {
+                    egui::Shape::Text(t) => {
+                        out.push_str(t.galley.text());
+                        out.push('\n');
+                    }
+                    egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, out)),
+                    _ => {}
+                }
+            }
+            let mut out = String::new();
+            shapes.iter().for_each(|c| walk(&c.shape, &mut out));
+            out
+        }
+        let dir = std::env::temp_dir().join(format!("sdroxide-classicui-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        unsafe { std::env::set_var("SDROXIDE_CONFIG_DIR", &dir) };
+        let controller: Box<dyn RadioController> = Box::new(RecordingController::default());
+        let ctx = egui::Context::default();
+        let mut app = SdroxideApp::new_tab(&ctx, None, None, controller, 0, true);
+        let frame = |app: &mut SdroxideApp| {
+            let input = egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(1400.0, 900.0),
+                )),
+                ..Default::default()
+            };
+            let full = ctx.run_ui(input, |ui| app.ui(ui, &mut eframe::Frame::_new_kittest()));
+            // The picture's left edge: the **widest** big rectangle that is not the
+            // window's own background (which starts at zero, spans the window, and
+            // would answer the same in both arrangements). Printed on failure so a
+            // reading that does not measure what it claims can be seen rather than
+            // believed — the first version of this measured the window and said 0
+            // in both states.
+            let big: Vec<egui::Rect> = full
+                .shapes
+                .iter()
+                .filter_map(|cs| match &cs.shape {
+                    egui::Shape::Rect(r) => Some(r.rect),
+                    _ => None,
+                })
+                .filter(|r| r.width() > 150.0 && r.height() > 100.0 && r.left() > 2.0)
+                .collect();
+            let left = big
+                .iter()
+                .max_by(|a, b| a.width().total_cmp(&b.width()))
+                .map(|r| r.left())
+                .unwrap_or(-1.0);
+            (texts(&full.shapes), left, big)
+        };
+        // `PUBLIC SDR` is the System box's own chip, drawn on the strip and only
+        // on the strip: the column keeps that fold shut.
+        for _ in 0..6 {
+            frame(&mut app);
+        }
+        let (before, left_before, big_before) = frame(&mut app);
+        assert!(
+            left_before < 120.0,
+            "the picture starts at the left edge to begin with (it starts at {left_before}; \
+             the big rects were {big_before:?})"
+        );
+        assert!(
+            before.contains("PUBLIC SDR"),
+            "the strip draws its System box to begin with; it drew: {before}"
+        );
+        app.ui_settings.classic_ui = true;
+        frame(&mut app);
+        let (during, left_during, big_during) = frame(&mut app);
+        assert!(
+            !during.contains("PUBLIC SDR"),
+            "the strip's System box left with the setting; it drew: {during}"
+        );
+        assert!(
+            during.contains('◀') || during.contains("CONTROLS"),
+            "the fold chip is how the column is folded, so it is drawn with it"
+        );
+        assert!(
+            left_during > left_before + 120.0,
+            "the column took the picture's left edge ({left_during} against {left_before}; \
+             the big rects were {big_during:?})"
+        );
+        app.ui_settings.classic_ui = false;
+        frame(&mut app);
+        let (after, left_after, big_after) = frame(&mut app);
+        assert!(
+            after.contains("PUBLIC SDR"),
+            "the strip's System box did not come back when the setting was cleared"
+        );
+        assert!(
+            (left_after - left_before).abs() < 1.0,
+            "the picture did not go back to the left edge: {left_after} against {left_before}; \
+             the big rects were {big_after:?}"
+        );
+        assert!(
+            !after.contains('◀') && !after.contains("CONTROLS"),
+            "the fold chip stayed after the column was turned off"
+        );
+        // **And the layout override must not put the arrangement out of reach.**
+        // The override folds the *strip* into fewer rows; the classic strip has
+        // no rows to fold, so it is drawn whatever the override says. Left to
+        // the override, a `Small` setting would draw the compact strip's own
+        // chips beside a column carrying the same controls.
+        app.ui_settings.layout = sdroxide_types::LayoutMode::Small;
+        app.ui_settings.classic_ui = true;
+        frame(&mut app);
+        let (overridden, _, _) = frame(&mut app);
+        assert!(
+            overridden.contains('◀') || overridden.contains("CONTROLS"),
+            "the classic strip is drawn even with the strip folded to Small"
+        );
+        assert!(
+            !overridden.contains("PUBLIC SDR"),
+            "the compact strip's own boxes are not drawn beside the column: {overridden}"
+        );
     }
 
     /// #643: drive one frame at a chosen window width (env `DOCK_W`, default

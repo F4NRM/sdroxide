@@ -1009,6 +1009,7 @@ impl eframe::App for SdroxideApp {
         // two arrangements are the same program.
         #[cfg(not(target_arch = "wasm32"))]
         if self.ui_settings.classic_ui
+            && !self.classic_collapsed
             && tier != crate::layout::Tier::Phone
             && let Some((min, max)) = super::classic::classic_column_width(ui.available_width())
         {
@@ -1025,6 +1026,13 @@ impl eframe::App for SdroxideApp {
                         .inner_margin(egui::Margin::symmetric(9, 7)),
                 )
                 .show(ui, |ui| {
+                    // **What makes the handle work.** egui's own note: a
+                    // resizable panel needs its ui to *use* the space it was
+                    // given, or the content's own minimum becomes the panel's
+                    // width and the handle stops moving — which is exactly what
+                    // the first version did, with a drag that looked live and
+                    // did nothing.
+                    ui.take_available_space();
                     self.classic_column(ui, &mut cmds);
                 });
         }

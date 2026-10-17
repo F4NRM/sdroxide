@@ -28,7 +28,13 @@ use sdroxide_types::Command;
 /// section starts to look like a page rather than a column. Both are wide enough
 /// that the sections below never have to reflow.
 const CLASSIC_MIN_W: f32 = 232.0;
-const CLASSIC_MAX_W: f32 = 420.0;
+
+/// The widest the column may be dragged — *generous*, and that is the lesson
+/// from the first version. It capped at 420, which is where the operator's drag
+/// stopped, and a handle that refuses to move reads as a handle that does not
+/// work however true the reason is. Our sections are the strip's own modules and
+/// they want more room than SDR++'s rows do.
+const CLASSIC_MAX_W: f32 = 640.0;
 
 /// How much room the picture must keep, so opening the column on a narrow
 /// window squeezes the waterfall rather than taking it away.
@@ -46,6 +52,8 @@ pub(in crate::app) fn classic_column_width(window_w: f32) -> Option<(f32, f32)> 
     if room < CLASSIC_MIN_W {
         return None;
     }
+    // The ceiling is the room that is left, capped by taste rather than by a
+    // number the content forced — see `CLASSIC_MAX_W`.
     let max = room.min(CLASSIC_MAX_W);
     Some((CLASSIC_MIN_W, max))
 }
@@ -59,12 +67,29 @@ impl super::SdroxideApp {
     /// sessions. A second implementation would be a second thing to get wrong
     /// for no gain.
     pub(in crate::app) fn classic_column(&mut self, ui: &mut egui::Ui, cmds: &mut Vec<Command>) {
-        egui::ScrollArea::vertical().auto_shrink([false, false]).id_salt("classic-column").show(
+        // **Both axes, and that is what makes the handle work.** A vertical-only
+        // scroll area still lets a row wider than the column widen the column
+        // itself — the panel's width follows its content's minimum, so the
+        // handle springs back and reads as broken. Scrolled on both axes, the
+        // panel keeps the width it was given and a row that does not fit
+        // scrolls, which also *says* the column is too narrow rather than
+        // silently refusing to narrow.
+        egui::ScrollArea::both().auto_shrink([false, false]).id_salt("classic-column").show(
             ui,
             |ui| {
                 self.classic_source_section(ui, cmds);
+                self.classic_bands_section(ui, cmds);
                 self.classic_mode_section(ui, cmds);
                 self.classic_radio_section(ui, cmds);
+                // The strip's own modules, one fold each — the very bodies the
+                // strip draws, called with the column's width. Nothing here is a
+                // second implementation, which is what keeps the two
+                // arrangements from drifting apart.
+                let w = ui.available_width();
+                self.classic_tuning_section(ui, cmds, w);
+                self.classic_tx_section(ui, cmds, w);
+                self.classic_display_section(ui, cmds, w);
+                self.classic_system_section(ui, cmds, w);
             },
         );
     }
@@ -107,6 +132,61 @@ impl super::SdroxideApp {
                 let _ = cmds;
             },
         );
+    }
+
+    /// **Bands** — the band list and its filters, in the column where an SDR++
+    /// hand looks for the band plan. It is `band_menu_body`: the same body the
+    /// docked column and the detached band window draw, so there is one band
+    /// selector in the program and not three.
+    fn classic_bands_section(&mut self, ui: &mut egui::Ui, cmds: &mut Vec<Command>) {
+        egui::CollapsingHeader::new(RichText::new("Bands").strong()).default_open(true).show(
+            ui,
+            |ui| {
+                self.band_menu_body(ui, cmds);
+            },
+        );
+    }
+
+    /// **Tuning** — the VFO, split and the RIT/XIT offsets: the strip's own
+    /// module, drawn here.
+    fn classic_tuning_section(&mut self, ui: &mut egui::Ui, cmds: &mut Vec<Command>, w: f32) {
+        egui::CollapsingHeader::new(RichText::new("Tuning").strong()).default_open(false).show(
+            ui,
+            |ui| {
+                self.vfo_rit_module(ui, cmds, w);
+                ui.add_space(4.0);
+                self.rx_filter_module(ui, cmds, w);
+            },
+        );
+    }
+
+    /// **Transmit**, **Display**, **System** — the strip's own modules again,
+    /// one fold each. The System fold is where the windows and the tools live,
+    /// which is what SDR++ calls its plugin list.
+    fn classic_tx_section(&mut self, ui: &mut egui::Ui, cmds: &mut Vec<Command>, w: f32) {
+        egui::CollapsingHeader::new(RichText::new("Transmit").strong()).default_open(false).show(
+            ui,
+            |ui| {
+                self.tx_condensed(ui, cmds, w);
+            },
+        );
+    }
+
+    fn classic_display_section(&mut self, ui: &mut egui::Ui, cmds: &mut Vec<Command>, w: f32) {
+        egui::CollapsingHeader::new(RichText::new("Display").strong()).default_open(false).show(
+            ui,
+            |ui| {
+                self.display_condensed(ui, cmds, w);
+            },
+        );
+    }
+
+    fn classic_system_section(&mut self, ui: &mut egui::Ui, cmds: &mut Vec<Command>, w: f32) {
+        egui::CollapsingHeader::new(RichText::new("Windows & tools").strong())
+            .default_open(false)
+            .show(ui, |ui| {
+                self.windows_condensed(ui, w, cmds);
+            });
     }
 
     /// **Mode** — the same matrix the band menu draws, in the column where an
@@ -159,6 +239,62 @@ fn source_row(ui: &mut egui::Ui, label: &str, value: &str) {
 mod tests {
     use super::*;
 
+    /// **The handle moves, and the mechanism is the scroll area.** egui's own
+    /// note on `resizable` says the ui must *use* the space it was given — and
+    /// that is necessary but not sufficient, which the first version of this
+    /// test proved by being wrong. `take_available_space` sets a *minimum*; a
+    /// child wider than the panel still drags the panel out to its own width,
+    /// so the handle springs back and reads as broken.
+    ///
+    /// What fixes it is scrolling: inside a scroll area the content's minimum
+    /// is the viewport's, so the panel keeps the width it was given and the row
+    /// scrolls. Measured here at a width the content does not fit in.
+    #[test]
+    fn the_column_keeps_its_width_when_a_row_does_not_fit() {
+        let width_with = |scroll: bool| {
+            let ctx = egui::Context::default();
+            let rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1400.0, 800.0));
+            let input = egui::RawInput { screen_rect: Some(rect), ..Default::default() };
+            let mut w = 0.0;
+            for _ in 0..3 {
+                let full = ctx.run_ui(input.clone(), |ui| {
+                    let r = egui::Panel::left(egui::Id::new(("probe", scroll)))
+                        .resizable(true)
+                        .default_size(240.0)
+                        .size_range(200.0..=640.0)
+                        .show(ui, |ui| {
+                            ui.take_available_space();
+                            let row = |ui: &mut egui::Ui| {
+                                // 12 wide labels: about 600 points in a 240-point panel.
+                                for i in 0..12 {
+                                    ui.label(RichText::new(format!("chip {i} is wide")).size(11.0));
+                                }
+                            };
+                            if scroll {
+                                egui::ScrollArea::both().auto_shrink([false, false]).show(ui, row);
+                            } else {
+                                ui.horizontal(row);
+                            }
+                        });
+                    w = r.response.rect.width();
+                });
+                full.drop_without_applying_deltas();
+            }
+            w
+        };
+        let without = width_with(false);
+        let with = width_with(true);
+        assert!(
+            (with - 240.0).abs() < 2.0,
+            "the scrolling column took {with} points where it was asked for 240"
+        );
+        assert!(
+            without > with + 100.0,
+            "the unscrolled column did not widen with its content ({without} against {with}), \
+             so this test is not measuring what it claims"
+        );
+    }
+
     /// **The column never eats the picture.** It is offered only where the
     /// panadapter keeps its floor, and its own ceiling is the room that is left
     /// — not a fixed number that a narrow window would overrun. This is the
@@ -175,6 +311,13 @@ mod tests {
             let (min, max) = classic_column_width(w).expect("room at {w}");
             assert!(min <= max, "{w}: range {min}..{max} is inverted");
             assert!(max <= CLASSIC_MAX_W, "{w}: opens wider than the ceiling");
+            // And the ceiling is taste, not content: there is real room above
+            // the widest it allows on a normal window, so a drag to the right
+            // is a drag and not a refusal.
+            assert!(
+                w < 1280.0 || w - max >= CLASSIC_PANADAPTER_MIN_W,
+                "{w}: the ceiling binds before the panadapter's floor does"
+            );
             assert!(
                 w - max >= CLASSIC_PANADAPTER_MIN_W,
                 "{w}: a column of {max} leaves the panadapter less than its floor"
