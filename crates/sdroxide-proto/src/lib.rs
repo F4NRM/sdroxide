@@ -1845,8 +1845,13 @@ use sdroxide_types::{
 /// a listener's screen may show, the panadapter's span or the whole band
 /// (issue #80). It rides `ClientScreen` because it is what the listener sees,
 /// and travels with the theme for the same reason. Appended last.
-pub const PROTO_VERSION: u16 = 212;
-const VERSION_BYTE: u8 = 0x20;
+/// v213: [`sdroxide_types::NetworkConfig`] gains `rbn2`
+/// ([`sdroxide_types::RbnConfig`]) at its tail — a second skimmer connection,
+/// by default the FT8/FT4 feed on 7001 beside the first on 7000. Off by
+/// default. `PROTO_VERSION` 212 → 213, `VERSION_BYTE` 0x20 → 0x21. A downstream
+/// (fork) change.
+pub const PROTO_VERSION: u16 = 213;
+const VERSION_BYTE: u8 = 0x21;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ProtoError {

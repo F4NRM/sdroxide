@@ -86,6 +86,22 @@ impl Default for RbnConfig {
     }
 }
 
+impl RbnConfig {
+    /// The second skimmer connection: the FT8/FT4 feed on 7001. Off by default,
+    /// unlike the first, because it opens a second telnet session and adds a
+    /// large number of spots to the propagation map.
+    pub fn second() -> Self {
+        RbnConfig { enabled: false, port: 7001, ..RbnConfig::default() }
+    }
+
+    /// Whether `self` and `other` would open the same connection, which sends
+    /// every path twice. Compared on host and port only: a different login or
+    /// filter on the same node is still the same feed.
+    pub fn same_feed(&self, other: &RbnConfig) -> bool {
+        self.port == other.port && self.host.trim().eq_ignore_ascii_case(other.host.trim())
+    }
+}
+
 /// A polled HTTP spot feed (POTA / SOTA).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -386,6 +402,13 @@ pub struct NetworkConfig {
     /// `NetworkConfig` rides `SetNetworkConfig` whole.
     #[serde(default)]
     pub eqsl_qth_nickname: String,
+
+    // ── Reverse Beacon Network, second connection ──
+    /// The second skimmer connection — by default the FT8/FT4 feed on 7001,
+    /// beside [`rbn`](Self::rbn) on 7000 for CW/RTTY. Another node works as
+    /// well as RBN's. Appended last, as the wire requires.
+    #[serde(default = "RbnConfig::second")]
+    pub rbn2: RbnConfig,
 }
 
 impl Default for NetworkConfig {
@@ -423,6 +446,37 @@ impl Default for NetworkConfig {
             auto_upload_log11dx: false,
             swl_id: String::new(),
             eqsl_qth_nickname: String::new(),
+            rbn2: RbnConfig::second(),
         }
+    }
+}
+
+#[cfg(test)]
+mod rbn_tests {
+    use super::*;
+
+    /// A `net.json` written before the second connection existed has no `rbn2`;
+    /// it must load with the second connection off on 7001, not on 7000 like the
+    /// first, and the first must keep what the operator had set.
+    #[test]
+    fn an_older_config_gets_the_second_connection_off_on_7001() {
+        let mut v = serde_json::to_value(NetworkConfig::default()).unwrap();
+        v.as_object_mut().unwrap().remove("rbn2");
+        v["rbn"]["port"] = 7001.into();
+        let cfg: NetworkConfig = serde_json::from_value(v).unwrap();
+        assert!(!cfg.rbn2.enabled);
+        assert_eq!(cfg.rbn2.port, 7001);
+        assert_eq!(cfg.rbn2.host, "telnet.reversebeacon.net");
+        assert_eq!(cfg.rbn.port, 7001, "the first connection lost what it had");
+    }
+
+    #[test]
+    fn two_connections_on_one_host_and_port_are_the_same_feed() {
+        let a = RbnConfig::default();
+        let mut b = RbnConfig::second();
+        assert!(!a.same_feed(&b), "7000 and 7001 are different feeds");
+        b.port = 7000;
+        b.host = " TELNET.reversebeacon.net ".into();
+        assert!(a.same_feed(&b));
     }
 }
