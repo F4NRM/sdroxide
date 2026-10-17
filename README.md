@@ -257,6 +257,13 @@ below works on all of them and is the supported route there.
 Windows gets an `.msi` and a portable `.zip`, macOS a `.dmg`. Or build it
 yourself.
 
+**On an Apple Silicon Mac, one thing first.** The tree pins its toolchain in
+`rust-toolchain.toml`, and you should let it: `rustup toolchain install 1.98.1`.
+A newer stable currently **hangs** on this tree rather than failing — rustc sits
+in codegen on `mfsk-core` at 100 % of one core and never finishes. It is an LLVM
+bug on aarch64 that we cannot fix from here, it does not affect Intel machines,
+and 1.98.1 builds the same tree in seconds.
+
 <details>
 <summary><h2>Building from source</h2></summary>
 
