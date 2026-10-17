@@ -6667,27 +6667,44 @@ complicated, controls all over the place"* are SDR++ users — SDR++Brown's own
 docs say *"In Brown, expand the left **Source** panel"* — so the fix is the
 arrangement they already know, not fewer features.
 
-**The rule that keeps it honest: the sections reuse the strip's own bodies.**
-The `Radio` section *is* `rx_controls` (the RX menu, inlined with `narrow =
-true`, the same flag the compact strip uses because a popup cannot open inside a
-popup); `Mode` *is* `mode_chip_grid`; `Bands` *is* `band_menu_body` (so the docked
-column, the detached band window and this one are one body in one place); and
-`Tuning` / `Transmit` / `Display` / `Windows & tools` are `vfo_rit_module`,
-`rx_filter_module`, `tx_condensed`, `display_condensed` and `windows_condensed`
-called with the column's width. `Source` reads the published state and puts the
-route to Settings → Radio beside the values. **A second implementation of TUNE or
-of the squelch would be a second thing to fix twice** — do not add one when a
-section is extended. When the column is in use the strip draws **only the readout,
-the S-meter and the fold chip** (`desktop_strip`'s early branch): the two things
-that belong beside the picture, and the one control that has to be reachable from
-the folded arrangement.
+**The manner is SDR++'s; the controls are ours — and the first version got this
+wrong in a way that is worth keeping.** That version drew the *strip's modules*
+inside the column (`vfo_rit_module`, `rx_filter_module`, `tx_condensed` and the
+rest) on the rule that a control should have one implementation. The rule is right
+for the docked band column and the detached windows, which *are* the same widgets
+in another place; it is wrong here, because those modules are boxes built for a
+strip — each with its own margins and a *width*, chosen to make a row of boxes come
+out even. In a resizable column they fight it: the panel's width and the content's
+width disagree, so a drag springs back and the operator sees a fixed-width box that
+does not belong to the column. His words, and they are the specification: *"it's a
+complete new section… I would replace it with a complete new container containing
+all controls nicely categorized, adaptive and hide the original boxes"*.
 
-**One decision, asked once.** `classic_column_this_frame(tier, width)` is whether
-the arrangement is in use *and* the column is drawn, and both the frame and the
-strip ask it. Two copies of that decision is how the pair drifts, and it did: the
-strip folded while the column was left out for want of room (592 pt = 232 for the
-column + 360 for the picture), leaving the bands, the VFO and the tools in neither
-place. Where the column is not drawn, the strip keeps its own controls.
+So every row takes the width it is given. A row is a caption in a left gutter and
+controls filling the rest (`classic_row`), a chip run spreads and wraps
+(`classic_chips`), and a rail is fitted to what is left of its line
+(`chrome::slider_readout`). **Nothing has a width of its own**, which is what makes
+the panel's edge draggable at all. Eight sections, SDR++'s order: Source, Band &
+mode, Receiver, Tuning, Transmit, Recorder, Display, Windows & tools — the fold
+order SDR++ uses top to bottom.
+
+**Behaviour still lives in one place, and that is the half of the rule that
+stands.** Where a chip carries a rule — the mode chips' band-grey, BIN's
+sub-receiver gate, the transmit refusals, the passband presets, the
+noise-reduction engines — the column calls the same function the strip and the RX
+menu call: `band_menu_body`, `rx_chip`, `filter_controls`, `nr_controls`,
+`rec_controls`, `system_chips_top`/`_bottom`, `display_view_chips`/
+`display_tool_chips`, `vfo_util_chips`, `vfo_offset_row`, `tx_*`. So there is one
+implementation of every *control* and two layouts. When the column is in use the
+strip draws **only the readout and the S-meter** (`desktop_strip`'s early
+branch) — the two things that belong beside the picture.
+
+**One decision, asked once.** `classic_surface(tier, width, collapsed)` returns
+`None` / `Rail` / `Column(min, max)`, and both the frame (which draws it) and the
+strip (which folds its boxes only where a surface is actually drawn) ask it. Two
+copies of that decision is how the pair drifts, and it did: the strip folded while
+the column was left out for want of room (592 pt = 232 for the column + 360 for
+the picture), leaving the bands, the VFO and the tools in neither place.
 
 **The handle works, and the width has to be a *number*.** egui's note on
 `resizable` — the ui must use the space it was given — is necessary and **not
@@ -6713,11 +6730,20 @@ and it took a bisect by section, a shape-kind dump (the crossing was a `Shape::M
 inside that reservation, so the wrapping row can see it. **Grep `add_enabled_ui`
 next to `chip(` before drawing a chip in a wrapping row.**
 
-**The fold chip leads the row**, SDR++-style: the control that opens and closes a
-bar belongs beside the bar, not between the readout and the meter (the operator:
-*"the fold sidebar button is totally in a wrong place"*). One glyph (`☰`) in both
-states, lit while the column is on screen, so the readout does not shift sideways
-under the press.
+**The fold lives on the column, and folding leaves a rail.** `◀` in the column's
+heading folds it away; the rail keeps **22 points** and carries the `▶` that brings
+it back, so the fold and the unfold are the same control in the same place. The
+rail was the operator's idea and it is the better one (*"leave 15 pixels width so
+the unfold button stays visible"*): it is what lets the fold live on the column at
+all, since a column that vanishes leaves no way back. Three things about it are
+load-bearing. It has **its own panel id** — a rail that wrote 22 points into the
+column's stored width would bring the column back 22 points wide — and
+`unchecking_classic_ui_gives_the_strip_back` asserts the column comes back at its
+own width, not the rail's. **Nothing of any of it is drawn when Classic UI is
+off**: the strip is simply the strip, which is what the odd chip in the middle of
+the readout was there to work around. And the rail is drawn wherever the tier is
+not a phone, even on a window with no room for the column: it is 22 points, so
+there is always room for the way back.
 
 **And the mode was in the column twice** — its own `Mode` fold above the `Bands`
 one, which is `band_menu_body` and already carries the mode matrix
@@ -6729,7 +6755,14 @@ it is in the docked column and the detached band window.
 each width it may be dragged to and every shape's ink is measured against the
 width it was handed. **It sweeps every 24 points rather than sampling** — the
 defect it was written for lived in a band about thirty points wide (465 to 495)
-that three spot widths stepped straight over, and a second one hid at 400.
+that three spot widths stepped straight over, and a second one hid at 400. It
+sweeps the *new* container now, which is the point of it: it is what would have
+caught the module-reuse mistake in the first place. Beside it,
+`the_surface_is_the_columns_own_room` pins where a surface is drawn at all, and
+`unchecking_classic_ui_gives_the_strip_back` drives the frames the operator's
+reports were about — the boxes leave with the setting, the picture's left edge
+returns, the rail is a rail, and every section is drawn (on a window tall enough
+to hold them, because in a 900-point window the later ones are below the fold).
 
 **Two traps around the setting itself, both found by using it.** The strip's
 layout override folds the *strip* into fewer rows, and the classic strip has no
@@ -6744,8 +6777,9 @@ is drawn only with the column, and the picture's left edge goes back to where it
 was (8 pt, against 280 with the column).
 
 **Left to do**: a skinned section header rather than egui's default, SDR++'s
-vertical Zoom/Max/Min rails beside the waterfall, and the Recorder/Rigs sections
-if the four folds prove thin. It has been looked at on the operator's own screen
+vertical Zoom/Max/Min rails beside the waterfall, and splitting the Receiver
+section — it currently carries the passband presets and the noise-reduction
+engines as sub-bodies, which are their own subjects and want their own folds. It has been looked at on the operator's own screen
 across four screenshots (2026-10-17) — which is how the missing sections, the
 stuck handle, the unwrapped rows, the chip past the edge, the misplaced fold and
 the doubled mode were all found — and nothing has been rendered here: there is no
