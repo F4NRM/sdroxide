@@ -733,10 +733,10 @@ impl SdroxideApp {
             // spill one at a time onto one. See [`plan_phone_tail`].
             if tier == crate::layout::Tier::Phone {
                 let tail = self.phone_tail(ui, band_mode_shown);
-                self.smeter_box(ui, tail.meter_w, PHONE_SMETER_H, true);
+                self.smeter_box(ui, tail.meter_w, PHONE_SMETER_H, true, true);
                 self.menu_bar(ui, cmds, tier, band_mode_shown, Some(tail));
             } else {
-                self.smeter_box(ui, SMETER_W, crate::chrome::MODULE_TALL_H, false);
+                self.smeter_box(ui, SMETER_W, crate::chrome::MODULE_TALL_H, false, true);
                 self.menu_bar(ui, cmds, tier, band_mode_shown, None);
             }
             self.tune_step_row(ui, cmds);
@@ -863,11 +863,11 @@ impl SdroxideApp {
             let meter_w = (avail * 0.22).clamp(120.0, SMETER_W);
             ui.horizontal(|ui| {
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    self.smeter_box(ui, meter_w, crate::chrome::MODULE_TALL_H, false);
+                    self.smeter_box(ui, meter_w, crate::chrome::MODULE_TALL_H, false, false);
                     ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
                         let pad = ((ui.available_width() - freq.box_w) / 2.0).max(0.0);
                         ui.add_space(pad);
-                        self.freq_module_at(ui, cmds, &freq);
+                        self.freq_module_at(ui, cmds, &freq, false);
                     });
                 });
             });
@@ -882,8 +882,10 @@ impl SdroxideApp {
                     }
                     let w = row.widths[j];
                     match boxes[i].0 {
-                        Kind::Freq => self.freq_module_at(ui, cmds, &freq),
-                        Kind::Smeter => self.smeter_box(ui, w, crate::chrome::MODULE_TALL_H, false),
+                        Kind::Freq => self.freq_module_at(ui, cmds, &freq, true),
+                        Kind::Smeter => {
+                            self.smeter_box(ui, w, crate::chrome::MODULE_TALL_H, false, true)
+                        }
                         Kind::VfoRit => self.vfo_rit_module(ui, cmds, w),
                         Kind::RxFilter => self.rx_filter_module(ui, cmds, w),
                         Kind::Div => self.div_module(ui, cmds, w),
@@ -1131,8 +1133,9 @@ impl SdroxideApp {
                                 "{}\n\nClick to cycle meter face: bar / trace",
                                 smeter::hover_text(self.meters.as_ref())
                             );
-                            let resp = smeter::show(ui, self.meters.as_ref(), style.compact())
-                                .on_hover_text(hover);
+                            let resp =
+                                smeter::show(ui, self.meters.as_ref(), style.compact(), true)
+                                    .on_hover_text(hover);
                             if resp.clicked() {
                                 self.set_smeter_style(style.next_compact());
                             }
@@ -1793,7 +1796,7 @@ impl SdroxideApp {
         // The few extra points of slack keep a readout that comes out exactly
         // the width of the space left from rounding its way onto the next row.
         let plan = self.freq_box_plan(ui, &fit, ui.available_width(), SMETER_W + 8.0 + 4.0, tier);
-        self.freq_module_at(ui, cmds, &plan);
+        self.freq_module_at(ui, cmds, &plan, true);
         true
     }
 
@@ -1834,9 +1837,19 @@ impl SdroxideApp {
     }
 
     /// Draw the frequency box to a pre-measured [`FreqBoxPlan`].
-    fn freq_module_at(&mut self, ui: &mut egui::Ui, cmds: &mut Vec<Command>, plan: &FreqBoxPlan) {
+    /// `boxed` draws the module's own fill and border. The Classic UI bar asks
+    /// for neither: the operator's *"remove accent color from background and
+    /// remove the border from the frequency box"* — the readout sits on the bar
+    /// there, over the waterfall it tunes.
+    fn freq_module_at(
+        &mut self,
+        ui: &mut egui::Ui,
+        cmds: &mut Vec<Command>,
+        plan: &FreqBoxPlan,
+        boxed: bool,
+    ) {
         let &FreqBoxPlan { size, ab_w, right_w, readout_w, readout_h, box_w } = plan;
-        crate::chrome::module_bare_h(ui, box_w, crate::chrome::MODULE_TALL_H, |ui| {
+        crate::chrome::module_chromed(ui, box_w, crate::chrome::MODULE_TALL_H, boxed, |ui| {
             ui.spacing_mut().item_spacing.x = 0.0; // control every gap explicitly
             let active = self.state.active_vfo;
             let full_h = ui.available_height();
@@ -2196,7 +2209,11 @@ impl SdroxideApp {
     /// The bar and trace faces scale with the box, and the needle face keeps
     /// its scale readable by capping and centring it (see
     /// [`crate::widgets::smeter::NEEDLE_FACE_MAX_W`]).
-    fn smeter_box(&mut self, ui: &mut egui::Ui, w: f32, h: f32, compact: bool) {
+    /// `outline` draws the box around the meter. The Classic UI bar asks for the
+    /// face alone: its readout has no border either, and a meter boxed on a bar
+    /// that is otherwise open reads as a leftover from the strip the arrangement
+    /// replaced.
+    fn smeter_box(&mut self, ui: &mut egui::Ui, w: f32, h: f32, compact: bool, outline: bool) {
         let style = self.ui_settings.smeter_style;
         let shown = if compact { style.compact() } else { style };
         let mut picked = None;
@@ -2206,7 +2223,7 @@ impl SdroxideApp {
                 smeter::hover_text(self.meters.as_ref()),
                 if compact { "bar / trace" } else { "needle / bar / trace" }
             );
-            let resp = smeter::show(ui, self.meters.as_ref(), shown).on_hover_text(hover);
+            let resp = smeter::show(ui, self.meters.as_ref(), shown, outline).on_hover_text(hover);
             if resp.clicked() {
                 picked = Some(if compact { style.next_compact() } else { style.next() });
             }

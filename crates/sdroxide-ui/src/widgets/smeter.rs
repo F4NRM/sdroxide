@@ -265,13 +265,16 @@ pub fn hover_text(meters: Option<&Meters>) -> String {
 
 /// Draw the S-meter in the selected style, filling the box's full interior.
 /// Returns the (clickable) response so the caller can cycle the style.
-pub fn show(ui: &mut Ui, meters: Option<&Meters>, style: SmeterStyle) -> Response {
+/// `outline` draws the box outline the meter wears inside a strip module. A host
+/// with no box — the Classic UI bar, where the readout beside it has none either
+/// — asks for the face alone.
+pub fn show(ui: &mut Ui, meters: Option<&Meters>, style: SmeterStyle, outline: bool) -> Response {
     // Fill whatever the (zero-padding) box hands us.
     let size = ui.available_size();
     match style {
-        SmeterStyle::Needle => show_needle(ui, meters, size),
-        SmeterStyle::Bar => show_bar(ui, meters, size),
-        SmeterStyle::Trace => show_trace(ui, meters, size),
+        SmeterStyle::Needle => show_needle(ui, meters, size, outline),
+        SmeterStyle::Bar => show_bar(ui, meters, size, outline),
+        SmeterStyle::Trace => show_trace(ui, meters, size, outline),
     }
 }
 
@@ -1062,7 +1065,7 @@ fn bar_ticks(p: &Painter, bar: Rect, bounds: Rect, scale: &Scale, k: f32, num_to
     }
 }
 
-fn show_bar(ui: &mut Ui, meters: Option<&Meters>, size: Vec2) -> Response {
+fn show_bar(ui: &mut Ui, meters: Option<&Meters>, size: Vec2, outline: bool) -> Response {
     let tx = meters.and_then(|m| m.tx);
     let (rect, resp) = face(ui, size, tx.is_some());
     let p = ui.painter_at(rect);
@@ -1132,7 +1135,9 @@ fn show_bar(ui: &mut Ui, meters: Option<&Meters>, size: Vec2) -> Response {
             }
             _ => bar_ticks(&p, drive_rect, rect, &alc, k, drive_rect.bottom() + 8.0 * k),
         }
-        border(ui, rect);
+        if outline {
+            border(ui, rect);
+        }
         return resp;
     }
 
@@ -1140,7 +1145,9 @@ fn show_bar(ui: &mut Ui, meters: Option<&Meters>, size: Vec2) -> Response {
         Rect::from_min_max(pos2(left, rect.top() + 21.0 * k), pos2(right, rect.top() + 45.0 * k));
     bar_row(&p, bar_rect, &r.scale, r.frac, peak);
     bar_ticks(&p, bar_rect, rect, &r.scale, k, bar_rect.bottom() + 8.0 * k);
-    border(ui, rect);
+    if outline {
+        border(ui, rect);
+    }
     resp
 }
 
@@ -1200,7 +1207,7 @@ fn draw_needle(p: &Painter, pivot: Pos2, a: f32, r_tip: f32, k: f32) {
     blade(3.2 * k, Vec2::ZERO, false, &ink);
 }
 
-fn show_needle(ui: &mut Ui, meters: Option<&Meters>, size: Vec2) -> Response {
+fn show_needle(ui: &mut Ui, meters: Option<&Meters>, size: Vec2, outline: bool) -> Response {
     let tx = meters.is_some_and(|m| m.tx.is_some());
     let (rect, resp) = face(ui, size, tx);
     let p = ui.painter_at(rect);
@@ -1270,7 +1277,9 @@ fn show_needle(ui: &mut Ui, meters: Option<&Meters>, size: Vec2) -> Response {
     header(&p, rect, &r, k);
     temperature(&p, rect, meters, k);
     puresignal(&p, rect, meters, k);
-    border(ui, rect);
+    if outline {
+        border(ui, rect);
+    }
     resp
 }
 
@@ -1322,7 +1331,7 @@ fn trace_history(ui: &Ui, id: Id, frac: f32, kind: ScaleKind) -> Vec<f32> {
     })
 }
 
-fn show_trace(ui: &mut Ui, meters: Option<&Meters>, size: Vec2) -> Response {
+fn show_trace(ui: &mut Ui, meters: Option<&Meters>, size: Vec2, outline: bool) -> Response {
     let tx = meters.is_some_and(|m| m.tx.is_some());
     let (rect, resp) = face(ui, size, tx);
     let p = ui.painter_at(rect);
@@ -1426,7 +1435,9 @@ fn show_trace(ui: &mut Ui, meters: Option<&Meters>, size: Vec2) -> Response {
     header(&p, rect, &r, k);
     temperature(&p, rect, meters, k);
     puresignal(&p, rect, meters, k);
-    border(ui, rect);
+    if outline {
+        border(ui, rect);
+    }
     resp
 }
 

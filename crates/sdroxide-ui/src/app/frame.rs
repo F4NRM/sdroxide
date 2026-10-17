@@ -1013,9 +1013,14 @@ impl eframe::App for SdroxideApp {
             && let super::classic::ClassicSurface::Column(min, max) =
                 super::classic::classic_surface(tier, ui.available_width(), self.classic_collapsed)
         {
-            egui::Panel::left(crate::layout::salted_id(&ctx, "classic-column-panel"))
+            // A **new id**, so the one-time change of starting width is actually
+            // seen: the panel's width is remembered by egui (in its persisted
+            // memory), so 300 would be hidden behind whatever an earlier drag
+            // left there. The section order and every fold's open-or-closed
+            // state are keyed separately and are untouched by this.
+            egui::Panel::left(crate::layout::salted_id(&ctx, "classic-column-panel-2"))
                 .resizable(true)
-                .default_size(280.0_f32.clamp(min, max))
+                .default_size(super::classic::CLASSIC_DEFAULT_W.clamp(min, max))
                 // Re-applied every frame, as the band dock's range is: a column
                 // dragged wide on a big window gives the width back when the
                 // window narrows.

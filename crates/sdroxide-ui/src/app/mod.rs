@@ -4256,11 +4256,68 @@ mod tests {
                 for cs in &full.shapes {
                     ink(&cs.shape, &mut all);
                 }
+                // **And the content is *left*-aligned.** A `Frame`'s content
+                // layout defaults to `top_down(Center)`, so the first version of
+                // this column centred everything: every section's name sat in the
+                // middle of its own bar and a row a few points too wide hung out
+                // of both edges at once. This is the assertion that catches that
+                // — it fails with "a heading is centred" the moment the layout is
+                // not pinned to the left.
+                let mut words: Vec<(String, egui::Rect)> = Vec::new();
+                {
+                    fn texts(shape: &egui::Shape, out: &mut Vec<(String, egui::Rect)>) {
+                        match shape {
+                            egui::Shape::Vec(v) => v.iter().for_each(|s| texts(s, out)),
+                            egui::Shape::Text(t) => {
+                                out.push((t.galley.text().to_string(), t.visual_bounding_rect()))
+                            }
+                            _ => {}
+                        }
+                    }
+                    for cs in &full.shapes {
+                        texts(&cs.shape, &mut words);
+                    }
+                }
+                if w >= 400.0 {
+                    // Every control in the column is at the *left* gutter of its
+                    // row: the heading in its bar, and the first control under it.
+                    for (text, what) in
+                        [("Source", "a section heading"), ("RADIO SETTINGS", "a control")]
+                    {
+                        let left = words
+                            .iter()
+                            .find(|(s, _)| s == text)
+                            .map(|(_, r)| r.left())
+                            .unwrap_or(-1.0);
+                        assert!(
+                            left >= 0.0 && left < 70.0,
+                            "the column at {w} pt draws {what} ({text}) at x {left:.0} — \
+                             it belongs at the left of its row, not centred in it"
+                        );
+                    }
+                }
                 // The panel's *own* background is the one thing that legitimately
                 // overhangs: egui fills a panel's frame a couple of points past
                 // its edge, the same 2 pt that cost a session on the top bar
                 // (discussion #16, item 1b). Ink that starts inside the column
                 // and crosses it is what this is for.
+                //
+                // **And nothing may hang out of the *left* side either.** A row
+                // wider than the column, in a centred layout, overflows both
+                // edges at once and is cut at the left — which reads as missing
+                // padding and is not: `Frame`'s content layout defaults to
+                // `top_down(Center)`, so this column's own content was centred
+                // until it said otherwise.
+                let leftmost = all
+                    .iter()
+                    .filter(|r| r.height() < 800.0)
+                    .map(|r| r.left())
+                    .fold(f32::MAX, f32::min);
+                assert!(
+                    leftmost >= 0.0,
+                    "the column at {w} pt draws {:.0} pt outside its left edge",
+                    -leftmost
+                );
                 let cross: Vec<egui::Rect> = all
                     .iter()
                     .filter(|r| r.left() > 1.0 && r.left() < w && r.right() > w + 2.0)

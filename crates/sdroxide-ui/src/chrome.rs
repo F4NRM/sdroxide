@@ -569,14 +569,44 @@ pub const MODULE_STROKE_X: f32 = 2.0;
 /// bare (w, 0) allocation lets the layout over-reserve vertical space, leaving
 /// big gaps between the strip's rows.
 pub fn module_bare_h<R>(ui: &mut Ui, width: f32, height: f32, add: impl FnOnce(&mut Ui) -> R) -> R {
+    module_chromed(ui, width, height, true, add)
+}
+
+/// [`module_bare_h`] **without its box**: the same size reserved, the same inner
+/// margins, no fill and no border.
+///
+/// For a host that is not a strip of boxes. The Classic UI bar's readout sits on
+/// the bar itself — the operator asked for the accent background and the border
+/// of that block to go, and for the S-meter beside it to lose its border too —
+/// and a boxed module in the middle of an open bar reads as a leftover from the
+/// arrangement it replaced.
+pub fn module_plain_h<R>(
+    ui: &mut Ui,
+    width: f32,
+    height: f32,
+    add: impl FnOnce(&mut Ui) -> R,
+) -> R {
+    module_chromed(ui, width, height, false, add)
+}
+
+pub fn module_chromed<R>(
+    ui: &mut Ui,
+    width: f32,
+    height: f32,
+    boxed: bool,
+    add: impl FnOnce(&mut Ui) -> R,
+) -> R {
     ui.allocate_ui_with_layout(
         egui::vec2(width, height),
         egui::Layout::top_down(egui::Align::Min),
         |ui| {
             ui.set_width(width);
-            egui::Frame::new()
-                .fill(theme::FILL())
-                .stroke(Stroke::new(1.0, theme::LINE_LIT()))
+            let frame = if boxed {
+                egui::Frame::new().fill(theme::FILL()).stroke(Stroke::new(1.0, theme::LINE_LIT()))
+            } else {
+                egui::Frame::new()
+            };
+            frame
                 .inner_margin(egui::Margin { left: 8, right: 8, top: 4, bottom: 5 })
                 .show(ui, |ui| {
                     // **`width` − 18, not `width` − 16.** The frame spends 8 pt

@@ -52,6 +52,11 @@ const CLASSIC_MAX_W: f32 = 640.0;
 /// window squeezes the waterfall rather than taking it away.
 const CLASSIC_PANADAPTER_MIN_W: f32 = 360.0;
 
+/// The width the column opens at, the first time it is used. The operator's
+/// number: the first version opened at 280 and remembered whatever it was
+/// dragged to, which is right, but 300 is the start he asked for.
+pub(in crate::app) const CLASSIC_DEFAULT_W: f32 = 300.0;
+
 /// What the column folds down to: a rail wide enough for the chip that opens it
 /// again, and nothing else. The operator's idea, and the better one — a column
 /// that vanishes leaves no way back except a control somewhere else, and
@@ -123,7 +128,15 @@ impl super::SdroxideApp {
         // those — the cut-corner outline and the fill. Without it the column
         // read as a region of the window rather than as a panel in it.
         crate::chrome::angled_frame(ui, crate::theme::PINK(), |ui| {
-            self.classic_column_inner(ui, cmds);
+            // **Left-aligned, said out loud.** A `Frame`'s content layout
+            // defaults to `top_down(Center)` — egui's own default — so without
+            // this every row in the column is *centred*: the headings sit in the
+            // middle of their bars, and a chip run a few points wider than the
+            // column hangs out of both sides at once, cut at the left. It looked
+            // like padding that was missing and was in fact the layout.
+            ui.with_layout(egui::Layout::top_down(egui::Align::Min), |ui| {
+                self.classic_column_inner(ui, cmds);
+            });
         });
     }
 
@@ -152,12 +165,34 @@ impl super::SdroxideApp {
         // makes `available_width` *infinite*, so every row would stretch to
         // infinity and be clipped at the viewport — which reads as chips that
         // need wrapping and is in fact nothing being given a width at all.
+        // **The bar floats, and the content has air.** A scroll bar that
+        // allocates takes its width off every row it appears beside — the
+        // operator's *"it takes a lot of realestate and the padding is non
+        // existent with the chips"*, which is one complaint: the chips end up
+        // flush against the edge with the bar on top of them. Floating, the bar
+        // is drawn over the margin instead of beside the chips.
+        {
+            let style = ui.style_mut();
+            style.spacing.scroll.floating = true;
+            style.spacing.scroll.bar_width = 8.0;
+            style.spacing.scroll.content_margin =
+                egui::Margin { left: 6, right: 10, top: 2, bottom: 8 };
+        }
         egui::ScrollArea::vertical().auto_shrink([false, false]).id_salt("classic-column").show(
             ui,
             |ui| {
                 let order = ClassicSection::order(&self.ui_settings.classic_sections);
                 let mut moved: Option<(usize, usize)> = None;
                 for sec in order.iter().copied() {
+                    // **A section with nothing under it is worse than no
+                    // section**, so a control that does not apply takes its
+                    // heading with it: a listening screen (SWL mode, or a radio
+                    // that cannot transmit) has no Transmit fold at all. The
+                    // gating question is asked once, of the app, so the column
+                    // and the strip's own Transmit box cannot disagree.
+                    if sec == ClassicSection::Transmit && !self.tx_capable() {
+                        continue;
+                    }
                     if let Some(m) = self.classic_section_at(ui, cmds, sec, &order) {
                         moved = Some(m);
                     }
@@ -209,14 +244,22 @@ impl super::SdroxideApp {
                     // words — the same trick `angled_frame` uses for its gradient.
                     let slot = ui.painter().add(egui::Shape::Noop);
                     ui.dnd_drag_source(id_drag, sec, |ui| {
-                        ui.add_sized(
+                        // The whole bar is the handle — SDR++'s headings are the
+                        // same — and the label sits at its left rather than
+                        // centred: `add_sized` centres what it is given, which put
+                        // every section's name in the middle of its own bar.
+                        ui.allocate_ui_with_layout(
                             egui::vec2(ui.available_width(), 16.0),
-                            egui::Label::new(
-                                RichText::new(sec.label())
-                                    .strong()
-                                    .size(11.0)
-                                    .color(crate::theme::TEXT_STRONG()),
-                            ),
+                            egui::Layout::left_to_right(egui::Align::Center),
+                            |ui| {
+                                ui.add_space(2.0);
+                                ui.label(
+                                    RichText::new(sec.label())
+                                        .strong()
+                                        .size(11.0)
+                                        .color(crate::theme::TEXT_STRONG()),
+                                );
+                            },
                         );
                     })
                     .response
@@ -482,10 +525,6 @@ impl super::SdroxideApp {
     /// that keys itself, a station that cannot transmit at all — are the same
     /// refusals with the same hover text saying why.
     fn classic_tx_body(&mut self, ui: &mut egui::Ui, cmds: &mut Vec<Command>) {
-        if !self.tx_capable() {
-            return;
-        }
-
         classic_row(ui, "Key", |ui| {
             self.tx_ptt_chip(ui, cmds);
             self.tx_keyer_chip(ui);
@@ -609,12 +648,24 @@ fn classic_row(ui: &mut egui::Ui, label: &str, add: impl FnOnce(&mut egui::Ui)) 
         // left of the line, so the rail fills a wide column and yields in a
         // narrow one.
         ui.spacing_mut().slider_width = 520.0;
-        ui.add_sized(
-            egui::vec2(LABEL_W, 18.0),
-            egui::Label::new(RichText::new(label).size(10.5).color(crate::theme::gray(150))),
-        );
+        gutter_label(ui, label);
         add(ui);
     });
+}
+
+/// The caption in the column's left gutter: the width reserved, and the words at
+/// its *left*.
+///
+/// `add_sized` — which is what this was — centres what it is given, so every
+/// caption in the column sat in the middle of its own gutter.
+pub(in crate::app) fn gutter_label(ui: &mut egui::Ui, label: &str) {
+    ui.allocate_ui_with_layout(
+        egui::vec2(LABEL_W, 16.0),
+        egui::Layout::left_to_right(egui::Align::Center),
+        |ui| {
+            ui.label(RichText::new(label).size(10.5).color(crate::theme::gray(150)));
+        },
+    );
 }
 
 /// A run of chips: they spread across the column and wrap. No fixed widths.
@@ -623,15 +674,21 @@ fn classic_chips(ui: &mut egui::Ui, add: impl FnOnce(&mut egui::Ui)) {
 }
 
 /// One `label — value` line, the shape every row of the Source section takes.
+///
+/// Wrapped, and the value is elided at its *end* if it still does not fit.
+/// Right-aligning it — which this did — clips a long value at its **left**: the
+/// operator's column at 250 points read `SDRplay RSP1 (serial 0000000001) @ 3.000
+/// Msps` as `RSP1 (serial 0000000001) @ 3.000 Msps`, and the wrong end is lost.
+/// A value that does not fit now wraps under its caption and truncates only if
+/// the column is narrower than the value alone.
 fn source_row(ui: &mut egui::Ui, label: &str, value: &str) {
-    ui.horizontal(|ui| {
-        ui.add_sized(
-            egui::vec2(LABEL_W, 16.0),
-            egui::Label::new(RichText::new(label).size(10.5).color(crate::theme::gray(150))),
-        );
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            ui.label(RichText::new(value).size(11.0).color(crate::theme::TEXT_STRONG()));
-        });
+    ui.horizontal_wrapped(|ui| {
+        gutter_label(ui, label);
+        ui.add(
+            egui::Label::new(RichText::new(value).size(11.0).color(crate::theme::TEXT_STRONG()))
+                .truncate(),
+        )
+        .on_hover_text(value);
     });
 }
 
