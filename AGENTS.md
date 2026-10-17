@@ -6650,3 +6650,38 @@ is wrong; do not bundle it silently. Also open: whether the client should adopt
 `client_settings_from` from the reply's `from` (harmless now the server is
 authoritative, but the client still believes it is on `default`).
 
+
+## Classic UI — the SDR++-style left column (2026-10-17)
+
+**What the name means, because it will come up.** *Classic UI* is the arrangement
+where every control sits in one column down the **left**, each group folding
+away, and the picture takes the rest — SDR++'s and SDR++Brown's layout. The
+operator's brief: *"most SWL use SDR++ (SDRPP) or SDRPP BROWN. They are very
+familiar with that layout… all controls on the left (collapsable bar)"*, and he
+named it. It is `UiSettings::classic_ui`, off by default, on Settings → UI beside
+**Layout**, local `config.toml` and **not** `ClientScreen`.
+
+**Why it is on `main` rather than parked**: it answers the complaint this fork
+keeps hearing. Both r/ShortwavePlus readers who called the program *"too
+complicated, controls all over the place"* are SDR++ users — SDR++Brown's own
+docs say *"In Brown, expand the left **Source** panel"* — so the fix is the
+arrangement they already know, not fewer features.
+
+**The rule that keeps it honest: the sections reuse the strip's own bodies.**
+The `Radio` section *is* `rx_controls` (the RX menu, inlined with `narrow =
+true`, the same flag the compact strip uses because a popup cannot open inside a
+popup); `Mode` *is* `mode_chip_grid`; `Source` reads the published state and puts
+the route to Settings → Radio beside the values. **A second implementation of
+TUNE or of the squelch would be a second thing to fix twice** — do not add one
+when a section is extended.
+
+**The column yields to the picture** (`classic::classic_column_width`, pure and
+tested): offered only where the panadapter keeps its floor, its ceiling is the
+room that is left rather than a fixed number, and below that it is left out and
+the strip is drawn as usual. That is the #643 shape — a column that grows past
+what it was given takes the thing beside it off the screen. Native only.
+
+**Left to do**: the rest of the sections (Display/Spectrum, Recorder, Band plan,
+Rigs — SDR++'s order is Source, Radio, Recorder, …), a skinned section header
+rather than egui's default, and the vertical Zoom/Max/Min rails SDR++ puts beside
+the waterfall. Nothing has been looked at on a screen yet.
