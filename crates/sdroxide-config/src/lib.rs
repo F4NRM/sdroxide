@@ -339,7 +339,9 @@ pub fn load_ui_settings() -> sdroxide_types::UiSettings {
 /// (read-modify-write so a concurrent edit elsewhere isn't clobbered).
 pub fn save_ui_settings(ui: &sdroxide_types::UiSettings) -> Result<(), ConfigError> {
     let mut s = Settings::load();
-    s.ui = *ui;
+    // `UiSettings` is no longer `Copy` — it carries the Classic UI section
+    // order, which is a list.
+    s.ui = ui.clone();
     s.save()
 }
 

@@ -852,11 +852,24 @@ impl SdroxideApp {
             // the column itself — and to its rail when folded — so nothing here
             // has to stay reachable from the folded arrangement, and none of
             // this is drawn at all when Classic UI is off.
+            //
+            // **The readout is centred over the picture**, which is the operator's
+            // ask and the right reading of it: the column has taken its own width
+            // off this row already (it is drawn first), so centring here puts the
+            // frequency over the middle of the waterfall rather than at the left
+            // edge beside a column it has nothing to do with. The meter is pinned
+            // to the right first, so the readout is centred in what is left of
+            // the row rather than under the meter.
+            let meter_w = (avail * 0.22).clamp(120.0, SMETER_W);
             ui.horizontal(|ui| {
-                self.freq_module_at(ui, cmds, &freq);
-                let used = ui.min_rect().width();
-                let meter = (avail - used - gap).clamp(120.0, SMETER_W);
-                self.smeter_box(ui, meter, crate::chrome::MODULE_TALL_H, false);
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    self.smeter_box(ui, meter_w, crate::chrome::MODULE_TALL_H, false);
+                    ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                        let pad = ((ui.available_width() - freq.box_w) / 2.0).max(0.0);
+                        ui.add_space(pad);
+                        self.freq_module_at(ui, cmds, &freq);
+                    });
+                });
             });
             return;
         }
@@ -5846,7 +5859,7 @@ impl SdroxideApp {
         // Every window, phones included, draws the spectrum and the waterfall
         // the operator asks for, so both boxes are always offered.
         let w = panadapter_group_w(ui);
-        let mut cfg = self.ui_settings;
+        let mut cfg = self.ui_settings.clone();
         crate::chrome::menu_group(ui, "Spectrum", w, |ui| {
             ui.horizontal_wrapped(|ui| {
                 let on = self.view.spectrum_visible();
@@ -6038,7 +6051,7 @@ impl SdroxideApp {
                     r.on_disabled_hover_text(grey);
                     continue;
                 }
-                let rate = sdroxide_types::UiSettings { spectrum_3d_speed: step, ..*cfg }
+                let rate = sdroxide_types::UiSettings { spectrum_3d_speed: step, ..cfg.clone() }
                     .spectrum_3d_rows_per_sec();
                 let hint =
                     format!("{:.0} rows a second — {:.0} seconds of band", rate, depth / rate);

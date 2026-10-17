@@ -38,7 +38,7 @@
 //! screens are built around, and a phone has no room for a column at all.
 
 use eframe::egui::{self, RichText, Slider};
-use sdroxide_types::{AgcMode, Command, Direction, RxId};
+use sdroxide_types::{AgcMode, ClassicSection, Command, Direction, RxId};
 
 /// The column's width range, in points.
 const CLASSIC_MIN_W: f32 = 232.0;
@@ -118,10 +118,21 @@ impl super::SdroxideApp {
     /// what this program already uses for a fold of settings and it keeps its
     /// own open-or-closed state between sessions.
     pub(in crate::app) fn classic_column(&mut self, ui: &mut egui::Ui, cmds: &mut Vec<Command>) {
+        // **The same border the picture has.** The column is a panel like the
+        // waterfall and the operating panel, and `angled_frame` is what draws
+        // those — the cut-corner outline and the fill. Without it the column
+        // read as a region of the window rather than as a panel in it.
+        crate::chrome::angled_frame(ui, crate::theme::PINK(), |ui| {
+            self.classic_column_inner(ui, cmds);
+        });
+    }
+
+    /// The column's contents: the heading row and the sections, in the order the
+    /// operator put them in.
+    fn classic_column_inner(&mut self, ui: &mut egui::Ui, cmds: &mut Vec<Command>) {
         // The heading carries the fold, on the column's own right edge — where
-        // the thing it moves is. `◀` folds it away to the rails; the `▶` on the
-        // rails brings it back. Nothing of this is drawn when Classic UI is off,
-        // so the chip exists only in the arrangement it belongs to.
+        // the thing it moves is. `◀` folds it to the rails; the `▶` on the rails
+        // brings it back. Nothing of this is drawn when Classic UI is off.
         ui.horizontal(|ui| {
             ui.label(RichText::new("CONTROLS").size(10.5).strong().color(crate::theme::CYAN_DIM()));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -144,16 +155,108 @@ impl super::SdroxideApp {
         egui::ScrollArea::vertical().auto_shrink([false, false]).id_salt("classic-column").show(
             ui,
             |ui| {
-                self.classic_source_section(ui, cmds);
-                self.classic_bands_section(ui, cmds);
-                self.classic_receiver_section(ui, cmds);
-                self.classic_tuning_section(ui, cmds);
-                self.classic_tx_section(ui, cmds);
-                self.classic_recorder_section(ui, cmds);
-                self.classic_display_section(ui, cmds);
-                self.classic_system_section(ui, cmds);
+                let order = ClassicSection::order(&self.ui_settings.classic_sections);
+                let mut moved: Option<(usize, usize)> = None;
+                for sec in order.iter().copied() {
+                    if let Some(m) = self.classic_section_at(ui, cmds, sec, &order) {
+                        moved = Some(m);
+                    }
+                }
+                // Applied after the whole column is drawn, not inside the loop:
+                // moving a section while its own index is being walked would
+                // renumber everything below it mid-frame.
+                if let Some((from, to)) = moved {
+                    let mut list = order;
+                    let item = list.remove(from);
+                    list.insert(to.min(list.len()), item);
+                    self.ui_settings.classic_sections = ClassicSection::order_text(&list);
+                    crate::app::persist::persist_ui_settings(&self.ui_settings);
+                }
             },
         );
+    }
+
+    /// **One section**, and the move the operator made of it this frame.
+    ///
+    /// Dragged by its heading and dropped on another section's box, which is the
+    /// gesture a list of folds already teaches. The order is stored as the list
+    /// of section keys ([`ClassicSection::order_text`]), so it survives a
+    /// restart and a build that adds a section.
+    fn classic_section_at(
+        &mut self,
+        ui: &mut egui::Ui,
+        cmds: &mut Vec<Command>,
+        sec: ClassicSection,
+        order: &[ClassicSection],
+    ) -> Option<(usize, usize)> {
+        let id = ui.make_persistent_id(("classic-section", sec.key()));
+        let state = egui::collapsing_header::CollapsingState::load_with_default_open(
+            ui.ctx(),
+            id,
+            sec.default_open(),
+        );
+        let id_drag = ui.make_persistent_id(("classic-drag", sec.key()));
+        let (_, dropped) = ui.dnd_drop_zone::<ClassicSection, _>(egui::Frame::new(), |ui| {
+            state
+                .show_header(ui, |ui| {
+                    // **An accent bar behind the heading**, so where a section
+                    // starts is visible without reading: the operator's ask, and
+                    // the thing a column of folds needs more than a strip of
+                    // boxes does — a fold's own arrow is a small mark.
+                    //
+                    // The bar is reserved as a paint slot before the text is
+                    // drawn and filled in afterwards, so it lands *under* the
+                    // words — the same trick `angled_frame` uses for its gradient.
+                    let slot = ui.painter().add(egui::Shape::Noop);
+                    ui.dnd_drag_source(id_drag, sec, |ui| {
+                        ui.add_sized(
+                            egui::vec2(ui.available_width(), 16.0),
+                            egui::Label::new(
+                                RichText::new(sec.label())
+                                    .strong()
+                                    .size(11.0)
+                                    .color(crate::theme::TEXT_STRONG()),
+                            ),
+                        );
+                    })
+                    .response
+                    .on_hover_text(
+                        "Drag this heading onto another section to move it up or down. The \
+                         order is remembered.",
+                    );
+                    let row = ui.min_rect();
+                    let bar = egui::Rect::from_min_max(
+                        egui::pos2(ui.max_rect().left(), row.top() - 2.0),
+                        egui::pos2(ui.max_rect().right(), row.bottom() + 2.0),
+                    );
+                    ui.painter().set(slot, egui::Shape::rect_filled(bar, 2.0, header_fill()));
+                })
+                .body(|ui| self.classic_section_body(sec, ui, cmds));
+        });
+        let payload = dropped?;
+        let from = order.iter().position(|s| *s == *payload)?;
+        let to = order.iter().position(|s| *s == sec)?;
+        (from != to).then_some((from, to))
+    }
+
+    /// What one section holds. Every body is the same body the strip and the RX
+    /// menu draw, so a rule on a control is written once.
+    fn classic_section_body(
+        &mut self,
+        sec: ClassicSection,
+        ui: &mut egui::Ui,
+        cmds: &mut Vec<Command>,
+    ) {
+        match sec {
+            ClassicSection::Source => self.classic_source_body(ui, cmds),
+            ClassicSection::Bands => self.classic_bands_body(ui, cmds),
+            ClassicSection::Receiver => self.classic_receiver_body(ui, cmds),
+            ClassicSection::Tuning => self.classic_tuning_body(ui, cmds),
+            ClassicSection::Transmit => self.classic_tx_body(ui, cmds),
+            ClassicSection::Recorder => self.classic_recorder_body(ui, cmds),
+            ClassicSection::Display => self.classic_display_body(ui, cmds),
+            ClassicSection::Tools => self.classic_system_body(ui, cmds),
+        }
     }
 
     /// The folded column: a rail with one chip on it.
@@ -175,34 +278,29 @@ impl super::SdroxideApp {
     /// edits and puts the route beside the values. Saying what is configured and
     /// where to change it is the honest half of the section; a second gain
     /// slider here would be a second opinion about the same setting.
-    fn classic_source_section(&mut self, ui: &mut egui::Ui, cmds: &mut Vec<Command>) {
-        classic_section(ui, "Source", true, |ui| {
-            let label = self
-                .caps
-                .as_ref()
-                .map(|c| c.label.clone())
-                .unwrap_or_else(|| "no radio".to_string());
-            source_row(ui, "Radio", &label);
-            source_row(ui, "Rate", &format!("{:.3} Msps", self.state.sample_rate / 1e6));
-            source_row(ui, "Dial", &crate::app::frame::readout_text(self.state.rx_freq_hz()));
-            source_row(ui, "Mode", self.state.rx[0].mode.label());
-            if self.swl_mode() {
-                source_row(ui, "Receive", "listening screen");
-            }
-            ui.add_space(4.0);
-            if crate::chrome::chip(ui, self.show_settings, "RADIO SETTINGS")
-                .on_hover_text(
-                    "The backend, the sample rate, the aerial, the converter and this \
-                     radio's own calibration — Settings → Radio, where they have always \
-                     been. The column shows what they are set to rather than a second copy \
-                     of the controls.",
-                )
-                .clicked()
-            {
-                self.show_settings = true;
-            }
-            let _ = cmds;
-        });
+    fn classic_source_body(&mut self, ui: &mut egui::Ui, cmds: &mut Vec<Command>) {
+        let label =
+            self.caps.as_ref().map(|c| c.label.clone()).unwrap_or_else(|| "no radio".to_string());
+        source_row(ui, "Radio", &label);
+        source_row(ui, "Rate", &format!("{:.3} Msps", self.state.sample_rate / 1e6));
+        source_row(ui, "Dial", &crate::app::frame::readout_text(self.state.rx_freq_hz()));
+        source_row(ui, "Mode", self.state.rx[0].mode.label());
+        if self.swl_mode() {
+            source_row(ui, "Receive", "listening screen");
+        }
+        ui.add_space(4.0);
+        if crate::chrome::chip(ui, self.show_settings, "RADIO SETTINGS")
+            .on_hover_text(
+                "The backend, the sample rate, the aerial, the converter and this \
+                 radio's own calibration — Settings → Radio, where they have always \
+                 been. The column shows what they are set to rather than a second copy \
+                 of the controls.",
+            )
+            .clicked()
+        {
+            self.show_settings = true;
+        }
+        let _ = cmds;
     }
 
     /// **Band & mode** — the band list, the metre-band shortcuts and the mode
@@ -210,10 +308,8 @@ impl super::SdroxideApp {
     /// detached band window draw, so there is one band selector in the program
     /// and not three. It is already a wrapped, adaptive body — it is the popup's
     /// — so it needs nothing from this file.
-    fn classic_bands_section(&mut self, ui: &mut egui::Ui, cmds: &mut Vec<Command>) {
-        classic_section(ui, "Band & mode", true, |ui| {
-            self.band_menu_body(ui, cmds);
-        });
+    fn classic_bands_body(&mut self, ui: &mut egui::Ui, cmds: &mut Vec<Command>) {
+        self.band_menu_body(ui, cmds);
     }
 
     /// **Receiver** — the rails, one to a row, then the chip run, then the
@@ -223,174 +319,160 @@ impl super::SdroxideApp {
     /// adapt: a row with one rail and a readout has no fixed width to defend, so
     /// the panel's edge follows the drag. The strip puts volume and gain on one
     /// row because a strip is a plane of boxes; a column is a list.
-    fn classic_receiver_section(&mut self, ui: &mut egui::Ui, cmds: &mut Vec<Command>) {
-        classic_section(ui, "Receiver", true, |ui| {
-            classic_row(ui, "Vol", |ui| {
-                let mut vol = self.state.rx[0].volume;
-                let resp = crate::chrome::slider_readout(
-                    ui,
-                    crate::chrome::text_width(
-                        ui,
-                        "-888.8",
-                        egui::TextStyle::Body.resolve(ui.style()),
-                    ) + 22.0,
-                    Slider::new(&mut vol, 0.0..=1.0).show_value(false),
-                )
-                .on_hover_text("Volume");
-                if resp.changed() {
-                    self.state.rx[0].volume = vol; // optimistic echo
-                    cmds.push(Command::SetVolume { rx: RxId::Main, v: vol });
-                }
-            });
-            // The front-end gain stage, if this rig has one — and inert, saying
-            // so, where the radio's own AGC is driving it (issue #417).
-            if let Some(g) = self.rx_gains().first().cloned() {
-                let hardware_agc = self.pluto_agc_owns_gain(&g.name);
-                let mut hint = format!(
-                    "Front-end RX gain ({}). Too much clips the receiver's ADC and smears \
-                     spurious signals across the band; too little and it goes deaf.",
-                    g.name
+    fn classic_receiver_body(&mut self, ui: &mut egui::Ui, cmds: &mut Vec<Command>) {
+        classic_row(ui, "Vol", |ui| {
+            let mut vol = self.state.rx[0].volume;
+            let resp = crate::chrome::slider_readout(
+                ui,
+                crate::chrome::text_width(ui, "-888.8", egui::TextStyle::Body.resolve(ui.style()))
+                    + 22.0,
+                Slider::new(&mut vol, 0.0..=1.0).show_value(false),
+            )
+            .on_hover_text("Volume");
+            if resp.changed() {
+                self.state.rx[0].volume = vol; // optimistic echo
+                cmds.push(Command::SetVolume { rx: RxId::Main, v: vol });
+            }
+        });
+        // The front-end gain stage, if this rig has one — and inert, saying
+        // so, where the radio's own AGC is driving it (issue #417).
+        if let Some(g) = self.rx_gains().first().cloned() {
+            let hardware_agc = self.pluto_agc_owns_gain(&g.name);
+            let mut hint = format!(
+                "Front-end RX gain ({}). Too much clips the receiver's ADC and smears \
+                 spurious signals across the band; too little and it goes deaf.",
+                g.name
+            );
+            if g.unit == sdroxide_types::GainUnit::Step {
+                hint.push_str(
+                    "\n\nCounted in steps, not decibels: what one step is worth is the \
+                     receiver's own business, and on an SDRplay it depends on the band as \
+                     well. Right is still more gain.",
                 );
-                if g.unit == sdroxide_types::GainUnit::Step {
-                    hint.push_str(
-                        "\n\nCounted in steps, not decibels: what one step is worth is the \
-                         receiver's own business, and on an SDRplay it depends on the band as \
-                         well. Right is still more gain.",
-                    );
-                }
-                if hardware_agc {
-                    hint.push_str(
-                        "\n\nThe PlutoSDR's own AGC is setting this gain, so moving the slider \
-                         does nothing. Set Settings → Radio → AGC to Manual to control it here.",
-                    );
-                }
-                classic_row(ui, "Gain", |ui| {
-                    let mut db = self
-                        .state
-                        .gains
-                        .iter()
-                        .find(|(n, _)| *n == g.name)
-                        .map(|(_, d)| *d)
-                        .unwrap_or(g.min_db);
-                    let step = if g.step_db > 0.0 { g.step_db } else { 1.0 };
-                    let resp = ui
-                        .add_enabled_ui(!hardware_agc, |ui| {
-                            crate::chrome::slider_readout(
-                                ui,
-                                crate::chrome::text_width(
-                                    ui,
-                                    "-888.8 dB",
-                                    egui::TextStyle::Body.resolve(ui.style()),
-                                ) + 22.0,
-                                Slider::new(&mut db, g.min_db..=g.max_db)
-                                    .step_by(step)
-                                    .suffix(g.suffix()),
-                            )
-                        })
-                        .inner
-                        .on_hover_text(&hint)
-                        .on_disabled_hover_text(&hint);
-                    if resp.changed() {
-                        match self.state.gains.iter_mut().find(|(n, _)| *n == g.name) {
-                            Some((_, d)) => *d = db,
-                            None => self.state.gains.push((g.name.clone(), db)),
-                        }
-                        cmds.push(Command::SetGain {
-                            dir: Direction::Rx,
-                            element: g.name.clone(),
-                            db,
-                        });
-                    }
-                });
             }
-            classic_row(ui, "Filter", |ui| {
-                self.decim_chip(ui, cmds);
-                // The AGC chip rides this row rather than one of its own: it is
-                // a state light with a cycle behind it, not a value, and four
-                // settings are few enough to walk through.
-                if self.state.rx[0].mode.audio_agc() {
-                    let agc = self.state.rx[0].agc;
-                    if crate::chrome::chip(ui, agc != AgcMode::Off, format!("AGC {}", agc.label()))
-                        .on_hover_text("AGC hang time — click to cycle: Off / Slow / Med / Fast")
-                        .clicked()
-                    {
-                        cmds.push(Command::SetAgc { rx: RxId::Main, agc: agc.next() });
+            if hardware_agc {
+                hint.push_str(
+                    "\n\nThe PlutoSDR's own AGC is setting this gain, so moving the slider \
+                     does nothing. Set Settings → Radio → AGC to Manual to control it here.",
+                );
+            }
+            classic_row(ui, "Gain", |ui| {
+                let mut db = self
+                    .state
+                    .gains
+                    .iter()
+                    .find(|(n, _)| *n == g.name)
+                    .map(|(_, d)| *d)
+                    .unwrap_or(g.min_db);
+                let step = if g.step_db > 0.0 { g.step_db } else { 1.0 };
+                let resp = ui
+                    .add_enabled_ui(!hardware_agc, |ui| {
+                        crate::chrome::slider_readout(
+                            ui,
+                            crate::chrome::text_width(
+                                ui,
+                                "-888.8 dB",
+                                egui::TextStyle::Body.resolve(ui.style()),
+                            ) + 22.0,
+                            Slider::new(&mut db, g.min_db..=g.max_db)
+                                .step_by(step)
+                                .suffix(g.suffix()),
+                        )
+                    })
+                    .inner
+                    .on_hover_text(&hint)
+                    .on_disabled_hover_text(&hint);
+                if resp.changed() {
+                    match self.state.gains.iter_mut().find(|(n, _)| *n == g.name) {
+                        Some((_, d)) => *d = db,
+                        None => self.state.gains.push((g.name.clone(), db)),
                     }
+                    cmds.push(Command::SetGain { dir: Direction::Rx, element: g.name.clone(), db });
                 }
             });
-            // With the AGC off the audio rides on this fixed gain instead — the
-            // demodulator's output unlevelled is whatever the band handed it.
-            if self.state.rx[0].mode.audio_agc() && self.state.rx[0].agc == AgcMode::Off {
-                classic_row(ui, "Man", |ui| {
-                    let mut db = self.state.rx[0].manual_gain_db;
-                    let resp = crate::chrome::slider_readout(
-                        ui,
-                        crate::chrome::text_width(
-                            ui,
-                            "-888.8 dB",
-                            egui::TextStyle::Body.resolve(ui.style()),
-                        ) + 22.0,
-                        Slider::new(&mut db, 0.0..=sdroxide_types::MAX_MANUAL_GAIN_DB)
-                            .step_by(1.0)
-                            .suffix(" dB"),
-                    )
-                    .on_hover_text(
-                        "Manual audio gain, used while the AGC is off. Seeded from the level \
-                         the AGC was holding when it was switched off.",
-                    );
-                    if resp.changed() {
-                        self.state.rx[0].manual_gain_db = db; // optimistic echo
-                        cmds.push(Command::SetManualGain { rx: RxId::Main, db });
-                    }
-                });
+        }
+        classic_row(ui, "Filter", |ui| {
+            self.decim_chip(ui, cmds);
+            // The AGC chip rides this row rather than one of its own: it is
+            // a state light with a cycle behind it, not a value, and four
+            // settings are few enough to walk through.
+            if self.state.rx[0].mode.audio_agc() {
+                let agc = self.state.rx[0].agc;
+                if crate::chrome::chip(ui, agc != AgcMode::Off, format!("AGC {}", agc.label()))
+                    .on_hover_text("AGC hang time — click to cycle: Off / Slow / Med / Fast")
+                    .clicked()
+                {
+                    cmds.push(Command::SetAgc { rx: RxId::Main, agc: agc.next() });
+                }
             }
-            classic_row(ui, "Squelch", |ui| {
-                let sql = self.state.rx[0].squelch_db;
-                let mut v = sql;
+        });
+        // With the AGC off the audio rides on this fixed gain instead — the
+        // demodulator's output unlevelled is whatever the band handed it.
+        if self.state.rx[0].mode.audio_agc() && self.state.rx[0].agc == AgcMode::Off {
+            classic_row(ui, "Man", |ui| {
+                let mut db = self.state.rx[0].manual_gain_db;
                 let resp = crate::chrome::slider_readout(
                     ui,
                     crate::chrome::text_width(
                         ui,
-                        "-888",
+                        "-888.8 dB",
                         egui::TextStyle::Body.resolve(ui.style()),
                     ) + 22.0,
-                    Slider::new(&mut v, -150.0..=0.0).show_value(false).custom_formatter(|v, _| {
-                        if v <= -149.5 { "off".into() } else { format!("{v:.0} dB") }
-                    }),
+                    Slider::new(&mut db, 0.0..=sdroxide_types::MAX_MANUAL_GAIN_DB)
+                        .step_by(1.0)
+                        .suffix(" dB"),
                 )
                 .on_hover_text(
-                    "Gate the audio below this power in the receive passband, in dBFS. Left is \
-                     open. Set it above the noise and below the signal.",
+                    "Manual audio gain, used while the AGC is off. Seeded from the level \
+                     the AGC was holding when it was switched off.",
                 );
                 if resp.changed() {
-                    self.state.rx[0].squelch_db = v; // optimistic echo
-                    cmds.push(Command::SetSquelch { rx: RxId::Main, db: v });
+                    self.state.rx[0].manual_gain_db = db; // optimistic echo
+                    cmds.push(Command::SetManualGain { rx: RxId::Main, db });
                 }
             });
-            // The receiver's switches — every one of them the strip's own chips,
-            // drawn by the strip's own function so a gate cannot be missed here.
-            classic_chips(ui, |ui| {
-                for c in super::top_bar::rx_chips(self.state.rx[0].mode, self.listener_screen()) {
-                    self.rx_chip(ui, cmds, c, true);
-                }
-            });
-            // Passband presets, edges and the noise-reduction engines: the RX
-            // menu's own bodies, which are written for a narrow column already.
-            ui.add_space(4.0);
-            self.filter_controls(ui, cmds);
-            self.nr_controls(ui, cmds);
+        }
+        classic_row(ui, "Squelch", |ui| {
+            let sql = self.state.rx[0].squelch_db;
+            let mut v = sql;
+            let resp = crate::chrome::slider_readout(
+                ui,
+                crate::chrome::text_width(ui, "-888", egui::TextStyle::Body.resolve(ui.style()))
+                    + 22.0,
+                Slider::new(&mut v, -150.0..=0.0).show_value(false).custom_formatter(|v, _| {
+                    if v <= -149.5 { "off".into() } else { format!("{v:.0} dB") }
+                }),
+            )
+            .on_hover_text(
+                "Gate the audio below this power in the receive passband, in dBFS. Left is \
+                 open. Set it above the noise and below the signal.",
+            );
+            if resp.changed() {
+                self.state.rx[0].squelch_db = v; // optimistic echo
+                cmds.push(Command::SetSquelch { rx: RxId::Main, db: v });
+            }
         });
+        // The receiver's switches — every one of them the strip's own chips,
+        // drawn by the strip's own function so a gate cannot be missed here.
+        classic_chips(ui, |ui| {
+            for c in super::top_bar::rx_chips(self.state.rx[0].mode, self.listener_screen()) {
+                self.rx_chip(ui, cmds, c, true);
+            }
+        });
+        // Passband presets, edges and the noise-reduction engines: the RX
+        // menu's own bodies, which are written for a narrow column already.
+        ui.add_space(4.0);
+        self.filter_controls(ui, cmds);
+        self.nr_controls(ui, cmds);
     }
 
     /// **Tuning** — the VFO, split and the RIT/XIT offsets.
-    fn classic_tuning_section(&mut self, ui: &mut egui::Ui, cmds: &mut Vec<Command>) {
-        classic_section(ui, "Tuning", false, |ui| {
-            classic_chips(ui, |ui| {
-                self.vfo_util_chips(ui, cmds, 0.0);
-            });
-            ui.horizontal_wrapped(|ui| {
-                self.vfo_offset_row(ui, cmds, false, 0.0);
-            });
+    fn classic_tuning_body(&mut self, ui: &mut egui::Ui, cmds: &mut Vec<Command>) {
+        classic_chips(ui, |ui| {
+            self.vfo_util_chips(ui, cmds, 0.0);
+        });
+        ui.horizontal_wrapped(|ui| {
+            self.vfo_offset_row(ui, cmds, false, 0.0);
         });
     }
 
@@ -399,134 +481,119 @@ impl super::SdroxideApp {
     /// Every chip here is the strip's own, so the refusals that matter — a rig
     /// that keys itself, a station that cannot transmit at all — are the same
     /// refusals with the same hover text saying why.
-    fn classic_tx_section(&mut self, ui: &mut egui::Ui, cmds: &mut Vec<Command>) {
+    fn classic_tx_body(&mut self, ui: &mut egui::Ui, cmds: &mut Vec<Command>) {
         if !self.tx_capable() {
             return;
         }
-        classic_section(ui, "Transmit", false, |ui| {
-            classic_row(ui, "Key", |ui| {
-                self.tx_ptt_chip(ui, cmds);
-                self.tx_keyer_chip(ui);
-            });
-            classic_row(ui, "Drive", |ui| {
-                self.tx_drive(ui, cmds);
-            });
-            classic_row(ui, "Tune", |ui| {
-                self.tx_tune_chip(ui, cmds);
-                self.tx_tune_level(ui, cmds);
-            });
-            // One of these two, never both: in a digital mode the microphone
-            // reaches nothing, so the level rail takes its place rather than
-            // sitting dead beside a live one (issue #186).
-            if self.digi_tx_level_applies() {
-                let mut db = self.digi_tx_level_db();
-                let hover = self.digi_tx_level_hover();
-                classic_row(ui, "Level", |ui| {
-                    let resp = crate::chrome::slider_readout(
-                        ui,
-                        crate::chrome::text_width(
-                            ui,
-                            "-888 dB",
-                            egui::TextStyle::Body.resolve(ui.style()),
-                        ) + 22.0,
-                        Slider::new(&mut db, sdroxide_types::TX_AUDIO_LEVEL_MIN_DB..=0.0)
-                            .suffix(" dB"),
-                    )
-                    .on_hover_text(hover);
-                    if resp.changed() {
-                        self.set_digi_tx_level(db, cmds);
-                    }
-                });
-            } else {
-                classic_row(ui, "Mic", |ui| {
-                    let mut mic = self.state.tx.mic_gain;
-                    let resp = crate::chrome::slider_readout(
-                        ui,
-                        crate::chrome::text_width(
-                            ui,
-                            "-888",
-                            egui::TextStyle::Body.resolve(ui.style()),
-                        ) + 22.0,
-                        Slider::new(&mut mic, 0.0..=1.0).show_value(false),
-                    )
-                    .on_hover_text("Microphone gain");
-                    if resp.changed() {
-                        self.state.tx.mic_gain = mic;
-                        cmds.push(Command::SetMicGain(mic));
-                    }
-                });
-            }
-            if self.cessb_applies() {
-                let mut db = self.state.tx.cessb_db;
-                classic_row(ui, "CESSB", |ui| {
-                    let resp = crate::chrome::slider_readout(
-                        ui,
-                        crate::chrome::text_width(
-                            ui,
-                            "-88 dB",
-                            egui::TextStyle::Body.resolve(ui.style()),
-                        ) + 22.0,
-                        Slider::new(&mut db, 0.0..=sdroxide_types::CESSB_MAX_DB).suffix(" dB"),
-                    )
-                    .on_hover_text(
-                        "Controlled-envelope SSB: how much of the speech processing to \
-                         apply. Up is louder and flatter, at the cost of some splatter \
-                         either side.",
-                    );
-                    if resp.changed() {
-                        cmds.push(Command::SetCessb(db));
-                    }
-                });
-            }
+
+        classic_row(ui, "Key", |ui| {
+            self.tx_ptt_chip(ui, cmds);
+            self.tx_keyer_chip(ui);
         });
+        classic_row(ui, "Drive", |ui| {
+            self.tx_drive(ui, cmds);
+        });
+        classic_row(ui, "Tune", |ui| {
+            self.tx_tune_chip(ui, cmds);
+            self.tx_tune_level(ui, cmds);
+        });
+        // One of these two, never both: in a digital mode the microphone
+        // reaches nothing, so the level rail takes its place rather than
+        // sitting dead beside a live one (issue #186).
+        if self.digi_tx_level_applies() {
+            let mut db = self.digi_tx_level_db();
+            let hover = self.digi_tx_level_hover();
+            classic_row(ui, "Level", |ui| {
+                let resp = crate::chrome::slider_readout(
+                    ui,
+                    crate::chrome::text_width(
+                        ui,
+                        "-888 dB",
+                        egui::TextStyle::Body.resolve(ui.style()),
+                    ) + 22.0,
+                    Slider::new(&mut db, sdroxide_types::TX_AUDIO_LEVEL_MIN_DB..=0.0).suffix(" dB"),
+                )
+                .on_hover_text(hover);
+                if resp.changed() {
+                    self.set_digi_tx_level(db, cmds);
+                }
+            });
+        } else {
+            classic_row(ui, "Mic", |ui| {
+                let mut mic = self.state.tx.mic_gain;
+                let resp = crate::chrome::slider_readout(
+                    ui,
+                    crate::chrome::text_width(
+                        ui,
+                        "-888",
+                        egui::TextStyle::Body.resolve(ui.style()),
+                    ) + 22.0,
+                    Slider::new(&mut mic, 0.0..=1.0).show_value(false),
+                )
+                .on_hover_text("Microphone gain");
+                if resp.changed() {
+                    self.state.tx.mic_gain = mic;
+                    cmds.push(Command::SetMicGain(mic));
+                }
+            });
+        }
+        if self.cessb_applies() {
+            let mut db = self.state.tx.cessb_db;
+            classic_row(ui, "CESSB", |ui| {
+                let resp = crate::chrome::slider_readout(
+                    ui,
+                    crate::chrome::text_width(
+                        ui,
+                        "-88 dB",
+                        egui::TextStyle::Body.resolve(ui.style()),
+                    ) + 22.0,
+                    Slider::new(&mut db, 0.0..=sdroxide_types::CESSB_MAX_DB).suffix(" dB"),
+                )
+                .on_hover_text(
+                    "Controlled-envelope SSB: how much of the speech processing to \
+                     apply. Up is louder and flatter, at the cost of some splatter \
+                     either side.",
+                );
+                if resp.changed() {
+                    cmds.push(Command::SetCessb(db));
+                }
+            });
+        }
     }
 
     /// **Recorder** — what is written to disk, and how. The RX menu's own body:
     /// record audio, quick clip, auto-record, spectrum and playback.
-    fn classic_recorder_section(&mut self, ui: &mut egui::Ui, cmds: &mut Vec<Command>) {
-        classic_section(ui, "Recorder", false, |ui| {
-            self.rec_controls(ui, cmds);
-        });
+    fn classic_recorder_body(&mut self, ui: &mut egui::Ui, cmds: &mut Vec<Command>) {
+        self.rec_controls(ui, cmds);
     }
 
     /// **Display** — what the picture shows. The strip's own chip rows, spread
     /// across the column and wrapped rather than sitting in a box.
-    fn classic_display_section(&mut self, ui: &mut egui::Ui, cmds: &mut Vec<Command>) {
-        classic_section(ui, "Display", false, |ui| {
-            classic_chips(ui, |ui| {
-                self.display_view_chips(ui, false, 0.0);
-                self.display_tool_chips(ui, cmds, false, 0.0);
-            });
+    fn classic_display_body(&mut self, ui: &mut egui::Ui, cmds: &mut Vec<Command>) {
+        classic_chips(ui, |ui| {
+            self.display_view_chips(ui, false, 0.0);
+            self.display_tool_chips(ui, cmds, false, 0.0);
         });
     }
 
     /// **Windows & tools** — every window this radio can open, which is what
     /// SDR++ calls its plugin list. The strip's own chips again: SWL, the log,
     /// the schedule, the decoders, the tools and the settings.
-    fn classic_system_section(&mut self, ui: &mut egui::Ui, cmds: &mut Vec<Command>) {
-        classic_section(ui, "Windows & tools", false, |ui| {
-            classic_chips(ui, |ui| {
-                self.system_chips_top(ui, 0.0);
-                self.system_chips_bottom(ui, 0.0, cmds);
-            });
+    fn classic_system_body(&mut self, ui: &mut egui::Ui, cmds: &mut Vec<Command>) {
+        classic_chips(ui, |ui| {
+            self.system_chips_top(ui, 0.0);
+            self.system_chips_bottom(ui, 0.0, cmds);
         });
     }
 }
 
-/// One fold of the column: a section heading and its rows.
+/// The wash behind a section heading.
 ///
-/// A section is a *category*, not a module: it has no box of its own and no
-/// width, which is the whole difference between this column and the strip it
-/// replaces.
-fn classic_section(
-    ui: &mut egui::Ui,
-    title: &str,
-    default_open: bool,
-    add: impl FnOnce(&mut egui::Ui),
-) {
-    egui::CollapsingHeader::new(RichText::new(title).strong())
-        .default_open(default_open)
-        .show(ui, add);
+/// The same 0.14 the notice bars use ([`crate::chrome::ribbon`]): a colour at
+/// that strength reads as a bar with the heading's own ink on it, where a solid
+/// accent would fight the words and a plain `ROW_BG` would not be found at all.
+fn header_fill() -> egui::Color32 {
+    crate::theme::CYAN().gamma_multiply(0.16)
 }
 
 /// A full-width row: a caption in the column's left gutter, its controls in the

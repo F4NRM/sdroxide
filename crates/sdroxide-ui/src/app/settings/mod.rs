@@ -1267,7 +1267,7 @@ impl SdroxideApp {
         let mut converter_hz = self.converter_edit_hz;
         let mut ranges = self.range_edit.clone();
         let mut rx_site = self.rx_site_edit.clone();
-        let mut ui_edit = self.ui_settings;
+        let mut ui_edit = self.ui_settings.clone();
         // The workspaces are cloned out and handed back like `ui_edit`: the
         // settings window is drawn from `&self`, so its changes travel through
         // `io` and are committed by the caller.

@@ -772,7 +772,7 @@ impl BroadcastScope {
 }
 
 /// User display preferences. All have defaults so a missing `[ui]` table loads.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct UiSettings {
     /// GUI repaint + spectrum frame rate, in frames per second.
@@ -1168,6 +1168,120 @@ pub struct UiSettings {
     /// window, which is the machine's business and not a station's.
     #[serde(default)]
     pub classic_ui: bool,
+
+    /// **The order of the Classic UI column's sections**, top to bottom.
+    ///
+    /// The operator's own arrangement, dragged into place: he wanted the
+    /// recorder at the top of his column, and one shipped order is a guess about
+    /// which controls a listener reaches for first.
+    ///
+    /// A comma-separated list of section keys, and **deliberately a string**:
+    /// any text at all parses, where a list of the enum's names would make the
+    /// whole config unparseable the day a section is added or removed — and
+    /// `Settings::load` answers an unparseable `config.toml` by **quarantining
+    /// it and returning defaults**. An operator would lose their theme, their
+    /// fonts and their layout to a list of sections. Read it through
+    /// [`ClassicSection::order`]: unknown names are dropped and anything missing
+    /// is appended, so a value this build does not understand costs the
+    /// arrangement and nothing else.
+    #[serde(default)]
+    pub classic_sections: String,
+}
+
+/// One section of the Classic UI column — the units the operator drags into the
+/// order he wants.
+///
+/// A section is a *category*, not a module: each is a fold of the column with a
+/// heading of its own, and moving one moves everything under it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ClassicSection {
+    Source,
+    Bands,
+    Receiver,
+    Tuning,
+    Transmit,
+    Recorder,
+    Display,
+    Tools,
+}
+
+impl ClassicSection {
+    /// Every section, in the order the column ships with — SDR++'s order top to
+    /// bottom, and the order anything missing from a stored list comes back in.
+    pub const ALL: [Self; 8] = [
+        Self::Source,
+        Self::Bands,
+        Self::Receiver,
+        Self::Tuning,
+        Self::Transmit,
+        Self::Recorder,
+        Self::Display,
+        Self::Tools,
+    ];
+
+    /// What the heading says.
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::Source => "Source",
+            Self::Bands => "Band & mode",
+            Self::Receiver => "Receiver",
+            Self::Tuning => "Tuning",
+            Self::Transmit => "Transmit",
+            Self::Recorder => "Recorder",
+            Self::Display => "Display",
+            Self::Tools => "Windows & tools",
+        }
+    }
+
+    /// The name this section is stored under, and the egui id its fold is
+    /// remembered by. Stable on purpose: renaming a heading must not close a
+    /// section an operator left open.
+    pub fn key(&self) -> &'static str {
+        match self {
+            Self::Source => "source",
+            Self::Bands => "bands",
+            Self::Receiver => "receiver",
+            Self::Tuning => "tuning",
+            Self::Transmit => "transmit",
+            Self::Recorder => "recorder",
+            Self::Display => "display",
+            Self::Tools => "tools",
+        }
+    }
+
+    /// Open when the column is new? The three a newcomer reaches for first; the
+    /// rest start folded away.
+    pub fn default_open(&self) -> bool {
+        matches!(self, Self::Source | Self::Bands | Self::Receiver)
+    }
+
+    /// **Read a stored order.** Unknown names are dropped, repeats are dropped,
+    /// and any section the stored list does not mention is appended in
+    /// [`Self::ALL`] order — so a list written before a section existed still
+    /// shows it, and a list naming one this build no longer has does not leave a
+    /// heading with nothing under it. Both halves are the point: the operator's
+    /// order is kept, and nothing is lost by an upgrade.
+    pub fn order(stored: &str) -> Vec<Self> {
+        let mut list: Vec<Self> = stored
+            .split(',')
+            .filter_map(|name| {
+                let name = name.trim();
+                Self::ALL.iter().copied().find(|s| s.key() == name)
+            })
+            .collect();
+        list.dedup();
+        for s in Self::ALL {
+            if !list.contains(&s) {
+                list.push(s);
+            }
+        }
+        list
+    }
+
+    /// Write an order back out — the inverse of [`Self::order`].
+    pub fn order_text(list: &[Self]) -> String {
+        list.iter().map(|s| s.key()).collect::<Vec<_>>().join(",")
+    }
 }
 
 /// How a survey map is painted. See [`UiSettings::survey_map_style`].
@@ -1414,6 +1528,7 @@ impl Default for UiSettings {
             broadcast_scope: BroadcastScope::default(),
             survey_map_style: MapStyle::default(),
             classic_ui: false,
+            classic_sections: String::new(),
         }
     }
 }
@@ -1493,7 +1608,7 @@ impl UiSettings {
     pub const FPS_OPTIONS: [u32; 6] = [5, 10, 15, 30, 60, 90];
 
     /// Frame rate clamped to a sane range (guards a hand-edited config).
-    pub fn fps(self) -> u32 {
+    pub fn fps(&self) -> u32 {
         self.frame_rate_fps.clamp(5, 240)
     }
 
@@ -1518,7 +1633,7 @@ impl UiSettings {
     /// an RX-888 at 8 Msps through a 32768-point window makes 494 a second and
     /// can feed any of these; a 48 kHz audio lane makes 23 and cannot feed even
     /// `Medium`.
-    pub fn waterfall_rows_per_sec(self) -> f32 {
+    pub fn waterfall_rows_per_sec(&self) -> f32 {
         match self.waterfall_speed {
             Speed::Slow => 5.0,
             Speed::Medium => 28.0,
@@ -1540,7 +1655,7 @@ impl UiSettings {
     /// surface from the spectra it is sent, so a rate past them repeats rows —
     /// which is why the chips stop at `Faster` and why `Fastest` is answered
     /// here anyway, for a hand-edited config.
-    pub fn spectrum_3d_rows_per_sec(self) -> f32 {
+    pub fn spectrum_3d_rows_per_sec(&self) -> f32 {
         match self.spectrum_3d_speed {
             Speed::Slow => 6.0,
             Speed::Medium => 12.0,
@@ -1552,7 +1667,7 @@ impl UiSettings {
 
     /// Exponential averaging time constant (seconds) for the spectrum line.
     /// Fast disables averaging (snappy); slower values smooth it out.
-    pub fn spectrum_avg_tc(self) -> f32 {
+    pub fn spectrum_avg_tc(&self) -> f32 {
         match self.spectrum_speed {
             // The waterfall-only rates mean the same thing here as `Fast`:
             // no averaging. Reachable only from a hand-edited config.
@@ -1993,6 +2108,41 @@ pub fn set_force_swl(on: bool) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// **A stored section order is the operator's, and nothing in it is lost by
+    /// an upgrade.** Both halves matter: what he dragged is kept in the order he
+    /// dragged it, and a list that predates a section — or names one this build
+    /// no longer has — still shows every section exactly once.
+    #[test]
+    fn a_section_order_survives_what_it_does_not_know() {
+        // Nothing stored: the shipped order.
+        assert_eq!(ClassicSection::order(""), ClassicSection::ALL.to_vec());
+        // His own arrangement, kept as it is.
+        let mine = "recorder,source,tuning";
+        assert_eq!(
+            ClassicSection::order(mine),
+            vec![
+                ClassicSection::Recorder,
+                ClassicSection::Source,
+                ClassicSection::Tuning,
+                ClassicSection::Bands,
+                ClassicSection::Receiver,
+                ClassicSection::Transmit,
+                ClassicSection::Display,
+                ClassicSection::Tools,
+            ],
+            "what he placed keeps its place, and the rest follow in the shipped order"
+        );
+        // A name this build does not have is dropped, not a heading with nothing
+        // under it — and not a config the loader quarantines.
+        assert_eq!(ClassicSection::order("wat,source").len(), ClassicSection::ALL.len());
+        // Repeats are one section, not two.
+        let twice: Vec<_> = ClassicSection::order("source,source");
+        assert_eq!(twice.iter().filter(|s| **s == ClassicSection::Source).count(), 1);
+        // And it round-trips, so the next frame reads back what this one wrote.
+        let list = ClassicSection::order("recorder,source");
+        assert_eq!(ClassicSection::order(&ClassicSection::order_text(&list)), list);
+    }
 
     /// A workspace snapshots the arrangement and puts it back, and a slot it
     /// does not carry leaves that module docked rather than half-restored.

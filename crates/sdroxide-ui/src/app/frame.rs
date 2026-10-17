@@ -1020,11 +1020,11 @@ impl eframe::App for SdroxideApp {
                 // dragged wide on a big window gives the width back when the
                 // window narrows.
                 .size_range(min..=max)
-                .frame(
-                    egui::Frame::new()
-                        .fill(crate::theme::PANEL())
-                        .inner_margin(egui::Margin::symmetric(9, 7)),
-                )
+                // A small margin and no fill of its own: the column draws
+                // itself with `chrome::angled_frame`, which is what gives the
+                // waterfall and the operating panel their cut-corner outline.
+                // The panel is the space; the frame is the panel's look.
+                .frame(egui::Frame::new().inner_margin(egui::Margin::symmetric(4, 4)))
                 .show(ui, |ui| {
                     // **What makes the handle work.** egui's own note: a
                     // resizable panel needs its ui to *use* the space it was
@@ -1051,13 +1051,25 @@ impl eframe::App for SdroxideApp {
             egui::Panel::left(crate::layout::salted_id(&ctx, "classic-rail-panel"))
                 .resizable(false)
                 .exact_size(super::classic::CLASSIC_RAIL_W)
-                .frame(
-                    egui::Frame::new()
-                        .fill(crate::theme::PANEL())
-                        .inner_margin(egui::Margin::symmetric(3, 7)),
-                )
+                // Outlined on its right edge like the panels beside it, so the
+                // rail reads as the column folded rather than as a strip of the
+                // window left over.
+                .frame(egui::Frame::new().fill(crate::theme::PANEL()).inner_margin(egui::Margin {
+                    left: 4,
+                    right: 0,
+                    top: 4,
+                    bottom: 4,
+                }))
                 .show(ui, |ui| {
                     self.classic_rail(ui, &mut cmds);
+                    let r = ui.max_rect();
+                    ui.painter().line_segment(
+                        [
+                            r.right_top() + egui::vec2(3.0, 0.0),
+                            r.right_bottom() + egui::vec2(3.0, 0.0),
+                        ],
+                        egui::Stroke::new(1.0, crate::theme::LINE()),
+                    );
                 });
         }
         // A docked band/mode selector takes a column off the right of the

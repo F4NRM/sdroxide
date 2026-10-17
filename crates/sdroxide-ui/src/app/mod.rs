@@ -1773,7 +1773,7 @@ impl SdroxideApp {
             profiles: Vec::new(),
             profile_apply_pending: false,
             settings_upload_tab: sdroxide_types::UploadTarget::QrzLogbook,
-            ui_settings,
+            ui_settings: ui_settings.clone(),
             // `swl` is the retired global switch: carried so a listener who had
             // it on is not dropped back into a transceiver's screen by the
             // move to per-radio SWL mode. The Radio tab's switch is the one
@@ -2179,7 +2179,7 @@ impl SdroxideApp {
     /// draws the chip); kept on one target so the accessors beside it are too.
     #[cfg(not(target_arch = "wasm32"))]
     pub(crate) fn ui_settings_for_windows(&self) -> sdroxide_types::UiSettings {
-        self.ui_settings
+        self.ui_settings.clone()
     }
 
     /// Put one module in or out of its own window, and remember it. The one
@@ -4128,6 +4128,27 @@ mod tests {
             }
             assert!(all.contains(section), "the {section} section is not drawn: {all}");
         }
+        // **The operator's order, not the shipped one.** He wants the recorder
+        // at the top of his own column, so the column reads the order out of the
+        // settings — and the frame shows it in that order, which is what this
+        // checks: the label that comes first in the drawn column is the first
+        // section he placed.
+        app.ui_settings.classic_sections = "recorder,source".into();
+        for _ in 0..8 {
+            tall(&mut app);
+        }
+        let ordered = tall(&mut app);
+        let at =
+            |label: &str| ordered.find(label).unwrap_or_else(|| panic!("{label} drawn: {ordered}"));
+        assert!(
+            at("Recorder") < at("Source"),
+            "the column is drawn in the order he put it in: {ordered}"
+        );
+        assert!(
+            at("Source") < at(sdroxide_types::ClassicSection::Bands.label()),
+            "and a section he did not place follows the ones he did: {ordered}"
+        );
+        app.ui_settings.classic_sections = String::new();
         app.ui_settings.classic_ui = false;
         frame(&mut app);
         let (after, left_after, big_after) = frame(&mut app);
