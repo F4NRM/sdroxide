@@ -6689,14 +6689,47 @@ strip folded while the column was left out for want of room (592 pt = 232 for th
 column + 360 for the picture), leaving the bands, the VFO and the tools in neither
 place. Where the column is not drawn, the strip keeps its own controls.
 
-**The handle works, and the mechanism is the scroll area.** egui's note on
+**The handle works, and the width has to be a *number*.** egui's note on
 `resizable` — the ui must use the space it was given — is necessary and **not
-sufficient**: a row wider than the column still drags the panel out to its own
-width and the handle springs back. `ScrollArea::both` is what fixes it, measured
-in `the_column_keeps_its_width_when_a_row_does_not_fit` (240 pt where it was asked
-for 240, against ~600 unscrolled). The ceiling is 640, not 420: a drag that stops
-reads as a drag that does not work, and the operator's first report was exactly
-that.
+sufficient**, and the first attempt at it was wrong in a way worth keeping: the
+column's scroll area was made `ScrollArea::both` to stop a wide row dragging the
+panel out, and **a horizontal scroll area makes `available_width` infinite**, so
+every row stretched to infinity and was clipped at the viewport. The operator saw
+it before I did: *"the contents of the bar doesn't wrap"*, with all seven rows
+ending at exactly the same pixel (356 of a 366 pt column). Vertical only, and the
+column's own contents are pinned to the width they are handed. The ceiling is 640,
+not 420: a drag that stops reads as a drag that does not work, and his first report
+was exactly that.
+
+**The chip that was 33 points outside the column: `add_enabled_ui` stops a row
+wrapping.** This file already said so where the mode grid needs it
+(`chip_enabled_tinted` "rather than a chip inside `add_enabled_ui`: the latter wraps
+every chip in a child scope, which stops the row it is in from wrapping") — and
+four chips in the RX body still did it: **BIN, MONO, the auto-record hold and I/Q
+WAV**. BIN is the one that measured, 33 points past the edge of a 376 pt column,
+and it took a bisect by section, a shape-kind dump (the crossing was a `Shape::Mesh`
+— a gradient box, not the chip I was looking for) and a word dump to name it.
+`chip_enabled` / `chip_accent_enabled` reserve the width first and grey the chip
+inside that reservation, so the wrapping row can see it. **Grep `add_enabled_ui`
+next to `chip(` before drawing a chip in a wrapping row.**
+
+**The fold chip leads the row**, SDR++-style: the control that opens and closes a
+bar belongs beside the bar, not between the readout and the meter (the operator:
+*"the fold sidebar button is totally in a wrong place"*). One glyph (`☰`) in both
+states, lit while the column is on screen, so the readout does not shift sideways
+under the press.
+
+**And the mode was in the column twice** — its own `Mode` fold above the `Bands`
+one, which is `band_menu_body` and already carries the mode matrix
+(*"mode is in the sidebar and in the bands menu in the sidebar"*). The `Mode`
+section is gone; the band panel is the one panel with the modes in it, exactly as
+it is in the docked column and the detached band window.
+
+**The guard is `the_column_fits_the_width_it_is_given`**: the column is drawn at
+each width it may be dragged to and every shape's ink is measured against the
+width it was handed. **It sweeps every 24 points rather than sampling** — the
+defect it was written for lived in a band about thirty points wide (465 to 495)
+that three spot widths stepped straight over, and a second one hid at 400.
 
 **Two traps around the setting itself, both found by using it.** The strip's
 layout override folds the *strip* into fewer rows, and the classic strip has no
@@ -6713,5 +6746,8 @@ was (8 pt, against 280 with the column).
 **Left to do**: a skinned section header rather than egui's default, SDR++'s
 vertical Zoom/Max/Min rails beside the waterfall, and the Recorder/Rigs sections
 if the four folds prove thin. It has been looked at on the operator's own screen
-(2026-10-17), which is how the missing sections and the stuck handle were found;
-nothing has been rendered here.
+across four screenshots (2026-10-17) — which is how the missing sections, the
+stuck handle, the unwrapped rows, the chip past the edge, the misplaced fold and
+the doubled mode were all found — and nothing has been rendered here: there is no
+probe that draws the column to an image, so every reading is arithmetic and every
+look is the operator's.
