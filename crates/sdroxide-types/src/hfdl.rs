@@ -47,6 +47,27 @@ impl Default for HfdlSettings {
     }
 }
 
+impl HfdlSettings {
+    /// The settings with every field inside the range the lane can honour.
+    ///
+    /// Applied where they arrive rather than where they are used, for the
+    /// reason [`crate::AdsbSettings::sane`] gives: these come back from a
+    /// config file an operator may have edited and from a remote client, so a
+    /// stray figure is corrected once instead of being defended against
+    /// everywhere.
+    ///
+    /// The band is deliberately far wider than HFDL's own 2.9–22 MHz plan, so
+    /// this can never fight a real assigned frequency. It catches the case the
+    /// dial has already been caught by elsewhere: a converter or I.F. offset
+    /// saved as a start frequency (issue #72) landing here as a six-gigahertz
+    /// "channel", which would have the lane decimate a window no HFDL ground
+    /// station is in and report nothing at all.
+    pub fn sane(mut self) -> HfdlSettings {
+        self.frequency_hz = self.frequency_hz.clamp(1.0e6, 30.0e6);
+        self
+    }
+}
+
 /// One aircraft position an HFDL downlink carried.
 ///
 /// The normalized object xng lifts out of a performance-data (0xD1) or
@@ -172,3 +193,31 @@ impl Default for HfdlStatus {
 /// a session's worth of HFDL is chatty (a squitter every ~32 s plus the
 /// aircraft traffic), and a panel has no need of more than a screenful.
 pub const HFDL_LOG_DEPTH: usize = 64;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// What the lane reads back from `hfdl.json` is inside the range it can
+    /// actually decode — the discipline the other lane configs apply, and the
+    /// one that catches a converter offset saved as a channel (issue #72).
+    #[test]
+    fn the_saved_channel_is_brought_into_the_band_the_lane_can_decode() {
+        assert_eq!(HfdlSettings::default().sane().frequency_hz, HFDL_DEFAULT_HZ);
+        // A 6 GHz "assigned frequency" — an I.F. offset saved as one — lands
+        // at the top of the band rather than tuning the lane to nowhere.
+        assert_eq!(
+            HfdlSettings { frequency_hz: 6.0e9, ..HfdlSettings::default() }.sane().frequency_hz,
+            30.0e6
+        );
+        assert_eq!(
+            HfdlSettings { frequency_hz: 0.0, ..HfdlSettings::default() }.sane().frequency_hz,
+            1.0e6
+        );
+        // Every real assigned frequency in 2.9–22 MHz is left exactly alone.
+        for hz in [2_900_000.0, 5_451_000.0, 11_184_000.0, 21_931_000.0] {
+            let s = HfdlSettings { enabled: true, frequency_hz: hz };
+            assert_eq!(s.sane(), s, "{hz} Hz is a real channel and was altered");
+        }
+    }
+}

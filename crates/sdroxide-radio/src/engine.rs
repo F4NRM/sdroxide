@@ -3039,11 +3039,10 @@ struct Engine {
     /// `ism_in_rate` exists.
     qo100_in_rate: f64,
     /// The last QO-100 setting the operator chose, held in step with
-    /// `state.qo100` for symmetry with `ism_cfg` and `skim_cfg`. Nothing
-    /// reads it back yet: like the ISM decoder, a source swap into audio mode
-    /// turns the decoder off and a swap back leaves it off until the operator
-    /// turns it on again. Not persisted to disk — there is nothing here worth
-    /// surviving a restart.
+    /// `state.qo100` for the same reason `ism_cfg` and `skim_cfg` are: a front
+    /// end that cannot feed the lane forces the live setting off, and a source
+    /// swap back must not lose what the operator chose for a receiver that
+    /// can. Read back at startup from `qo100.json`.
     qo100_cfg: sdroxide_types::Qo100Settings,
     /// The QO-100 spectral tracker's closed loop: what it has done to
     /// `RadioConfig::converter_offset_hz` since the tracker was switched on.
@@ -3072,8 +3071,8 @@ struct Engine {
     /// `qo100_in_rate` exists.
     hfdl_in_rate: f64,
     /// The last HFDL setting the operator chose, held in step with
-    /// `state.hfdl` for symmetry with `qo100_cfg`. Nothing reads it back yet,
-    /// and it is not persisted — the same convention `qo100_cfg` follows.
+    /// `state.hfdl` for the same reason `qo100_cfg` is. Read back at startup
+    /// from `hfdl.json`.
     hfdl_cfg: sdroxide_types::HfdlSettings,
     /// Open capture file for `--record-iq`, and the interleaving scratch it is
     /// written from.
@@ -4155,6 +4154,23 @@ fn engine_thread(
     } else {
         ais_cfg
     };
+    // The two lanes that used to be session-only, brought into line with the
+    // five above: the operator turns the decoder on against a signal they are
+    // watching and settles a frequency, and being made to do that again every
+    // time the program opens — while AIS and VDL2 remembered theirs — is the
+    // kind of thing that reads as "settings are not being saved".
+    let qo100_cfg = sdroxide_config::load_qo100_config();
+    state.qo100 = if audio_mode {
+        sdroxide_types::Qo100Settings { enabled: false, decode_telemetry: false, ..qo100_cfg }
+    } else {
+        qo100_cfg
+    };
+    let hfdl_cfg = sdroxide_config::load_hfdl_config();
+    state.hfdl = if audio_mode {
+        sdroxide_types::HfdlSettings { enabled: false, ..hfdl_cfg } // wideband-only
+    } else {
+        hfdl_cfg
+    };
     let dab_cfg = engine_cfg.store.load_dab_config();
     state.dab = if audio_mode {
         sdroxide_types::DabSettings::OFF // wideband-only, like the rest of the lanes
@@ -4576,9 +4592,9 @@ fn engine_thread(
         qo100: None,
         qo100_buf: Vec::new(),
         qo100_in_rate: 0.0,
-        // Session-scoped only, unlike `skim_cfg`/`ism_cfg` — see
-        // `sync_qo100`'s doc for why this one is not read back from disk.
-        qo100_cfg: sdroxide_types::Qo100Settings::default(),
+        // From `qo100.json`, as `skim_cfg` and `ism_cfg` are: the operator set
+        // this against a signal they were watching.
+        qo100_cfg: sdroxide_config::load_qo100_config(),
         qo100_auto: Qo100Auto::default(),
         hfdl_ddc: None,
         hfdl: None,
@@ -4586,8 +4602,8 @@ fn engine_thread(
         hfdl_rs: None,
         hfdl_res_buf: Vec::new(),
         hfdl_in_rate: 0.0,
-        // Session-scoped only, for the same reason as `qo100_cfg`.
-        hfdl_cfg: sdroxide_types::HfdlSettings::default(),
+        // From `hfdl.json`, as `qo100_cfg` is.
+        hfdl_cfg: sdroxide_config::load_hfdl_config(),
         iq_rec,
         iq_rec_buf: Vec::new(),
         iq_wav: None,
@@ -4740,8 +4756,8 @@ fn engine_thread(
         engine.sync_adsb(); // and the aircraft lane, if the mode is already ADS-B
         engine.sync_vdl2(); // ...and the datalink lane, likewise
         engine.sync_ais(); // ...and the shipping lane, likewise
-        engine.sync_qo100(); // a no-op today: `qo100_cfg` starts disabled and is never loaded
-        engine.sync_hfdl(); // a no-op today: `hfdl_cfg` starts disabled too
+        engine.sync_qo100(); // and the beacon lane, from qo100.json
+        engine.sync_hfdl(); // ...and the HFDL lane, likewise
     }
     // This radio's callsign override, read once here so the hot paths never
     // have to touch the file. `SetRadioConfig` is the other writer.
@@ -10124,11 +10140,18 @@ impl Engine {
             }
 
             SetQo100Config(cfg) => {
+                let cfg = cfg.sane();
                 self.state.qo100 = cfg;
-                // Held in step with the live setting for symmetry with the
-                // ISM and skimmer configs; see `qo100_cfg`'s own doc for why
-                // nothing reads it back and why it is not saved to disk.
+                // Remembered before `sync_qo100` may force the live lane off,
+                // so a source swap back restores what was chosen — and written
+                // to disk for the same reason AIS's and VDL2's are: the
+                // operator set this against a signal they were watching, and
+                // it is not something to make them find again every time the
+                // program opens.
                 self.qo100_cfg = cfg;
+                if let Err(e) = sdroxide_config::save_qo100_config(&cfg) {
+                    warn!("saving QO-100 config: {e}");
+                }
                 self.sync_qo100();
                 if let Some(c) = self.qo100.as_ref() {
                     c.set_config(cfg);
@@ -10136,11 +10159,15 @@ impl Engine {
             }
 
             SetHfdlConfig(cfg) => {
+                let cfg = cfg.sane();
                 self.state.hfdl = cfg;
-                // Session-scoped only, for the same reason as `qo100_cfg`
-                // (above): holding it in step keeps a source swap's behaviour
-                // predictable, and there is nothing worth persisting yet.
+                // As with QO-100 above: kept in step with the live state so a
+                // source swap behaves predictably, and saved so the channel the
+                // operator settled on is the one it comes back on.
                 self.hfdl_cfg = cfg;
+                if let Err(e) = sdroxide_config::save_hfdl_config(&cfg) {
+                    warn!("saving HFDL config: {e}");
+                }
                 self.sync_hfdl();
                 if let Some(c) = self.hfdl.as_ref() {
                     c.set_config(cfg);
