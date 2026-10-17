@@ -23,6 +23,10 @@ pub(in crate::app) mod alerts;
 pub(in crate::app) mod auto_mode;
 pub(in crate::app) mod awards;
 pub(in crate::app) mod bands;
+/// **Classic UI** — the left-column arrangement. Native only: it takes a column
+/// off the desktop and a browser has one window with nowhere to put it.
+#[cfg(not(target_arch = "wasm32"))]
+pub(in crate::app) mod classic;
 pub(in crate::app) mod contest;
 #[cfg(all(not(target_arch = "wasm32"), target_os = "linux"))]
 pub(in crate::app) mod cw_key;

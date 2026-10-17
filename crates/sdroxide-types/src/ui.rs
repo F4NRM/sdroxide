@@ -1151,6 +1151,23 @@ pub struct UiSettings {
     /// data in `sdroxide-ui`'s `basemap` — but the choice is.
     #[serde(default)]
     pub survey_map_style: MapStyle,
+    /// **Classic UI** — every control in one column down the left, the way
+    /// SDR++ and SDR++Brown lay theirs out, with each group a section that
+    /// folds away.
+    ///
+    /// It exists because that is the layout most short-wave listeners already
+    /// know: the two readers who called this program "too complicated, controls
+    /// all over the place" on r/ShortwavePlus were both SDR++ users, and what
+    /// they were describing is the difference between a strip of boxes with
+    /// twelve menus behind it and one visible column. Same program, same
+    /// controls, arranged the way a hand already knows.
+    ///
+    /// Off by default: the strip is what this program's own screens are built
+    /// around, and a layout is a bigger thing than a preference to change under
+    /// someone. Local `config.toml`, not [`ClientScreen`] — it arranges *this*
+    /// window, which is the machine's business and not a station's.
+    #[serde(default)]
+    pub classic_ui: bool,
 }
 
 /// How a survey map is painted. See [`UiSettings::survey_map_style`].
@@ -1396,6 +1413,7 @@ impl Default for UiSettings {
             panadapter_window_legacy: None,
             broadcast_scope: BroadcastScope::default(),
             survey_map_style: MapStyle::default(),
+            classic_ui: false,
         }
     }
 }
