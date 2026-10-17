@@ -424,6 +424,7 @@ struct GroundKey {
     lands: [u8; 4],
     rivers: [u8; 4],
     borders: [u8; 4],
+    style: sdroxide_types::MapStyle,
 }
 
 /// Roughly how many points one texel of the ground covers. Two is where a
@@ -442,6 +443,7 @@ pub fn ground_image(
     (clat, clon, lon_span, lat_span): (f64, f64, f64, f64),
     (w, h): (u32, u32),
     map: &theme::MapPalette,
+    style: sdroxide_types::MapStyle,
 ) -> eframe::egui::ColorImage {
     let (w, h) = (w.max(2) as usize, h.max(2) as usize);
     let mut px = vec![eframe::egui::Color32::TRANSPARENT; w * h];
@@ -488,7 +490,57 @@ pub fn ground_image(
         }
     }
 
+    // A chart is read off its grid, so it gets one. The step follows the zoom
+    // so there are always a handful of lines and never a solid sheet: 30° when
+    // the whole world is up, 1° at the closest this map goes.
+    if style == sdroxide_types::MapStyle::Chart {
+        let step = graticule_step(lon_span);
+        let ink = blend(map.land, map.city_label, 0.45);
+        let mut meridian = (clon / step).ceil() * step;
+        while meridian < clon + lon_span * 0.5 {
+            let fx = 0.5 + wrap180(meridian - clon) / lon_span;
+            line(&mut px, (w, h), (fx * f64::from(w as u32)) as isize, true, ink);
+            meridian += step;
+        }
+        let mut parallel = (clat / step).ceil() * step;
+        while parallel < clat + lat_span * 0.5 {
+            let fy = 0.5 - (parallel - clat) / lat_span;
+            line(&mut px, (w, h), (fy * f64::from(h as u32)) as isize, false, ink);
+            parallel += step;
+        }
+    }
+
     eframe::egui::ColorImage::new([w, h], px)
+}
+
+/// The degrees between graticule lines at a given span: a handful of lines at
+/// every zoom, on the steps an aeronautical chart actually uses.
+fn graticule_step(lon_span: f64) -> f64 {
+    for step in [30.0, 10.0, 5.0, 2.0, 1.0, 0.5, 0.25] {
+        if lon_span / step >= 4.0 {
+            return step;
+        }
+    }
+    0.25
+}
+
+/// One graticule line, one texel wide, in `ink`.
+fn line(
+    px: &mut [eframe::egui::Color32],
+    (w, h): (usize, usize),
+    at: isize,
+    vertical: bool,
+    ink: eframe::egui::Color32,
+) {
+    let n = if vertical { w } else { h };
+    if at < 0 || at as usize >= n {
+        return;
+    }
+    let at = at as usize;
+    for i in 0..(if vertical { h } else { w }) {
+        let idx = if vertical { i * w + at } else { at * w + i };
+        px[idx] = ink;
+    }
 }
 
 /// `a` taken `t` of the way to `b`, with `t` clamped.
@@ -514,6 +566,7 @@ pub(crate) fn draw_painted_base(
     lon_span: f64,
     lat_span: f64,
     map: &theme::MapPalette,
+    style: sdroxide_types::MapStyle,
     cache: &mut GroundCache,
 ) -> f32 {
     let dot_r = (DOT_PITCH * 0.44).max(0.7);
@@ -535,9 +588,10 @@ pub(crate) fn draw_painted_base(
         lands: map.land.to_array(),
         rivers: map.river.to_array(),
         borders: map.border.to_array(),
+        style,
     };
     if cache.key != Some(key) {
-        let image = ground_image((clat, clon, lon_span, lat_span), (w, h), map);
+        let image = ground_image((clat, clon, lon_span, lat_span), (w, h), map, style);
         cache.tex =
             Some(ctx.load_texture("survey-ground", image, eframe::egui::TextureOptions::LINEAR));
         cache.key = Some(key);
@@ -1149,36 +1203,89 @@ pub fn show(
 mod tests {
     use super::*;
 
-    /// **The painted ground is a map**: land where the land is, sea where the
-    /// sea is. The complaint it answers — *"the map is dismal"* — is not that
-    /// the ink is the wrong shade, so the assertion is about a place on the
-    /// Earth rather than about a colour being drawn at all.
+    /// **The painted ground is a map**, in every style it offers: land where
+    /// the land is, sea where the sea is. The complaint it answers — *"the map
+    /// is dismal"* — is not that the ink is the wrong shade, so the assertion
+    /// is about a place on the Earth rather than about a colour being drawn.
     #[test]
     fn the_painted_ground_puts_land_where_the_land_is() {
-        let map = theme::map();
         // Europe, and enough Atlantic either side of it to have both.
         let (clat, clon, lon_span, lat_span) = (50.0, 5.0, 60.0, 36.0);
         let (w, h) = (240u32, 140u32);
-        let img = ground_image((clat, clon, lon_span, lat_span), (w, h), map);
+        for style in sdroxide_types::MapStyle::ALL {
+            let map = theme::map_styled(style);
+            let img = ground_image((clat, clon, lon_span, lat_span), (w, h), &map, style);
+            let at = |lat: f64, lon: f64| {
+                let fx = 0.5 + wrap180(lon - clon) / lon_span;
+                let fy = 0.5 - (lat - clat) / lat_span;
+                let col = ((fx * f64::from(w)) as usize).min(w as usize - 1);
+                let row = ((fy * f64::from(h)) as usize).min(h as usize - 1);
+                img.pixels[row * w as usize + col]
+            };
+            let dist = |a: eframe::egui::Color32, b: eframe::egui::Color32| {
+                (i32::from(a.r()) - i32::from(b.r())).abs()
+                    + (i32::from(a.g()) - i32::from(b.g())).abs()
+                    + (i32::from(a.b()) - i32::from(b.b())).abs()
+            };
+            let landish = |c: eframe::egui::Color32| dist(c, map.land) < dist(c, map.sea);
 
-        let at = |lat: f64, lon: f64| {
-            let fx = 0.5 + wrap180(lon - clon) / lon_span;
-            let fy = 0.5 - (lat - clat) / lat_span;
-            let col = ((fx * f64::from(w)) as usize).min(w as usize - 1);
-            let row = ((fy * f64::from(h)) as usize).min(h as usize - 1);
-            img.pixels[row * w as usize + col]
-        };
-        let dist = |a: eframe::egui::Color32, b: eframe::egui::Color32| {
-            (i32::from(a.r()) - i32::from(b.r())).abs()
-                + (i32::from(a.g()) - i32::from(b.g())).abs()
-                + (i32::from(a.b()) - i32::from(b.b())).abs()
-        };
-        let landish = |c: eframe::egui::Color32| dist(c, map.land) < dist(c, map.sea);
+            assert!(landish(at(52.0, 5.5)), "{style:?}: the Netherlands came out as sea");
+            assert!(landish(at(48.0, 2.5)), "{style:?}: France came out as sea");
+            assert!(!landish(at(52.0, -30.0)), "{style:?}: the mid-Atlantic came out as land");
+            assert!(!landish(at(40.0, -40.0)), "{style:?}: the west Atlantic came out as land");
+        }
+    }
 
-        assert!(landish(at(52.0, 5.5)), "the Netherlands came out as sea");
-        assert!(landish(at(48.0, 2.5)), "France came out as sea");
-        assert!(!landish(at(52.0, -30.0)), "the mid-Atlantic came out as land");
-        assert!(!landish(at(40.0, -40.0)), "the western Atlantic came out as land");
+    /// **The three styles are three pictures, not one with a different name.**
+    /// A style picker whose options render the same is a control that does
+    /// nothing, which is the house rule this exists to keep.
+    ///
+    /// It is not hypothetical: the first version of Chart lifted the *land* and
+    /// left the marks where they were, so the land went pale and the aircraft
+    /// went invisible on it. Both halves are asserted — the picture changes,
+    /// and the *marks* invert with it — because a test of land colours alone
+    /// would have passed that version.
+    #[test]
+    fn the_styles_are_different_pictures() {
+        use sdroxide_types::MapStyle;
+        let view = (50.0, 5.0, 60.0, 36.0);
+        let picture = |style: MapStyle| {
+            let map = theme::map_styled(style);
+            ground_image(view, (120, 72), &map, style)
+                .pixels
+                .iter()
+                .map(|p| (p.r(), p.g(), p.b()))
+                .collect::<Vec<_>>()
+        };
+        let (radar, terrain, chart) =
+            (picture(MapStyle::Radar), picture(MapStyle::Terrain), picture(MapStyle::Chart));
+        assert_ne!(radar, terrain, "terrain draws the same picture as radar");
+        assert_ne!(terrain, chart, "chart draws the same picture as terrain");
+        assert_ne!(radar, chart, "chart draws the same picture as radar");
+
+        // Chart is the pale one, and its marks are dark: that pair is what
+        // makes it read as paper with ink on it rather than as a bright smear
+        // with nothing legible on top.
+        let lum = |c: eframe::egui::Color32| u16::from(c.r()) + u16::from(c.g()) + u16::from(c.b());
+        let (r, t, c) = (
+            theme::map_styled(MapStyle::Radar),
+            theme::map_styled(MapStyle::Terrain),
+            theme::map_styled(MapStyle::Chart),
+        );
+        assert!(
+            lum(c.land) > lum(r.land) + 150,
+            "chart's land is not a paper colour: {:?} against {:?}",
+            c.land,
+            r.land
+        );
+        assert!(lum(t.land) > lum(r.land), "terrain's land is no lighter than the dark ground's");
+        assert!(
+            lum(c.station) < lum(r.station),
+            "chart kept pale marks on pale ground: {:?} against {:?}",
+            c.station,
+            r.station
+        );
+        assert!(lum(c.sea) > lum(r.sea), "chart's sea is not a lighter sea than the dark ground's");
     }
 
     /// Issue #312: the cities can be turned off, and turning them off takes the

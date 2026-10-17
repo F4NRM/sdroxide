@@ -56,7 +56,12 @@ pub struct Field {
 
 impl Field {
     fn ok(group: &str, label: &str, raw: &str, value: impl Into<String>) -> Self {
-        Field { group: group.into(), label: label.into(), raw: raw.into(), value: Some(value.into()) }
+        Field {
+            group: group.into(),
+            label: label.into(),
+            raw: raw.into(),
+            value: Some(value.into()),
+        }
     }
 
     /// A slash. **Not an error**: "not reported" is an answer the transmitter
@@ -202,7 +207,16 @@ pub fn parse(line: &str) -> Option<Report> {
 
 /// The numeric part of a latitude field, for the position.
 fn field_f32(r: &Report, label: &str) -> Option<f32> {
-    r.fields.iter().find(|f| f.label == label)?.value.as_ref()?.split('°').next()?.trim().parse().ok()
+    r.fields
+        .iter()
+        .find(|f| f.label == label)?
+        .value
+        .as_ref()?
+        .split('°')
+        .next()?
+        .trim()
+        .parse()
+        .ok()
 }
 
 // ── Section 0 ────────────────────────────────────────────────────────────────
@@ -232,8 +246,12 @@ fn read_time(t: &str, r: &mut Report) {
     }
     let unit = wind_unit(n(&d, 4, 5));
     r.observed = Some((day, hour));
-    r.fields.push(Field::ok("YYGGiw", "Observed", t,
-        format!("day {day} at {hour:02}:00 UTC, wind in {unit}")));
+    r.fields.push(Field::ok(
+        "YYGGiw",
+        "Observed",
+        t,
+        format!("day {day} at {hour:02}:00 UTC, wind in {unit}"),
+    ));
 }
 
 fn read_lat(t: &str, r: &mut Report) {
@@ -242,12 +260,25 @@ fn read_lat(t: &str, r: &mut Report) {
         // both, and it arrives next. Stated as N here and corrected below, so a
         // ship in the southern hemisphere is not pinned to the Arctic for a
         // moment it never was.
-        r.fields.push(Field::ok("99LaLaLa", "Latitude", t, format!("{:.1}°", n(&d, 2, 5).unwrap_or(0) as f32 / 10.0)));
+        r.fields.push(Field::ok(
+            "99LaLaLa",
+            "Latitude",
+            t,
+            format!("{:.1}°", n(&d, 2, 5).unwrap_or(0) as f32 / 10.0),
+        ));
     } else if t.starts_with("9") && t.len() == 5 {
         // A land report gives S for south: `9SSSS`.
         let south = t.contains('S');
-        r.fields.push(Field::ok("9aLaLa", "Latitude", t,
-            format!("{:.1}° {}", n(&d_unwrap(t), 1, 5).unwrap_or(0) as f32 / 10.0, if south { "S" } else { "N" })));
+        r.fields.push(Field::ok(
+            "9aLaLa",
+            "Latitude",
+            t,
+            format!(
+                "{:.1}° {}",
+                n(&d_unwrap(t), 1, 5).unwrap_or(0) as f32 / 10.0,
+                if south { "S" } else { "N" }
+            ),
+        ));
     }
 }
 
@@ -262,8 +293,12 @@ fn read_lon(t: &str, r: &mut Report) {
     }
     let lon = n(&d, 1, 5).unwrap_or(0) as f32 / 10.0;
     let lon = if d[0] == 3 || d[0] == 7 { -lon } else { lon };
-    r.fields.push(Field::ok("QcLoLoLoLo", "Longitude", t,
-        format!("{lon:.1}° {}", if lon < 0.0 { "W" } else { "E" })));
+    r.fields.push(Field::ok(
+        "QcLoLoLoLo",
+        "Longitude",
+        t,
+        format!("{lon:.1}° {}", if lon < 0.0 { "W" } else { "E" }),
+    ));
     // Quadrant 3 and 5 are south, so the latitude read a moment ago flips.
     if let Some(lat) = r.fields.iter_mut().find(|f| f.group == "99LaLaLa")
         && let Some(v) = lat.value.as_mut()
@@ -282,7 +317,9 @@ fn is_ix_h_vv(t: &str) -> bool {
 fn read_ix_h_vv(t: &str, r: &mut Report) {
     let vis = t[t.len().saturating_sub(2)..].trim_end_matches('/');
     match vis.parse::<u32>() {
-        Ok(v) if (90..=99).contains(&v) => r.fields.push(Field::ok("iRixhVV", "Visibility", t, visibility_4377(v))),
+        Ok(v) if (90..=99).contains(&v) => {
+            r.fields.push(Field::ok("iRixhVV", "Visibility", t, visibility_4377(v)))
+        }
         Ok(v) if v <= 9 => r.fields.push(Field::ok("iRixhVV", "Visibility", t, format!("{v} km"))),
         _ => r.fields.push(Field::none("iRixhVV", "Visibility", t)),
     }
@@ -307,7 +344,10 @@ fn read_nddff(t: &str, r: &mut Report) {
     }
     let Some(d) = digits(t) else { return };
     let (Some(dd), Some(ff)) = (n(&d, 1, 3), n(&d, 3, 5)) else { return };
-    let unit = r.fields.iter().find(|f| f.group == "YYGGiw")
+    let unit = r
+        .fields
+        .iter()
+        .find(|f| f.group == "YYGGiw")
         .and_then(|f| f.value.as_deref())
         .and_then(|v| v.rsplit("wind in ").next())
         .unwrap_or("knots (not stated)");
@@ -352,7 +392,9 @@ fn is_29uuu(t: &str) -> bool {
 fn read_29uuu(t: &str, r: &mut Report) {
     let Some(d) = digits(t) else { return };
     match n(&d, 2, 5) {
-        Some(v) => r.fields.push(Field::ok("29UUU", "Humidity", t, format!("{v}% — dew point not sent"))),
+        Some(v) => {
+            r.fields.push(Field::ok("29UUU", "Humidity", t, format!("{v}% — dew point not sent")))
+        }
         None => r.fields.push(Field::none("29UUU", "Humidity", t)),
     }
 }
@@ -371,7 +413,9 @@ fn read_2sn(t: &str, r: &mut Report) {
     }
 }
 
-fn is_4pppp(t: &str) -> bool { t.len() == 5 && t.starts_with('4') }
+fn is_4pppp(t: &str) -> bool {
+    t.len() == 5 && t.starts_with('4')
+}
 fn read_4pppp(t: &str, r: &mut Report) {
     let Some(d) = digits(t) else {
         r.fields.push(Field::none("4PPPP", "Pressure", t));
@@ -382,34 +426,51 @@ fn read_4pppp(t: &str, r: &mut Report) {
     match n(&d, 1, 5) {
         Some(v) => {
             let tenth = if v < 1000 { v + 10000 } else { v };
-            r.fields.push(Field::ok("4PPPP", "Pressure", t, format!("{}.{} hPa", tenth / 10, tenth % 10)))
+            r.fields.push(Field::ok(
+                "4PPPP",
+                "Pressure",
+                t,
+                format!("{}.{} hPa", tenth / 10, tenth % 10),
+            ))
         }
         None => r.fields.push(Field::none("4PPPP", "Pressure", t)),
     }
 }
 
-fn is_5appp(t: &str) -> bool { t.len() == 5 && t.starts_with('5') }
+fn is_5appp(t: &str) -> bool {
+    t.len() == 5 && t.starts_with('5')
+}
 fn read_5appp(t: &str, r: &mut Report) {
     let Some(d) = digits(t) else {
         r.fields.push(Field::none("5appp", "Pressure tendency", t));
         return;
     };
     match (tendency_0200(d[1]), n(&d, 2, 5)) {
-        (Some(a), Some(p)) => r.fields.push(Field::ok("5appp", "Pressure tendency", t,
-            format!("{a}, {}.{} hPa over 3 h", p / 10, p % 10))),
+        (Some(a), Some(p)) => r.fields.push(Field::ok(
+            "5appp",
+            "Pressure tendency",
+            t,
+            format!("{a}, {}.{} hPa over 3 h", p / 10, p % 10),
+        )),
         _ => r.fields.push(Field::none("5appp", "Pressure tendency", t)),
     }
 }
 
-fn is_7ww(t: &str) -> bool { t.len() == 5 && t.starts_with('7') }
+fn is_7ww(t: &str) -> bool {
+    t.len() == 5 && t.starts_with('7')
+}
 fn read_7ww(t: &str, r: &mut Report) {
     let Some(d) = digits(t) else {
         r.fields.push(Field::none("7wwW1W2", "Weather", t));
         return;
     };
     match n(&d, 1, 3) {
-        Some(ww) => r.fields.push(Field::ok("7wwW1W2", "Weather", t,
-            format!("{} ({})", weather_4677(ww), past(&t[3..5])))),
+        Some(ww) => r.fields.push(Field::ok(
+            "7wwW1W2",
+            "Weather",
+            t,
+            format!("{} ({})", weather_4677(ww), past(&t[3..5])),
+        )),
         None => r.fields.push(Field::none("7wwW1W2", "Weather", t)),
     }
 }
@@ -431,21 +492,33 @@ fn read_8nh(t: &str, r: &mut Report) {
     r.fields.push(Field::ok("8NhCLCMCH", "Clouds", t, format!("lowest {low}; {cl} · {cm}")));
 }
 
-fn is_9gg(t: &str) -> bool { t.len() == 5 && t.starts_with('9') && digits(t).is_some() }
+fn is_9gg(t: &str) -> bool {
+    t.len() == 5 && t.starts_with('9') && digits(t).is_some()
+}
 fn read_9gg(t: &str, r: &mut Report) {
     let Some(d) = digits(t) else { return };
-    r.fields.push(Field::ok("9GGgg", "Actual time", t,
-        format!("{:02}:{:02} UTC", n(&d, 1, 3).unwrap_or(0), n(&d, 3, 5).unwrap_or(0))));
+    r.fields.push(Field::ok(
+        "9GGgg",
+        "Actual time",
+        t,
+        format!("{:02}:{:02} UTC", n(&d, 1, 3).unwrap_or(0), n(&d, 3, 5).unwrap_or(0)),
+    ));
 }
 
-fn is_222(t: &str) -> bool { t.len() == 5 && t.starts_with("222") }
+fn is_222(t: &str) -> bool {
+    t.len() == 5 && t.starts_with("222")
+}
 fn read_222(t: &str, r: &mut Report) {
     let Some(d) = digits(t) else {
         r.fields.push(Field::none("222DsVs", "Ship", t));
         return;
     };
-    r.fields.push(Field::ok("222DsVs", "Ship", t,
-        format!("course {}, speed {}", course(d[3]), ship_speed_4451(d[4]))));
+    r.fields.push(Field::ok(
+        "222DsVs",
+        "Ship",
+        t,
+        format!("course {}, speed {}", course(d[3]), ship_speed_4451(d[4])),
+    ));
 }
 
 fn is_0ss(t: &str) -> bool {
@@ -457,34 +530,48 @@ fn read_0ss(t: &str, r: &mut Report) {
         return;
     };
     match (sign(d[1]), n(&d, 2, 5)) {
-        (Some(s), Some(v)) => r.fields.push(Field::ok("0ssTwTwTw", "Sea temperature", t, temp(v, s))),
+        (Some(s), Some(v)) => {
+            r.fields.push(Field::ok("0ssTwTwTw", "Sea temperature", t, temp(v, s)))
+        }
         _ => r.fields.push(Field::none("0ssTwTwTw", "Sea temperature", t)),
     }
 }
 
 /// `2PwPwHwHw` arrives as **five** figures — 2, two for the period, two
 /// for the height — not the eight the spaced code form suggests.
-fn is_2pw(t: &str) -> bool { t.len() == 5 && t.starts_with("2") && digits(t).is_some() }
-fn read_2pw(t: &str, r: &mut Report) { waves(t, r) }
+fn is_2pw(t: &str) -> bool {
+    t.len() == 5 && t.starts_with("2") && digits(t).is_some()
+}
+fn read_2pw(t: &str, r: &mut Report) {
+    waves(t, r)
+}
 
 fn is_3dw(t: &str) -> bool {
     digits(t).is_some_and(|d| d.len() == 5 && d[0] == 3)
 }
 fn read_3dw(t: &str, r: &mut Report) {
     let Some(d) = digits(t) else { return };
-    r.fields.push(Field::ok("3dw1dw1dw2dw2", "Swell directions", t,
-        format!("{}° and {}°", n(&d, 1, 3).unwrap_or(0) * 10, n(&d, 3, 5).unwrap_or(0) * 10)));
+    r.fields.push(Field::ok(
+        "3dw1dw1dw2dw2",
+        "Swell directions",
+        t,
+        format!("{}° and {}°", n(&d, 1, 3).unwrap_or(0) * 10, n(&d, 3, 5).unwrap_or(0) * 10),
+    ));
 }
 
 fn is_4pw(t: &str) -> bool {
     digits(t).is_some_and(|d| d.len() == 5 && d[0] == 4)
 }
-fn read_4pw(t: &str, r: &mut Report) { waves(t, r) }
+fn read_4pw(t: &str, r: &mut Report) {
+    waves(t, r)
+}
 
 fn is_5pw(t: &str) -> bool {
     digits(t).is_some_and(|d| d.len() == 5 && d[0] == 5)
 }
-fn read_5pw(t: &str, r: &mut Report) { waves(t, r) }
+fn read_5pw(t: &str, r: &mut Report) {
+    waves(t, r)
+}
 
 /// Wind waves and the two swell systems, all `PwPwHwHw` in shape.
 fn waves(t: &str, r: &mut Report) {
@@ -493,8 +580,12 @@ fn waves(t: &str, r: &mut Report) {
         return;
     };
     match (n(&d, 1, 3), n(&d, 3, 5)) {
-        (Some(p), Some(h)) => r.fields.push(Field::ok("", "Waves", t,
-            format!("period {p} s, height {:.1} m", h as f32 / 2.0))),
+        (Some(p), Some(h)) => r.fields.push(Field::ok(
+            "",
+            "Waves",
+            t,
+            format!("period {p} s, height {:.1} m", h as f32 / 2.0),
+        )),
         _ => r.fields.push(Field::none("", "Waves", t)),
     }
 }
@@ -707,7 +798,8 @@ mod tests {
     const BRAVO: &str = "BBXX BRAVO 20123 99252 10595 41494 81412 10285 20269 40100 53012 79586 8597/ 22265 00280 20405 31705 40506 50407=";
     const VRUY5: &str = "BBXX VRUY5 23013 99219 11148 41692 80506 10190 20188 40198 51018 74554 8/000 22253 00180 21001 307// 41002 8//// ICE 0////";
     const KS007: &str = "BBXX KS007 01184 99476 71224 43/// /1500 10150 40277 22200 00124=";
-    const SCADE: &str = "BBXX 4ED7Y3T 27161 99540 10109 46/// ///// 1//// 2//// 40084 5//// 222// 0////=";
+    const SCADE: &str =
+        "BBXX 4ED7Y3T 27161 99540 10109 46/// ///// 1//// 2//// 40084 5//// 222// 0////=";
 
     fn val<'a>(r: &'a Report, g: &str) -> Option<&'a str> {
         r.fields.iter().find(|f| f.group == g).and_then(|f| f.value.as_deref())
@@ -811,7 +903,11 @@ mod tests {
     #[test]
     fn plain_language_remarks_are_kept() {
         let r = parse(VRUY5).unwrap();
-        assert!(r.remarks.contains(&"307//".to_string()) || !r.remarks.is_empty(), "{:?}", r.remarks);
+        assert!(
+            r.remarks.contains(&"307//".to_string()) || !r.remarks.is_empty(),
+            "{:?}",
+            r.remarks
+        );
     }
 
     /// A bulletin heading is not a report, and an empty row on screen is worse

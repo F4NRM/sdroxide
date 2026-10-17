@@ -390,13 +390,27 @@ impl SdroxideApp {
             });
     }
 
+    /// The map pane's own row: NIGHT, and the ground it is drawn on.
     fn adsb_map_pane(&mut self, ui: &mut egui::Ui, st: &AdsbStatus, now: i64, h: f32) {
-        ui.horizontal(|ui| self.night_chip(ui));
+        ui.horizontal(|ui| {
+            self.night_chip(ui);
+            self.map_style_chip(ui);
+        });
         let home = self.adsb_home();
         let cfg = self.state.adsb;
         let night = self.night_texture(ui.ctx());
         let state = &mut self.adsb_map;
-        crate::adsb_map::show(ui, state, &st.aircraft, home, now, cfg, night, h);
+        crate::adsb_map::show(
+            ui,
+            state,
+            &st.aircraft,
+            home,
+            now,
+            cfg,
+            night,
+            self.ui_settings.survey_map_style,
+            h,
+        );
     }
 
     /// The operator's own position, from the grid in the digital-mode setup.

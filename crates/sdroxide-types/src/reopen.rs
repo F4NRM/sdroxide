@@ -93,10 +93,7 @@ mod tests {
 
     #[test]
     fn a_refused_centre_falls_back_to_a_frequency_that_tuned() {
-        assert_eq!(
-            fallback_open_hz(IMPOSSIBLE, Some(IMPOSSIBLE), QO100, &[]),
-            Some(QO100)
-        );
+        assert_eq!(fallback_open_hz(IMPOSSIBLE, Some(IMPOSSIBLE), QO100, &[]), Some(QO100));
     }
 
     #[test]
@@ -153,10 +150,7 @@ mod tests {
         // same request to within a rounding difference, so the fallback still
         // applies — otherwise a refracted dial would read as "nobody refused
         // this one" and the open would be attempted a second time unchanged.
-        assert_eq!(
-            fallback_open_hz(QO100 + 0.4, Some(QO100), IMPOSSIBLE, &[]),
-            Some(IMPOSSIBLE)
-        );
+        assert_eq!(fallback_open_hz(QO100 + 0.4, Some(QO100), IMPOSSIBLE, &[]), Some(IMPOSSIBLE));
         // …and a real difference is not the same request.
         assert_eq!(fallback_open_hz(QO100, Some(QO100 + 400.0), IMPOSSIBLE, &[]), None);
     }

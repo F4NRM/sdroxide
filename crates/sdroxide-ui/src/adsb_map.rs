@@ -171,6 +171,7 @@ pub fn show(
     now: i64,
     cfg: AdsbSettings,
     night: Option<eframe::egui::TextureId>,
+    style: sdroxide_types::MapStyle,
     max_h: f32,
 ) -> Option<u32> {
     let avail_w = ui.available_width();
@@ -182,7 +183,7 @@ pub fn show(
     if !ui.is_rect_visible(rect) {
         return None;
     }
-    let map = theme::map();
+    let map = &theme::map_styled(style);
     let p = ui.painter_at(rect);
     p.rect_filled(rect, 0.0, map.sea);
 
@@ -233,6 +234,7 @@ pub fn show(
         lon_span,
         lat_span,
         map,
+        style,
         &mut state.ground,
     );
     // Over the continents, so land darkens with the sea on the night side; the
