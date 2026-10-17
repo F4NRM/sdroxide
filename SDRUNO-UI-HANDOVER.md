@@ -454,6 +454,45 @@ wrapped row and a child that demands the whole row do not mix.
 missing the AGC group"*, and its message prints the whole page, which is what
 found it.
 
+### What the first look at a real screen showed (2026-10-17)
+
+The mode was run for real: `SDROXIDE_CONFIG_DIR=<a copy of the operator's config,
+with every module's window flag set>` and the release binary, on niri. The window
+set opened correctly and every title read as SDRuno's — `SDRuno MAIN SP`,
+`SDRuno RX CONTROL` (`niri msg windows` lists them by app-id too:
+`sdroxide-panadapter`, `sdroxide-controls`). Four things came out of looking at
+it, and only the first could have been found any other way:
+
+1. **The hub's lit buttons were blank cyan bars.** `function_button` passed
+   `RichText::strong()`, which resolves the label's own colour rather than
+   leaving it to the chip — and this look's strong ink *is* the cyan a selected
+   chip is filled with, so `chip_impl`'s fallback ink (the near-black chosen for
+   text on an accent fill) was never reached. **Nothing in the shape list said
+   so**: the text was drawn, in the colour of the ground beneath it. Fixed, with
+   `a_lit_function_button_shows_its_label_on_its_own_fill` asserting the
+   *painted* colour (the fallback when the galley carries none) and verified
+   failing with `.strong()` put back.
+2. **The root window was still `SDR Oxide Brown — …`** — the one window in the
+   set that did not name itself like the rest. It is `SDRuno MAIN — <radio>` now
+   (`root_window_title_for`, one function for the capabilities event and the
+   mode's edge, sent only on change).
+3. **The "No operating panel in WFM — it is undocked" banner** sat over the hub
+   in every voice mode, explaining a decision the mode itself made. Suppressed
+   in the mode; kept everywhere else.
+4. **The window defaults were too small** for RX CONTROL's page (the AGC/STEP/NR
+   rows were behind a scrollbar on a first open). MAIN SP opens 1180×700 and RX
+   CONTROL 1440×900 in the mode now; a stored geometry still wins.
+
+**Also worth knowing for the next run.** Hand-editing `ui.detached` in
+`config.toml` is a trap: it is serialised as **array-of-tables**
+(`[[ui.detached]]`), not an inline list, and a hand-written list makes the file
+unparseable — which `Settings::load` **quarantines** (`config.toml` →
+`config.toml.bak`, every setting back to defaults). Two attempts went that way
+before the file was edited in its own shape. The honest route is the checkbox.
+
+**Not seen**: the window set on a screen *after* these four fixes — the machine
+was in use, so the render that found them was the last one taken.
+
 ### What is left, in the order it matters
 
 1. **The strip itself, and this is the honest gap.** Our RX CONTROL is a strip
@@ -475,11 +514,13 @@ found it.
    would read as SDRuno's does.
 4. **Workspaces on MAIN.** We have them (Settings → UI, Ctrl+W); SDRuno puts the
    dropdown on the window that owns the arrangement, which is the hub.
-5. **Verified only as far as a headless harness can.** The detached windows
-   no-op under `ctx.embed_viewports()`, so the arms are covered by their pure
-   halves: role names, titles, the float hint, the availability gate, the rising
-   edge, and the two pages' captions. **Nobody has looked at the window set on a
-   screen.**
+5. **Verified as far as a screen, but not past it.** The mode was run for real
+   on niri and looked at, which is how the blank-label bug was found (see
+   *"What the first look at a real screen showed"* above); the detached windows
+   still no-op under the headless harness, so in the test suite the arms are
+   covered by their pure halves — role names, titles, the float hint, the
+   availability gate, the rising edge, the pages' captions and the painted label
+   colour. **The fixes have not been looked at on a screen yet.**
 
 ## House notes for whoever picks this up
 

@@ -12804,8 +12804,9 @@ The arrangement is applied **once**: move the windows where you want them and it
 stays that way. Turning the mode off leaves them where they are.
 
 Every window is renamed SDRuno-style — the program's name and the window's own
-role, on the window, so a desk full of them reads as one program rather than as
-a set of anonymous panels. The tool windows join in: **SDRuno SCANNER**,
+role, on the window, and the main window itself becomes **SDRuno MAIN** (with the
+radio's name after it) — so a desk full of them reads as one program rather than
+as a set of anonymous panels. The tool windows join in: **SDRuno SCANNER**,
 **SDRuno LOGBOOK**, and so on.
 
 **RX CONTROL is the dense page.** Under the usual strip it adds the half SDRuno
