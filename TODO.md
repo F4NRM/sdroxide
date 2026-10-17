@@ -10,9 +10,17 @@ feature requests **this fork** may pick up, not a promise to upstream.
 
 ## Now
 
-1. **Undocked mode (#257)** — the SDRuno window set, and the next session's whole
-   job. See `SDRUNO-UI-HANDOVER.md` and `UNDOCKED-HANDOVER.md`. The operator's
-   call: the session is saved for this, so nothing else is started in it.
+1. **The SDRuno look — and it is the STRUCTURE, not the theme.** The operator,
+   2026-10-16, in as many words: *"it is the structure 100%"*. The window set is
+   **built** (every item on `SDRUNO-UI-HANDOVER.md`'s TODO is done); what is left
+   is how it is laid out inside those windows. **Five candidate differences are
+   written up in that handover — read them and get him to point at one, do not
+   build all five.** A theme was built first and it was the wrong direction; it
+   sits on **branch `fork/sdruno-look`** (`4f9f4bc1`, unpushed) and can stay
+   there. The two likeliest: a **captioned button matrix** per control group
+   (SDRuno's RX CONTROL) versus our chips in rows — `mode_chip_grid` already
+   started that — and **every window naming itself and the program** in its title
+   bar. Those are a session each, not one.
 
 2. **WEFAX detection** — the one real bug from discussion #90. DWD Pinneberg at
    3855 kHz, four captures of the same transmission minutes apart, and the decoder

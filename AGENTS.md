@@ -2335,7 +2335,7 @@ live. Re-count rather than trusting any number written here.
 |---|---|---|---|
 | **#72** | drdatapi | RTL-SDR start frequency on QO-100 — an I.F. offset saved as the start frequency, so the dongle was asked for 6 GHz and did not open | **answered and fixed** (`ba565a56`): `set_center` refuses a centre above the tuner's ceiling and names it. The *saving* of an impossible start frequency is **not** fixed — asked of the reporter |
 | **#69** | bebepip | Import a broadcast schedule other than EiBi (Aoki / HFCC / own CSV) | **answered, not built.** The parser is hard-wired to EiBi's column layout and code tables; the display side is already source-neutral. Three questions put to the reporter (which source, replace or sit alongside, where entries appear). Called a real job, not promised as quick |
-| **#68** | bebepip | S-meter uncalibrated — S9+10 on pure noise | **answered** (`f45b00d9`): only the SDRplay and Pluto implemented `rx_gain_db`, so an RTL-SDR's whole tuner gain was added to the reading. **Then withdrawn, 2026-10-15**: Kevin asked for the calibration control to be removed, having established the reading behind it came from the *wrong build* — so the premise under the whole feature was never established. The dropdown is gone; the field stays on the wire inert because `udp_audio` follows it and the struct is positional. **Upstream has its own at #642**, so ours was redundant as well as wrong-premised |
+| **#68** | bebepip | S-meter uncalibrated — S9+10 on pure noise | **answered** (`f45b00d9`): only the SDRplay and Pluto implemented `rx_gain_db`, so an RTL-SDR's whole tuner gain was added to the reading. **Withdrawn 2026-10-15, then RESTORED 2026-10-16** — and the round trip is the lesson. Kevin asked for it to be removed, having established the reading behind it came from the *wrong build*. But **the correction was never wrong, the range was**: ±5 had been widened to ±15 on that bad reading. He asked for his first revision back — PR **#74**'s, `27b79ed3` — so the calibration is **in and at ±5** (`6f95a06f`), which is what he says worked perfectly. **No `PROTO_VERSION` bump**: the field was never taken off the wire, so the layout is byte-identical and the revert only put it back to work. Upstream has its own at #642. |
 | **#51** | drdatapi | DELETE button for recorded MP3s | answered — the **CLEAR** chip in the playback window |
 | **#28** | dig647 | Channel spacing, and DMR | spacing answered (6.25 / 12.5 kHz added). **DMR re-answered 2026-10-12**: Kevin's "the codec is a big project" was right in its conclusion and wrong in its reason. The codec is `mbelib-neo` (GPL-2.0-or-later, compatible, no licence wall), and the blocker is **US Patent 8,359,197**, which covers the AMBE+2 variant DMR uses until **2028-05-20**. A clean Rust crate exists for D-STAR and declines DMR for exactly that reason |
 
@@ -6380,6 +6380,31 @@ button on.
   agent is standing in for.
 - **Not sensible, or not clean?** Leave it and say why on the PR. The point is
   to stop good work idling, not to lower the bar.
+
+## The settings trace — a tool, and why it exists (2026-10-16)
+
+**`SDROXIDE_SETTINGS_TRACE=1 sdroxide`** draws a ruled scale down the settings
+page's left margin, numbered every 25 points, and every skinned widget labels
+itself with its own y (`chk`, `sld`, `rdo`). Two rows drawn on top of each other
+then read as **two identical numbers** in a screenshot.
+
+It exists because **four settings pages were reported with rows overlapping and
+no render here reproduces it** — three widths, two display scales, measuring ink
+as well as geometry, and three separate theories each died by measurement. So the
+next report of this class starts from a number rather than another guess. Off
+unless the variable is set, read once at startup.
+
+**The harness trap it exposed, which is the part worth keeping.** My first
+"no overlaps" readings meant nothing, three times over: the Settings probe draws
+a **stub** unless it has a `radio_cfg` **and** `caps` **and** a controller that
+returns a config — the window re-reads `radio_cfg` from the controller when it
+opens, which overwrote what I had set. A probe that cannot reach the code under
+test reports success. It is the same shape as the sound-device bug the same day.
+
+**And a colour guard caught a theme draft**, which is worth knowing about:
+`every_dark_theme_keeps_its_accents_readable` refuses any accent under 4.5:1 on
+its panel, because these colours are used as *text*. SDRuno's own dim cyan is
+about 2.7:1 — fine for a lamp, not for a caption.
 
 ## House rules
 
