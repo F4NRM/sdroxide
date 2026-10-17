@@ -118,13 +118,20 @@ pub(in crate::app) fn module_role(module: DetachableModule) -> &'static str {
 /// The whole difference between our strip and SDRuno's RX control is this
 /// shape. Ours are chips in rows with their state read off the label; SDRuno
 /// labels the *group* and lets the buttons be tiny.
+///
+/// **The box is not stretched to the row's width, and must not be.**
+/// `ui.set_min_width(ui.available_width())` here read like the way to make each
+/// group fill its share, and inside a `horizontal_wrapped` row it silently ate
+/// every sibling after the first: the render test found FILTER drawn and AGC,
+/// STEP and NR absent. A wrapped row and a child that demands the whole row do
+/// not mix. The groups size to their content, which is what the caption wants
+/// anyway.
 fn group<R>(ui: &mut egui::Ui, caption: &str, add: impl FnOnce(&mut egui::Ui) -> R) -> R {
     egui::Frame::new()
         .stroke(egui::Stroke::new(1.0, theme::LINE()))
         .corner_radius(egui::CornerRadius::same(2))
         .inner_margin(egui::Margin::symmetric(6, 4))
         .show(ui, |ui| {
-            ui.set_min_width(ui.available_width());
             ui.label(RichText::new(caption).size(10.0).strong().color(theme::CYAN_DIM()));
             ui.add_space(3.0);
             add(ui)

@@ -4363,28 +4363,80 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// The SDRuno workstation's two pages draw where they are put: RX CONTROL
+    /// carries its captioned groups, MAIN its window stack. The detached
+    /// windows themselves no-op under the headless harness (there is no second
+    /// OS window to draw into), so this is the guard the arms can have here —
+    /// and it is the one the handover asks for, that the page is *drawn*, not
+    /// merely wired.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn the_sdruno_pages_draw_their_captions() {
+        let dir = std::env::temp_dir().join(format!("sdroxide-sdrunopage-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        unsafe { std::env::set_var("SDROXIDE_CONFIG_DIR", &dir) };
+        let controller: Box<dyn RadioController> = Box::new(RecordingController::default());
+        let ctx = egui::Context::default();
+        crate::layout::set_tier(&ctx, crate::layout::Tier::Desktop);
+        let mut app = SdroxideApp::new_tab(&ctx, None, None, controller, 0, true);
+        app.tier = crate::layout::Tier::Desktop;
+        app.ui_settings.sdruno = true;
+        super::sdruno::set_active(true);
+
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(1280.0, 900.0),
+            )),
+            ..Default::default()
+        };
+
+        let mut cmds = Vec::new();
+        let rx = texts(&ctx.run_ui(input.clone(), |ui| app.sdruno_rx_control(ui, &mut cmds)).shapes);
+        for caption in ["MODE", "DIGITAL", "FILTER", "AGC", "STEP", "NR - NB - AN", "BANDS - MHz"] {
+            assert!(rx.contains(caption), "RX CONTROL is missing the {caption} group:\n{rx}");
+        }
+        assert!(
+            cmds.iter().all(|c| !matches!(c, Command::SetMode { .. })),
+            "drawing the page must not change the mode"
+        );
+
+        let mut cmds = Vec::new();
+        let main = texts(&ctx.run_ui(input, |ui| app.sdruno_main_hub(ui, &mut cmds)).shapes);
+        for label in ["WINDOWS", "TOOLS", "MAIN SP", "RX CONTROL", "SCANNER"] {
+            assert!(main.contains(label), "MAIN is missing {label}:\n{main}");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+        super::sdruno::set_active(false);
+    }
+
     /// Another sdroxide on the same machine is the cause of a broken-up stream
     /// that nothing on screen used to name. The warning is drawn on the banner,
     /// survives the engine clearing its own notice (which it does with
     /// `Notice(None)`), and goes when the operator dismisses it.
+    /// Every text shape drawn in a frame, joined — so a test can ask what a
+    /// panel actually put on screen rather than what it meant to.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn texts(shapes: &[egui::epaint::ClippedShape]) -> String {
+        fn walk(s: &egui::Shape, out: &mut String) {
+            match s {
+                egui::Shape::Text(t) => {
+                    out.push_str(t.galley.text());
+                    out.push('\n');
+                }
+                egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, out)),
+                _ => {}
+            }
+        }
+        let mut out = String::new();
+        shapes.iter().for_each(|c| walk(&c.shape, &mut out));
+        out
+    }
+
     #[cfg(not(target_arch = "wasm32"))]
     #[test]
     fn another_instance_warning_stays_on_the_banner_until_dismissed() {
-        fn texts(shapes: &[egui::epaint::ClippedShape]) -> String {
-            fn walk(s: &egui::Shape, out: &mut String) {
-                match s {
-                    egui::Shape::Text(t) => {
-                        out.push_str(t.galley.text());
-                        out.push('\n');
-                    }
-                    egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, out)),
-                    _ => {}
-                }
-            }
-            let mut out = String::new();
-            shapes.iter().for_each(|c| walk(&c.shape, &mut out));
-            out
-        }
         let dir = std::env::temp_dir().join(format!("sdroxide-otherinst-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
