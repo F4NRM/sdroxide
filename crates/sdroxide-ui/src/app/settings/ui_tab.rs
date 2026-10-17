@@ -22,6 +22,13 @@ use crate::app::settings::general::device_combo;
 use crate::app::speech::SpeechStatus;
 use crate::chrome::StyledCombo;
 
+/// Why the Theme / Button style / Window style pickers are greyed while the
+/// SDRuno workstation is on. Named once and hung on all three, so they explain
+/// themselves rather than appearing broken — the house rule about a control
+/// that can silently do nothing.
+const SDRUNO_LOOK_NOTE: &str = "The SDRuno workstation wears SDRuno's own steel and bevel while it is on, \
+     so this picker does not apply. Turn the workstation off to choose here.";
+
 /// What the "Screen follows your profile" row asked the app to do. The row is
 /// drawn by a free function, so the action travels back to the caller.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -87,28 +94,85 @@ pub(in crate::app) fn settings_ui_tab(
         ui.end_row();
 
         ui.label("Theme");
-        enum_combo(ui, "ui-theme", &mut cfg.theme, &UiTheme::ALL, UiTheme::label);
+        let theme_row = ui
+            .add_enabled_ui(!cfg.sdruno, |ui| {
+                enum_combo(ui, "ui-theme", &mut cfg.theme, &UiTheme::ALL, UiTheme::label);
+            })
+            .response;
+        if cfg.sdruno {
+            theme_row.on_disabled_hover_text(SDRUNO_LOOK_NOTE);
+        }
         ui.end_row();
 
         ui.label("Button style");
-        enum_combo(
-            ui,
-            "ui-btn-style",
-            &mut cfg.button_style,
-            &ChromeStyle::ALL,
-            ChromeStyle::label,
-        );
+        let btn_row = ui
+            .add_enabled_ui(!cfg.sdruno, |ui| {
+                enum_combo(
+                    ui,
+                    "ui-btn-style",
+                    &mut cfg.button_style,
+                    &ChromeStyle::ALL,
+                    ChromeStyle::label,
+                );
+            })
+            .response;
+        if cfg.sdruno {
+            btn_row.on_disabled_hover_text(SDRUNO_LOOK_NOTE);
+        }
         ui.end_row();
 
         ui.label("Window style");
-        enum_combo(
-            ui,
-            "ui-win-style",
-            &mut cfg.window_style,
-            &ChromeStyle::ALL,
-            ChromeStyle::label,
-        );
+        let win_row = ui
+            .add_enabled_ui(!cfg.sdruno, |ui| {
+                enum_combo(
+                    ui,
+                    "ui-win-style",
+                    &mut cfg.window_style,
+                    &ChromeStyle::ALL,
+                    ChromeStyle::label,
+                );
+            })
+            .response;
+        if cfg.sdruno {
+            win_row.on_disabled_hover_text(SDRUNO_LOOK_NOTE);
+        }
         ui.end_row();
+
+        // The SDRuno workstation — SDRuno's window set as a mode. Desktop and
+        // native only: it is a way of arranging OS windows, and a phone or a
+        // browser has none to arrange. The setting is local `config.toml`, not
+        // part of `ClientScreen`, so a remote client of a station keeps its own
+        // arrangement and the server never sends one.
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            ui.label("SDRuno workstation").on_hover_text(
+                "Arrange this program like SDRuno: the spectrum as MAIN SP, the \
+                 operator's panel as a decoder window and the control surface as \
+                 RX CONTROL, each in a window of its own, leaving this window as \
+                 MAIN — the hub whose buttons open the rest. The windows are \
+                 renamed SDRuno-style, the look is SDRuno's steel and bevel, and \
+                 on X11 every window asks the window manager to float it rather \
+                 than tile it.\n\n\
+                 Switching this on opens that window set once; move the windows \
+                 where you want them and the arrangement is kept. Switching it \
+                 off leaves them where they are.\n\n\
+                 Desktop only — it is a way of arranging windows, so it does \
+                 nothing on a phone or tablet. It is kept on this machine and is \
+                 not carried with a profile, so a remote client never inherits \
+                 it.",
+            );
+            ui.horizontal(|ui| {
+                crate::chrome::checkbox(ui, &mut cfg.sdruno, "SDRuno window set");
+                if cfg.sdruno && cfg.layout != LayoutMode::Desktop {
+                    ui.label(
+                        RichText::new("set Layout to Desktop for it to apply")
+                            .small()
+                            .color(crate::theme::YELLOW()),
+                    );
+                }
+            });
+            ui.end_row();
+        }
 
         ui.label("Updates");
         crate::chrome::checkbox(

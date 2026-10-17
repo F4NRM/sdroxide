@@ -1152,6 +1152,22 @@ pub struct UiSettings {
     /// before the choice existed.
     #[serde(default)]
     pub broadcast_scope: BroadcastScope,
+    /// **The SDRuno workstation**: the desktop window arrangement modelled on
+    /// SDRuno — a MAIN hub, an RX CONTROL window, MAIN SP and the rest, each
+    /// its own window, densely laid out and wearing the SDRuno chrome.
+    ///
+    /// Off by default, and **desktop only** by construction: it is a way of
+    /// arranging OS windows, and there are no OS windows on a phone or in a
+    /// browser. `SdroxideApp` applies it only in
+    /// [`LayoutMode::Desktop`] on a native build.
+    ///
+    /// **Local `config.toml`, and deliberately not on [`crate::ClientScreen`].**
+    /// The look and the layout travel with a profile; this does not, because it
+    /// is the shape of *this machine's* desk. A remote client of
+    /// `sdroxide --server` keeps its own arrangement and the server never sends
+    /// one — which is what "not for the server version" means here.
+    #[serde(default)]
+    pub sdruno: bool,
 }
 
 /// Default for [`UiSettings::spot_colors`] — every kind on its stock tint.
@@ -1352,6 +1368,7 @@ impl Default for UiSettings {
             panadapter_detached_legacy: false,
             panadapter_window_legacy: None,
             broadcast_scope: BroadcastScope::default(),
+            sdruno: false,
         }
     }
 }

@@ -55,6 +55,10 @@ pub(in crate::app) mod sat;
 pub(in crate::app) mod save_text;
 pub(in crate::app) mod scanner;
 pub(in crate::app) mod schedule;
+/// The SDRuno workstation — native only: it arranges OS windows, and the
+/// browser has one window and no desk to arrange.
+#[cfg(not(target_arch = "wasm32"))]
+pub(in crate::app) mod sdruno;
 pub(in crate::app) mod settings;
 pub(in crate::app) mod signal_id;
 pub(in crate::app) mod solar;
@@ -379,6 +383,13 @@ pub struct SdroxideApp {
     /// the settings dialog changes any of them — no restart.
     applied_look:
         (sdroxide_types::UiTheme, sdroxide_types::ChromeStyle, sdroxide_types::ChromeStyle),
+    /// Whether the **SDRuno workstation** arrangement has already been applied
+    /// for the setting currently in force. Turning the mode on opens the
+    /// window set once — a rising edge — while leaving the operator free to
+    /// dock a window afterwards without it springing back the next frame.
+    /// Seeded from the loaded setting, so a session that starts in the mode
+    /// keeps the arrangement the last one left.
+    applied_sdruno: bool,
     /// The interface font size last written into the context as its zoom
     /// factor, for the same reason — and so the zoom is left alone in between,
     /// where it belongs to egui's own ctrl+plus / ctrl+minus.
@@ -1770,6 +1781,7 @@ impl SdroxideApp {
             // that persists now.
             swl_start: ui_settings.start_swl || ui_settings.swl || sdroxide_types::force_swl(),
             applied_look: (ui_settings.theme, ui_settings.button_style, ui_settings.window_style),
+            applied_sdruno: ui_settings.sdruno,
             applied_ui_font: ui_settings.menu_font_size,
             speech: speech::SpeechRuntime::new(load_speech_settings(storage)),
             speech_voices: Vec::new(),
@@ -2202,6 +2214,24 @@ impl SdroxideApp {
     #[cfg(not(target_arch = "wasm32"))]
     pub(crate) fn undock_all_windows(&mut self) {
         self.set_all_detached(true);
+    }
+
+    /// Whether the **SDRuno workstation** is in force on this screen.
+    ///
+    /// The operator's setting *and* the place: a way of arranging OS windows
+    /// means nothing off a desktop, so a `config.toml` carried to a small screen
+    /// (or a coerced layout) leaves the mode off rather than drawing a hub into
+    /// a phone. The browser never reaches here at all — there are no windows to
+    /// arrange.
+    pub(in crate::app) fn sdruno_active(&self) -> bool {
+        #[cfg(target_arch = "wasm32")]
+        {
+            false
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            sdruno::available(self.tier) && self.ui_settings.sdruno
+        }
     }
 
     /// The one place "all of them" is written, so the two buttons cannot drift

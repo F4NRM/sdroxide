@@ -3728,7 +3728,7 @@ impl SdroxideApp {
     /// One route for the presets, the width field and the two edge fields, so
     /// none of them can reach a shape the others cannot — the same floor and
     /// ceiling the panadapter's grips enforce.
-    fn set_rx_filter(&mut self, lo: f32, hi: f32, cmds: &mut Vec<Command>) {
+    pub(in crate::app) fn set_rx_filter(&mut self, lo: f32, hi: f32, cmds: &mut Vec<Command>) {
         let max = self.state.rx[0].mode.max_filter_hz();
         let lo = lo.clamp(-max, max);
         let hi = hi.clamp(-max, max);
@@ -7214,7 +7214,7 @@ fn width_to_edges(mode: Mode, lo: f32, hi: f32, width: f32) -> (f32, f32) {
 /// 700 Hz default sidetone. An operator copying at 500 wants that same width
 /// about *their* pitch; handing them the table verbatim would put the note
 /// they are listening for on the edge of the filter, or outside it.
-fn preset_edges(mode: Mode, lo: f32, hi: f32, cw_pitch_hz: f32) -> (f32, f32) {
+pub(in crate::app) fn preset_edges(mode: Mode, lo: f32, hi: f32, cw_pitch_hz: f32) -> (f32, f32) {
     if mode != Mode::Cw {
         return (lo, hi);
     }
@@ -8058,7 +8058,7 @@ const WIDEBAND_MODES: [Mode; 5] = [Mode::Adsb, Mode::Vdl2, Mode::Ais, Mode::Hfdl
 /// gap after it (the operator: *"remove the alignment"*). The chips pack tight
 /// and the row simply holds up to [`MODE_GRID_COLS`] of them; where even one
 /// column will not fit, a wrapped row reflows instead.
-fn mode_chip_grid(
+pub(in crate::app) fn mode_chip_grid(
     ui: &mut egui::Ui,
     cur: Mode,
     modes: &[Mode],
@@ -8128,7 +8128,7 @@ const MODE_GRID_CELL_SLACK: f32 = 26.0;
 /// OPERATE's `Mode` section: the analog and voice modes, the broadcast
 /// demodulators (DRM, HD Radio) among them because that is what they are — a
 /// demodulator, like WFM, not a digi-engine mode.
-const OPERATE_MODES: [Mode; 15] = [
+pub(in crate::app) const OPERATE_MODES: [Mode; 15] = [
     Mode::Am,
     Mode::Nfm,
     Mode::Usb,
@@ -8147,7 +8147,7 @@ const OPERATE_MODES: [Mode; 15] = [
 ];
 
 /// LISTEN's `Receive modes`: what a listener actually selects on a service band.
-const LISTEN_MODES: [Mode; 9] = [
+pub(in crate::app) const LISTEN_MODES: [Mode; 9] = [
     Mode::Am,
     Mode::Sam,
     Mode::Cw,

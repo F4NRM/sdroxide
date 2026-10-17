@@ -421,11 +421,19 @@ fn detached_spec(module: sdroxide_types::DetachableModule) -> DetachedWindowSpec
         // underneath, and a wide window would just be dial with margins.
         M::Rotor => ("antenna rotator", [420.0, 520.0]),
     };
+    // The workstation names its windows SDRuno's way — the program's name and
+    // the window's own role on the window, so a desk full of them reads as one
+    // program. Its role names are SDRuno's (MAIN SP, AUX SP, RX CONTROL).
+    let title = if super::sdruno::active() {
+        super::sdruno::window_title(super::sdruno::module_role(module))
+    } else {
+        format!("{} — {name}", sdroxide_version::FLAVOR)
+    };
     DetachedWindowSpec {
         viewport_id: egui::ViewportId::from_hash_of(app_id),
         settle_id: egui::Id::new(format!("{app_id}-geom")),
         app_id: app_id.to_string(),
-        title: format!("{} — {name}", sdroxide_version::FLAVOR),
+        title,
         default_size,
         min_size: [360.0, 240.0],
     }
@@ -438,11 +446,19 @@ fn detached_spec(module: sdroxide_types::DetachableModule) -> DetachedWindowSpec
 #[cfg(not(target_arch = "wasm32"))]
 fn tool_spec(id: &str, title: &str, default_size: [f32; 2]) -> DetachedWindowSpec {
     let app_id = format!("sdroxide-tool-{id}");
+    let title = if super::sdruno::active() {
+        // The tool ids' titles are the program's own lower case ("scanner",
+        // "logbook"); SDRuno sets its window names in caps, so they are upper
+        // cased here rather than retitled one by one.
+        super::sdruno::window_title(&title.to_uppercase())
+    } else {
+        format!("{} — {title}", sdroxide_version::FLAVOR)
+    };
     DetachedWindowSpec {
         viewport_id: egui::ViewportId::from_hash_of(&app_id),
         settle_id: egui::Id::new(format!("{app_id}-geom")),
         app_id,
-        title: format!("{} — {title}", sdroxide_version::FLAVOR),
+        title,
         default_size,
         min_size: [240.0, 160.0],
     }
@@ -517,6 +533,17 @@ fn detached_viewport(
         .with_app_id(spec.app_id.clone())
         .with_title(spec.title.clone())
         .with_min_inner_size(spec.min_size);
+    // **Asking a tiling window manager to float.** On X11 this is
+    // `_NET_WM_WINDOW_TYPE_UTILITY`, which i3, sway, bspwm, awesome and the
+    // rest all honour by floating the window — the one place a program can say
+    // "this is a tool window, do not tile it". Set only in the SDRuno
+    // workstation, so an ordinary undocked window keeps behaving as it always
+    // has. Wayland has no equivalent call, so this does nothing there; the
+    // operator's own compositor rule on the app-id is the route, documented in
+    // the manual.
+    if let Some(window_type) = super::sdruno::float_hint() {
+        builder = builder.with_window_type(window_type);
+    }
     // Seed the size and place only on the frame the window is (re)built, so a
     // live resize is never fought by our own request.
     if ctx.cumulative_pass_nr_for(vid) == 0 {
@@ -648,12 +675,36 @@ impl eframe::App for SdroxideApp {
             // so the new metrics land next frame; ask for one straight away.
             ctx.request_repaint();
         }
+        // The SDRuno workstation, published like the tier above and for the
+        // same reason: the free functions that build a detached window's spec
+        // (`detached_spec`, `detached_viewport`) have no `&SdroxideApp` to ask,
+        // and threading a `bool` through every one of them would put a
+        // parameter on a dozen signatures that mean nothing outside the mode.
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            super::sdruno::set_active(self.sdruno_active());
+            // Open the workstation's window set on the rising edge of the mode.
+            self.apply_sdruno_arrangement();
+        }
         // Same idea for the theme and chrome styles: the settings dialog wrote
         // them into `ui_settings` at the end of last frame, and the top of the
         // frame is the one place a visuals rewrite cannot race the settings
         // window's ScrollPalette push/pop.
-        let look =
-            (self.ui_settings.theme, self.ui_settings.button_style, self.ui_settings.window_style);
+        //
+        // In the SDRuno workstation the look is **not** the picker's: the mode
+        // is the arrangement *and* the chrome it is drawn in, so it wears the
+        // steel and the bevel for as long as it is on. The UI tab greys the
+        // pickers and says so, rather than leaving three controls that appear
+        // to do nothing.
+        let look = if self.sdruno_active() {
+            (
+                sdroxide_types::UiTheme::SdrUno,
+                sdroxide_types::ChromeStyle::Bevel,
+                sdroxide_types::ChromeStyle::Bevel,
+            )
+        } else {
+            (self.ui_settings.theme, self.ui_settings.button_style, self.ui_settings.window_style)
+        };
         if self.applied_look != look {
             self.applied_look = look;
             crate::theme::set_look(look.0, look.1, look.2);
@@ -1049,7 +1100,13 @@ impl eframe::App for SdroxideApp {
             // up too it already carries the selector, so filling again would
             // draw it twice — show a plain face instead, never a black hole.
             #[cfg(not(target_arch = "wasm32"))]
-            if self.controls_detached() {
+            if self.sdruno_active() {
+                // SDRuno's MAIN is exactly this: the radio's own modules are
+                // windows of their own, and what is left is the hub whose
+                // buttons open them. Drawn in place of the plain face, because
+                // a working surface is what the main window is for.
+                self.sdruno_main_hub(ui, &mut cmds);
+            } else if self.controls_detached() {
                 empty_centre(ui);
             } else {
                 self.band_menu_fill(ui, &mut cmds);
@@ -1999,6 +2056,11 @@ impl SdroxideApp {
         now: f64,
     ) {
         use sdroxide_types::DetachableModule as M;
+        // The shell emits module windows at the end of its own frame, after
+        // every tab has drawn — so the flag is re-published here, from the
+        // focused radio that is about to draw, rather than relying on whichever
+        // tab happened to run last.
+        super::sdruno::set_active(self.sdruno_active());
         let spec = detached_spec(module);
         let seed = self.ui_settings.detached_state(module).window;
         let mut cmds: Vec<Command> = Vec::new();
@@ -2055,8 +2117,26 @@ impl SdroxideApp {
                             crate::chrome::angled_frame(ui, crate::theme::PINK(), |ui| {
                                 self.top_bar(ui, &mut cmds);
                             });
-                            ui.separator();
-                            self.console_band_area(ui, &mut cmds);
+                            // The SDRuno workstation promotes what the strip
+                            // hides in menus — every mode, every filter preset,
+                            // every AGC setting, every step — to visible
+                            // captioned matrices under it. The strip stays
+                            // because it is the working surface: the readout,
+                            // the PTT and the level controls are on it, and a
+                            // second copy of them would be a second thing to
+                            // keep in step.
+                            if self.sdruno_active() {
+                                ui.separator();
+                                egui::ScrollArea::vertical()
+                                    .auto_shrink([false, false])
+                                    .id_salt("sdruno-rx-control-scroll")
+                                    .show(ui, |ui| {
+                                        self.sdruno_rx_control(ui, &mut cmds);
+                                    });
+                            } else {
+                                ui.separator();
+                                self.console_band_area(ui, &mut cmds);
+                            }
                         });
                     crate::layout::set_tier(&ictx, prev);
                 });
