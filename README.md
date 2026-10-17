@@ -374,6 +374,17 @@ sdroxide --server --web-root crates/sdroxide-web/dist
 sdroxide --connect 192.168.1.10:4950              # native UI driving a remote server
 ```
 
+**It works with the network unplugged.** Receiving, transmitting, every
+decoder, the maps, the panadapter, the logbook and the reception log are all
+local — the maps are drawn from data that ships inside the program, and there is
+no service to sign into, no key to paste in and nothing to download before it
+will run. The handful of features that do use the internet are extras: spots
+from PSK Reporter and the DX cluster, the satellite elements, the space-weather
+feed, the broadcast schedule, and uploading a log to LoTW, eQSL or QRZ. Each one
+is off until asked for, and with no connection the program is quiet about it and
+everything else carries on. The manual's **Offline by default** table (2.1)
+names each one and what happens without a route out.
+
 **Raspberry Pi 4/5.** Mesa's Vulkan driver (V3DV) makes the display flicker;
 sdroxide detects it and renders through OpenGL ES instead, at the cost of about
 one core. `WGPU_BACKEND=vulkan sdroxide` takes Vulkan back where it is steady.

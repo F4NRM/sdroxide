@@ -213,6 +213,34 @@ To try the interface with no hardware, use the built-in signal generator:
 sdroxide --siggen
 ```
 
+#### Offline by default
+
+**The station works with the network unplugged, and that is a design rule rather
+than a happy accident.** Receiving, transmitting, every decoder, the
+panadapter, the maps, the logbook and the reception log are local. The maps are
+drawn from data that ships inside the program — coastlines, borders, rivers,
+cities, and the airport and navigation-aid tables — so there is no tile server
+to be cut off from, no key to paste in and no account to keep alive. Nothing is
+fetched to make the program run.
+
+The features that do use the internet are extras, and each is off until asked
+for:
+
+| What | Where it goes | With no connection |
+| --- | --- | --- |
+| Spots (PSK Reporter, DX cluster, RBN) | `retrieve.pskreporter.info`, your cluster | the feed is empty; the band picture is yours |
+| Band openings from decodes | nothing — it is your own decoded spots | works |
+| Satellite elements (TLE) | `celestrak.org` | the last set is cached and drifts; PASSES goes approximate |
+| Space weather, Kp, aurora | `services.swpc.noaa.gov` | the last values are cached in `solar/` |
+| Broadcast schedule | the EiBi list | the bundled list is used |
+| Callsign lookup | QRZ, HamQTH | no card; everything typed by hand still works |
+| Log upload and download | LoTW, eQSL, QRZ, LOG11DX | the log is kept locally; upload waits |
+| Update check | the fork's releases | nothing is checked; turn it off in Settings → UI |
+
+The local network is a different thing and always available: the server and its
+remote clients, WSJT-X UDP, TCI, rigctld and the audio stream all work on a
+machine with no route to the internet at all.
+
 See the [command-line reference](#12-command-line-reference) for all options.
 
 ### 2.2 The main window

@@ -6474,6 +6474,15 @@ about 2.7:1 — fine for a lamp, not for a caption.
   everything else: no weather API, no callsign service, no geocoder. Where a
   paid or keyed source is the only one, **the feature does not ship**, and that
   is the answer rather than a caveat.
+  **And the program must work offline**, which is the same principle seen from
+  the other side: a "hot" online resource that a feature *needs* is a failure
+  even when it is free. Everything that matters — receive, transmit, the
+  decoders, the maps, the log — is local, and the things that do reach out
+  (spots, TLEs, space weather, the schedule, callbook, log uploads, the update
+  check) are extras that are off until asked for and degrade quietly. New work
+  that only works connected is in the wrong fork. The user-facing statement is
+  the manual's **Offline by default** table under §2.1 and the README's Running
+  section; keep both true when adding a feature that fetches anything.
 - **A contributor's PR that is sensible and merges cleanly is approved and
   merged without waiting.** In particular **Kevin's PRs (kevin2008-01, from
   Claude sessions) are auto-merged** — see "Pull requests to this fork" for what
