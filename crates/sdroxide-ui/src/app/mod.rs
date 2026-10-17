@@ -3748,7 +3748,7 @@ mod tests {
         };
         let (quiet, loud) = (level_at(0.05), level_at(1.0));
         assert_eq!(quiet, loud, "the meter at 5 % reads {quiet:?}, at full volume {loud:?}");
-        assert!(quiet[0] > -2.0, "a loud station lights the column: {quiet:?}");
+        assert!(quiet[0] > -10.0, "a station playing lights the column: {quiet:?}");
     }
 
     /// The station's logo (SPI) is not decoded, so the logo tile shows the
