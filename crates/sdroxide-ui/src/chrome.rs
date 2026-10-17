@@ -24,6 +24,73 @@ pub const MODULE_TALL_H: f32 = 72.0;
 /// that paints its own border has to match. See [`module_bare_flush_h`].
 pub const MODULE_BORDER: f32 = 1.0;
 
+/// A vertical scroll area that **holds the reader's place** as the content
+/// grows above them.
+///
+/// For a list drawn **newest-first**, where a new row is inserted at the top:
+/// every row already on screen is pushed down by the height of what arrived,
+/// so an operator reading row 5 finds themselves looking at row 4, and again,
+/// and again. Measured in `a_newest_first_list_does_not_slide_under_the_reader`:
+/// one prepended row moves the top of the viewport by exactly one row.
+///
+/// It is not a nicety for a live list. FT8's decodes **stream in during a
+/// slot** since the finder began reporting each one as it lands, so this went
+/// from one shift every fifteen seconds to several inside a slot — which is
+/// what discussion #90 reports as *"la barre de défilement FT8 n'est plus
+/// synchronisée avec le décodage"*.
+///
+/// The rule, and it is the one every log viewer arrives at: **at the top, the
+/// newest is what you are watching for, so the list moves; scrolled away, your
+/// place is held.** The correction is applied for the single frame after the
+/// content grew, and egui applies an explicit offset *before* it reads the
+/// wheel (see its `ScrollArea::show`), so it never eats the operator's own
+/// scrolling.
+pub fn anchored_list_scroll<R>(
+    ui: &mut egui::Ui,
+    salt: &str,
+    add: impl FnOnce(&mut egui::Ui) -> R,
+) -> R {
+    /// Where the reader is, and how much arrived above them last frame.
+    #[derive(Clone, Copy, Default)]
+    struct Anchor {
+        offset: f32,
+        content_h: f32,
+        fix: f32,
+    }
+
+    let id = crate::layout::salted_id(ui.ctx(), salt);
+    let st: Anchor = ui.ctx().data(|d| d.get_temp(id)).unwrap_or_default();
+
+    let mut area = egui::ScrollArea::vertical().auto_shrink([false, false]);
+    if st.fix > 0.5 && st.offset > AT_TOP_POINTS {
+        area = area.vertical_scroll_offset(st.offset + st.fix);
+    }
+    let out = area.show_themed(ui, add);
+
+    let grew = out.content_size.y - st.content_h;
+    ui.ctx().data_mut(|d| {
+        d.insert_temp(
+            id,
+            Anchor {
+                offset: out.state.offset.y,
+                content_h: out.content_size.y,
+                // Only upward growth shifts the reader; the list's own cap
+                // trimming the far end does not move anything they can see.
+                // `st.content_h > 0.0` is the first frame, where there is no
+                // height to compare against and the whole list would read as
+                // growth — which threw the operator to the end of it. Measured,
+                // not reasoned: the first version did exactly that.
+                fix: if st.content_h > 0.0 && grew > 0.5 { grew } else { 0.0 },
+            },
+        )
+    });
+    out.inner
+}
+
+/// How close to the top counts as "at the top" — under a point, and a point of
+/// slack, because a fractional offset lands there by itself.
+const AT_TOP_POINTS: f32 = 1.0;
+
 /// A panel with a pink border and cut corners (top-right + bottom-left),
 /// sitting on the darker page background.
 /// Should an advisory be shown at all?
@@ -107,9 +174,7 @@ pub fn ribbon(ui: &mut egui::Ui, text: &str, colour: Color32) -> bool {
         .inner_margin(egui::Margin::symmetric(8, 5))
         .show(ui, |ui| {
             ui.horizontal_wrapped(|ui| {
-                ui.add(
-                    egui::Label::new(egui::RichText::new(text).color(colour).size(11.0)).wrap(),
-                );
+                ui.add(egui::Label::new(egui::RichText::new(text).color(colour).size(11.0)).wrap());
                 dismissed = ui
                     .small_button("✕")
                     .on_hover_text("Close this message. Nothing else changes.")
@@ -867,10 +932,7 @@ pub fn trace_ruler(ui: &Ui, x: f32, top: f32, bottom: f32) {
     let ink = egui::Color32::from_rgb(255, 220, 60);
     let mut y = (top / 25.0).ceil() * 25.0;
     while y <= bottom {
-        p.line_segment(
-            [egui::pos2(x, y), egui::pos2(x + 6.0, y)],
-            egui::Stroke::new(1.0, ink),
-        );
+        p.line_segment([egui::pos2(x, y), egui::pos2(x + 6.0, y)], egui::Stroke::new(1.0, ink));
         p.text(
             egui::pos2(x + 8.0, y),
             egui::Align2::LEFT_TOP,
