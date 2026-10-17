@@ -15,6 +15,46 @@ pub(in crate::app) fn net_heading(ui: &mut egui::Ui, text: &str) {
     ui.label(RichText::new(text).size(12.0).strong().color(crate::theme::CYAN()));
 }
 
+/// One Reverse Beacon Network connection: the fields are the same for the
+/// first and the second, so only the heading and the config differ.
+pub(in crate::app) fn rbn_block(
+    ui: &mut egui::Ui,
+    title: &str,
+    cfg: &mut sdroxide_types::RbnConfig,
+    cmds: &mut String,
+) {
+    net_heading(ui, title);
+    crate::chrome::checkbox(ui, &mut cfg.enabled, "Enabled").on_hover_text(
+        "Read the world's skimmers and feed the propagation map with them. This is \
+         what makes the map show bands this radio is not listening to. It puts \
+         nothing on the air, needs no account, and uses the callsign from the \
+         General tab. RBN spots do not appear in the spot list — they are \
+         measurements, not invitations. The host is not tied to \
+         reversebeacon.net: any node that speaks the same telnet feed will do.",
+    );
+    net_row(ui, "Host", &mut cfg.host, 220.0);
+    ui.horizontal(|ui| {
+        ui.add_sized([96.0, 22.0], egui::Label::new("Port"));
+        ui.add(egui::DragValue::new(&mut cfg.port).range(1..=65535))
+            .on_hover_text("On reversebeacon.net, 7000 is the CW/RTTY feed, 7001 the FT8/FT4 one");
+    });
+    net_row(ui, "Login call", &mut cfg.login, 140.0);
+    ui.horizontal(|ui| {
+        ui.add_sized([96.0, 22.0], egui::Label::new("Commands"));
+        crate::chrome::field(
+            ui,
+            egui::TextEdit::multiline(cmds)
+                .desired_rows(2)
+                .hint_text("one per line, e.g. set/filter cont=eu")
+                .desired_width(220.0),
+        )
+        .on_hover_text(
+            "Sent after login. The place to narrow the feed — without a filter this is \
+             every skimmer on Earth.",
+        );
+    });
+}
+
 /// A labelled single-line text field for the network settings tabs.
 pub(in crate::app) fn net_row(ui: &mut egui::Ui, label: &str, val: &mut String, w: f32) {
     ui.horizontal(|ui| {

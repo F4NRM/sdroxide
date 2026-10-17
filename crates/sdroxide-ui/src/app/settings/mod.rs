@@ -38,7 +38,7 @@ use self::controls::settings_controls_tab;
 use self::general::{cb_plan_combo, region_combo, remote_access_settings, signed_in_station};
 use self::net::{
     broadcast_stations_settings, net_heading, net_row, net_secret, operator_identity_note,
-    settings_freedv_tab,
+    rbn_block, settings_freedv_tab,
 };
 use self::profiles::settings_profiles_tab;
 use self::radio::{
@@ -385,6 +385,7 @@ pub(in crate::app) struct SettingsIo<'a> {
     net_seeded: bool,
     net_cmds: &'a mut String,
     rbn_cmds: &'a mut String,
+    rbn2_cmds: &'a mut String,
     net_apply: &'a mut bool,
     net_sync: &'a mut bool,
     /// The built-in TCI *server* — this app acting as a rig for third-party
@@ -1288,6 +1289,7 @@ impl SdroxideApp {
         let mut net_edit = self.net_cfg_edit.clone();
         let mut net_cmds = self.net_cluster_cmds.clone();
         let mut rbn_cmds = self.net_rbn_cmds.clone();
+        let mut rbn2_cmds = self.net_rbn2_cmds.clone();
         let mut net_apply = false;
         let mut net_sync = false;
         let mut tci_srv_edit = self.tci_srv_edit.clone();
@@ -1466,6 +1468,7 @@ impl SdroxideApp {
                                 net_seeded: me.net_cfg_seeded,
                                 net_cmds: &mut net_cmds,
                                 rbn_cmds: &mut rbn_cmds,
+                                rbn2_cmds: &mut rbn2_cmds,
                                 net_apply: &mut net_apply,
                                 bc_reload: &mut bc_reload,
                                 bc_refetch: &mut bc_refetch,
@@ -1545,6 +1548,7 @@ impl SdroxideApp {
             self.net_cfg_edit = net_edit;
             self.net_cluster_cmds = net_cmds;
             self.net_rbn_cmds = rbn_cmds;
+            self.net_rbn2_cmds = rbn2_cmds;
         }
         if net_apply && self.net_cfg_seeded {
             let split = |s: &str| -> Vec<String> {
@@ -1552,6 +1556,7 @@ impl SdroxideApp {
             };
             self.net_cfg_edit.cluster.commands = split(&self.net_cluster_cmds);
             self.net_cfg_edit.rbn.commands = split(&self.net_rbn_cmds);
+            self.net_cfg_edit.rbn2.commands = split(&self.net_rbn2_cmds);
             // The engine persists net.json when it applies this.
             cmds.push(Command::SetNetworkConfig(self.net_cfg_edit.clone()));
         }
@@ -3470,44 +3475,36 @@ impl SdroxideApp {
                     );
                 });
 
-                net_heading(ui, "Reverse Beacon Network");
-                crate::chrome::checkbox(ui, &mut io.net_edit.rbn.enabled, "Enabled").on_hover_text(
-                    "Read the world's CW/RTTY skimmers and feed the propagation map with \
-                     them. This is what makes the map show bands this radio is not \
-                     listening to. On by default: it puts nothing on the air, needs no \
-                     account, and uses the callsign from the General tab. RBN spots do not \
-                     appear in the spot list — they are measurements, not invitations.",
-                );
-                net_row(ui, "Host", &mut io.net_edit.rbn.host, 220.0);
-                ui.horizontal(|ui| {
-                    ui.add_sized([96.0, 22.0], egui::Label::new("Port"));
-                    ui.add(egui::DragValue::new(&mut io.net_edit.rbn.port).range(1..=65535))
-                        .on_hover_text("7000 is the CW/RTTY feed, 7001 the FT8/FT4 one");
-                });
-                net_row(ui, "Login call", &mut io.net_edit.rbn.login, 140.0);
-                ui.horizontal(|ui| {
-                    ui.add_sized([96.0, 22.0], egui::Label::new("Commands"));
-                    crate::chrome::field(
-                        ui,
-                        egui::TextEdit::multiline(io.rbn_cmds)
-                            .desired_rows(2)
-                            .hint_text("one per line, e.g. set/filter cont=eu")
-                            .desired_width(220.0),
-                    )
-                    .on_hover_text(
-                        "Sent after login. The place to narrow the feed — without a filter \
-                         this is every skimmer on Earth.",
+                rbn_block(ui, "Reverse Beacon Network 1", &mut io.net_edit.rbn, io.rbn_cmds);
+                rbn_block(ui, "Reverse Beacon Network 2", &mut io.net_edit.rbn2, io.rbn2_cmds);
+                if io.net_edit.rbn.enabled
+                    && io.net_edit.rbn2.enabled
+                    && io.net_edit.rbn.same_feed(&io.net_edit.rbn2)
+                {
+                    ui.colored_label(
+                        Color32::from_rgb(230, 170, 60),
+                        format!(
+                            "Reverse Beacon Network 1 and 2 both use {}:{} — every spot will \
+                             arrive twice. Give them different ports (7000 CW/RTTY, 7001 \
+                             FT8/FT4) or switch one off.",
+                            io.net_edit.rbn.host.trim(),
+                            io.net_edit.rbn.port
+                        ),
                     );
-                });
-                ui.label(
-                    egui::RichText::new(
-                        "RBN paths are placed from country centres, not locators — accurate \
-                         for a small country, out by a long way for a large one. They are a \
-                         separate layer on the propagation map and can be switched off there.",
+                }
+                ui.add(
+                    egui::Label::new(
+                        egui::RichText::new(
+                            "RBN paths are placed from country centres, not locators — \
+                             accurate for a small country, out by a long way for a large \
+                             one. They are a separate layer on the propagation map and can \
+                             be switched off there.",
+                        )
+                        .size(9.5)
+                        .italics()
+                        .color(crate::theme::gray(110)),
                     )
-                    .size(9.5)
-                    .italics()
-                    .color(crate::theme::gray(110)),
+                    .wrap(),
                 );
 
                 net_heading(ui, "POTA / SOTA / PSK Reporter");
