@@ -31,7 +31,9 @@
 //! aeroplane is, drawn in the same ink as the ones that are true, and the map
 //! is the one place with no room for a hedge.
 
-use eframe::egui::{Align2, Color32, FontId, Rect, Sense, Ui, pos2, vec2};
+use eframe::egui::{
+    Align2, Color32, FontId, Painter, Pos2, Rect, Sense, Shape, Stroke, Ui, pos2, vec2,
+};
 use sdroxide_types::{AdsbAircraft, AdsbSettings};
 
 use crate::theme;
@@ -66,12 +68,34 @@ const NM_PER_DEG_LAT: f64 = 60.0;
 #[derive(Default)]
 pub struct AdsbMapState {
     pub view: MapView,
+    /// The map's optional layers — the flight paths, and the airports and
+    /// navigation aids underneath them. Chips on the map pane's own row.
+    pub layers: MapLayers,
     /// The aircraft whose card is open, by ICAO address.
     pub selected: Option<u32>,
     /// The map under the picture: land, rivers and borders as an image rather
     /// than the dot stipple the propagation maps use. Rebuilt only when the
     /// view moves by more than a texel.
     pub ground: crate::widgets::worldmap::GroundCache,
+}
+
+/// Which of the map's optional layers are drawn.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MapLayers {
+    /// **The flight's path**: where it has been and where it is going, as one
+    /// line through it rather than a scatter of history dots.
+    pub paths: bool,
+    /// **Airports and radio navigation aids** — the ground truth under the
+    /// picture, from the public-domain tables in [`crate::airdata`].
+    pub nav: bool,
+}
+
+impl Default for MapLayers {
+    fn default() -> Self {
+        // Both on. They are what the picture is for, and each has a chip to
+        // turn it off — a layer nobody can find is a layer that does not exist.
+        Self { paths: true, nav: true }
+    }
 }
 
 /// The view to ease toward: every target that can be drawn, plus us, framed.
@@ -159,6 +183,116 @@ fn block_rank(a: &AdsbAircraft) -> u8 {
         1
     } else {
         2
+    }
+}
+
+/// Airports and radio navigation aids, filtered by zoom.
+///
+/// **The filter is the feature.** The tables hold 11 008 navaids and 5 280
+/// airports, and drawing them all at every zoom is a wall of idents with a map
+/// somewhere behind it. So the view decides: large airports always, medium ones
+/// once they are places rather than specks, navaids only once a station is
+/// something you could point an aerial at — which is also the zoom at which the
+/// **MF ones become useful to a listener**, because those are receivable.
+fn draw_nav_layer(
+    p: &Painter,
+    map: &theme::MapPalette,
+    layers: MapLayers,
+    clat: f64,
+    clon: f64,
+    lon_span: f64,
+    lat_span: f64,
+    project: &impl Fn(f64, f64) -> Pos2,
+) {
+    if !layers.nav || !crate::airdata::loaded() {
+        return;
+    }
+    let zoom = nav_zoom(lon_span);
+    let (half_lat, half_lon) = (lat_span * 0.5, lon_span * 0.5);
+    let in_view = |lat: f64, lon: f64| {
+        (lat - clat).abs() <= half_lat && wrap180(lon - clon).abs() <= half_lon
+    };
+    let font = FontId::monospace(9.0);
+
+    for a in crate::airdata::airports() {
+        if (!a.large && !zoom.medium_airports) || !in_view(a.lat, a.lon) {
+            continue;
+        }
+        let c = project(a.lat, a.lon);
+        p.circle_stroke(c, 2.6, Stroke::new(1.0, alpha(map.border, 150.0)));
+        if a.large {
+            p.circle_filled(c, 1.2, alpha(map.city_label, 200.0));
+        }
+        if zoom.airport_labels && a.large {
+            let name = if a.iata.is_empty() { a.ident.as_str() } else { a.iata.as_str() };
+            p.text(
+                c + vec2(5.0, 3.0),
+                Align2::LEFT_TOP,
+                name,
+                font.clone(),
+                alpha(map.city_label, 190.0),
+            );
+        }
+    }
+
+    if !zoom.navaids {
+        return;
+    }
+    for n in crate::airdata::navaids() {
+        if !in_view(n.lat, n.lon) {
+            continue;
+        }
+        let c = project(n.lat, n.lon);
+        // A listener's aid is a different colour from a pilot's: an NDB is on
+        // medium wave and can be *heard*, and that is the half of this table
+        // this fork cares most about.
+        let ink = if n.kind.is_audible_on_mf() { map.home } else { map.river };
+        if n.kind.is_audible_on_mf() {
+            p.circle_filled(c, 1.5, alpha(ink, 210.0));
+        } else {
+            // The triangle a chart draws for a VOR family aid.
+            p.add(Shape::closed_line(
+                vec![c + vec2(0.0, -2.8), c + vec2(2.4, 1.7), c + vec2(-2.4, 1.7)],
+                Stroke::new(1.0, alpha(ink, 210.0)),
+            ));
+        }
+        if zoom.navaid_labels && !n.ident.is_empty() {
+            p.text(
+                c + vec2(4.5, 3.0),
+                Align2::LEFT_TOP,
+                &n.ident,
+                font.clone(),
+                alpha(map.city_label, 200.0),
+            );
+        }
+    }
+}
+
+/// What the view's span allows the navigation layer to draw.
+///
+/// **The filter is the feature.** The tables hold 11 008 navaids and 5 280
+/// airports; drawn all at once at every zoom they are a wall of idents with a
+/// map somewhere behind. Each threshold opens as the view tightens and none
+/// ever closes again going in — `nav_zoom` is a step function of the span, and
+/// that monotonicity is the property the test pins, because a layer that
+/// *loses* detail as you zoom in is the bug this shape exists to prevent.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct NavZoom {
+    medium_airports: bool,
+    airport_labels: bool,
+    navaids: bool,
+    navaid_labels: bool,
+}
+
+fn nav_zoom(lon_span: f64) -> NavZoom {
+    NavZoom {
+        medium_airports: lon_span <= 40.0,
+        airport_labels: lon_span <= 12.0,
+        // Below this a station is a place rather than a speck — and it is also
+        // the zoom at which the medium-wave beacons become a listening list
+        // rather than decoration.
+        navaids: lon_span <= 20.0,
+        navaid_labels: lon_span <= 6.0,
     }
 }
 
@@ -269,9 +403,25 @@ pub fn show(
         }
     }
 
-    // ── history, under everything ──
+    // ── airports and navaids, at the very bottom ──
+    draw_nav_layer(&p, map, state.layers, clat, clon, lon_span, lat_span, &project);
+
+    // ── history, under everything else ──
     for a in &live {
         let n = a.track.len();
+        if state.layers.paths && n >= 2 {
+            // **The flight's path**: the history joined into one line, and run
+            // through the aircraft's position so it carries on into the leader
+            // drawn below — where it has been and where it is going read as one
+            // thing rather than as a scatter of dots and a stub.
+            let mut pts: Vec<Pos2> =
+                a.track.iter().map(|&(la, lo)| project(f64::from(la), f64::from(lo))).collect();
+            if let Some((lat, lon)) = a.lat.zip(a.lon) {
+                pts.push(project(lat, lon));
+            }
+            p.add(Shape::line(pts, Stroke::new(1.2, alpha(map.trail, 130.0))));
+            continue;
+        }
         for (k, &(plat, plon)) in a.track.iter().enumerate() {
             let c = project(f64::from(plat), f64::from(plon));
             if !rect.contains(c) {
@@ -435,6 +585,36 @@ pub fn show(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// **The filter is the feature, and it only opens.** Zooming in must never
+    /// take something away: a layer that loses the medium airports when you get
+    /// close, or the navaids when you get closer, reads as the map breaking
+    /// rather than as a rule.
+    #[test]
+    fn the_navigation_layer_only_ever_opens_as_you_zoom_in() {
+        // World scale down to the tightest this map goes.
+        let spans = [360.0, 180.0, 60.0, 41.0, 40.0, 20.0, 12.0, 6.0, 3.0, 0.5];
+        let steps: Vec<NavZoom> = spans.iter().map(|s| nav_zoom(*s)).collect();
+        for pair in steps.windows(2) {
+            let (a, b) = (pair[0], pair[1]);
+            assert!(
+                (!a.medium_airports || b.medium_airports)
+                    && (!a.airport_labels || b.airport_labels)
+                    && (!a.navaids || b.navaids)
+                    && (!a.navaid_labels || b.navaid_labels),
+                "zooming in from {:?} to {:?} took something away",
+                a,
+                b
+            );
+        }
+        // And the ends are what they should be: a world view is large airports
+        // only, and the closest view labels everything.
+        assert!(!steps[0].navaids && !steps[0].medium_airports, "the world view is crowded");
+        assert!(
+            steps[steps.len() - 1].navaids && steps[steps.len() - 1].navaid_labels,
+            "the closest view does not name the stations"
+        );
+    }
 
     fn flying(kt: f32, track: f32, turn: f32) -> AdsbAircraft {
         let mut a = AdsbAircraft::new(0x3C_6444, 0);

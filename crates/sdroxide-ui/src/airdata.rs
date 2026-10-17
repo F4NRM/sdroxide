@@ -29,8 +29,6 @@
 // allow rather than eighteen warnings, because a tree that warns trains
 // everyone to read past warnings — and these are exactly the warnings that
 // would hide a real one. Take this off with the first consumer.
-#![allow(dead_code)]
-
 use core::sync::atomic::{AtomicU8, Ordering};
 
 const NAVAIDS: &[u8] = include_bytes!("../assets/airdata/navaids.bin");
@@ -76,6 +74,11 @@ impl NavaidKind {
     }
 
     /// The three or four letters a chart writes beside the symbol.
+    ///
+    /// `allow(dead_code)`: the map writes the *ident* beside a navaid today,
+    /// and this is what the data block and the hover will say when the nearest
+    /// aid is named there — the next step of the layer this table was added for.
+    #[allow(dead_code)]
     pub fn label(self) -> &'static str {
         match self {
             NavaidKind::Ndb => "NDB",
@@ -229,9 +232,14 @@ pub fn loaded() -> bool {
 
 /// The nearest navaid of any kind to a position, within `max_km`.
 ///
+/// `allow(dead_code)`: added with the tables and used by the aircraft data
+/// block, which names the nearest aid — the step after the map layer. Tested
+/// here in the meantime, so it is not untried code waiting for a caller.
+///
 /// A linear scan, and deliberately: 11 000 records is a few hundred
 /// microseconds, and this is asked once per aircraft per *fix* rather than once
 /// per frame. It becomes a grid the day something asks it sixty times a second.
+#[allow(dead_code)]
 pub fn nearest_navaid(lat: f64, lon: f64, max_km: f64) -> Option<(&'static Navaid, f64)> {
     let mut best: Option<(&Navaid, f64)> = None;
     for n in navaids() {
