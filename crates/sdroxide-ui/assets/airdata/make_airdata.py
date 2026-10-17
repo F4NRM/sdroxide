@@ -2,6 +2,7 @@
 """Build the aircraft-navigation tables the survey map draws from.
 
     python3 crates/sdroxide-ui/assets/airdata/make_airdata.py
+    python3 crates/sdroxide-ui/assets/airdata/make_airdata.py --from ~/Downloads
 
 Writes two committed assets beside this script:
 
@@ -24,6 +25,12 @@ Files, from <https://ourairports.com/data/> (mirrored on GitHub Pages):
 Nothing fetches at build time or at run time — this script is run by a person
 when the data wants refreshing, exactly like `make_earth_maps.py` beside the
 Earth rasters. The assets it writes are committed.
+
+**`--from DIR` reads CSVs already on disk instead of downloading them**, which
+is the route to use when the machine's Python has no certificate store (an
+Anaconda install often does not) or when the machine is offline: save
+`navaids.csv` and `airports.csv` from <https://ourairports.com/data/> into one
+directory and point the script at it.
 
 ## Why these tables and not the whole thing
 
@@ -71,11 +78,27 @@ NAVAID_TYPES = ["NDB", "VOR", "VOR-DME", "VORTAC", "TACAN", "DME", "NDB-DME"]
 AIRPORT_TYPES = ["large_airport", "medium_airport"]
 
 
+#: Where `--from` points, or None to download.
+LOCAL: str | None = None
+
+
 def fetch(name: str) -> str:
+    if LOCAL:
+        path = os.path.join(LOCAL, name)
+        sys.stderr.write(f"reading {path}\n")
+        return open(path, encoding="utf-8").read()
     url = f"{BASE}/{name}"
     sys.stderr.write(f"fetching {url}\n")
-    with urllib.request.urlopen(url, timeout=120) as r:
-        return r.read().decode("utf-8")
+    try:
+        with urllib.request.urlopen(url, timeout=120) as r:
+            return r.read().decode("utf-8")
+    except urllib.error.URLError as e:
+        raise SystemExit(
+            f"could not download {url}: {e}\n\n"
+            "If this machine's Python has no certificate store, save navaids.csv "
+            "and airports.csv from https://ourairports.com/data/ into a directory "
+            "and run this again with --from <that directory>."
+        ) from e
 
 
 def fixed(text: str, n: int) -> bytes:
@@ -102,10 +125,16 @@ def build_navaids() -> bytes:
         out.write(fixed(r["name"], 16))
         out.write(struct.pack("<B", NAVAID_TYPES.index(r["type"])))
         out.write(fixed(r["iso_country"], 2))
-        out.write(struct.pack("<I", int(number(r["frequency_khz"]))))
+        # Some rows carry a sentinel rather than a frequency; 0 means "not
+        # published", and the map draws those as an unfrequency'd symbol rather
+        # than at DC.
+        out.write(struct.pack("<I", max(0, int(number(r["frequency_khz"])))))
         out.write(struct.pack("<f", number(r["latitude_deg"])))
         out.write(struct.pack("<f", number(r["longitude_deg"])))
-    sys.stderr.write(f"  {len(keep)} navaids of {len(rows)} rows\n")
+    silent = sum(1 for r in keep if int(number(r["frequency_khz"])) <= 0)
+    sys.stderr.write(
+        f"  {len(keep)} navaids of {len(rows)} rows, {silent} with no frequency\n"
+    )
     return out.getvalue()
 
 
@@ -143,6 +172,10 @@ def verify(path: str, magic: bytes, size: int, headers: int = 2) -> None:
 
 
 def main() -> None:
+    global LOCAL
+    args = sys.argv[1:]
+    if args[:1] == ["--from"]:
+        LOCAL = os.path.expanduser(args[1]) if len(args) > 1 else "."
     navaids = build_navaids()
     airports = build_airports()
     open(os.path.join(HERE, "navaids.bin"), "wb").write(navaids)
