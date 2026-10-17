@@ -4283,6 +4283,86 @@ mod tests {
         assert!(app.tool_windows.get("scanner").is_some_and(|s| s.undocked));
     }
 
+    /// The SDRuno workstation: the window set opens on the rising edge of the
+    /// mode, a whole frame with it on runs, and the main window is left as MAIN
+    /// — the hub — because the radio's own modules have gone to windows of
+    /// their own. Docking one by hand must not be undone next frame: the
+    /// arrangement is applied once, not asserted every frame.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn the_sdruno_workstation_opens_its_window_set_once() {
+        use sdroxide_types::DetachableModule as M;
+        let dir = std::env::temp_dir().join(format!("sdroxide-sdruno-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        unsafe { std::env::set_var("SDROXIDE_CONFIG_DIR", &dir) };
+        let controller: Box<dyn RadioController> = Box::new(RecordingController::default());
+        let ctx = egui::Context::default();
+        let mut app = SdroxideApp::new_tab(&ctx, None, None, controller, 0, true);
+        assert!(!app.sdruno_active(), "off by default");
+
+        let input = || egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(1280.0, 800.0),
+            )),
+            ..Default::default()
+        };
+        // The frame's texture deltas are dropped without applying them: a
+        // `FullOutput` left holding unapplied deltas trips epaint's own `Drop`
+        // assertion in a debug build. The idiom the rest of the tree uses.
+        let frame = |app: &mut SdroxideApp| {
+            ctx.run_ui(input(), |ui| app.ui(ui, &mut eframe::Frame::_new_kittest()))
+                .drop_without_applying_deltas();
+        };
+        frame(&mut app);
+        assert!(
+            !app.ui_settings.is_detached(M::Panadapter),
+            "docked by default, before the mode is on"
+        );
+
+        // Turn it on as the settings row would, and drive a frame.
+        app.ui_settings.sdruno = true;
+        frame(&mut app);
+        assert!(app.sdruno_active(), "the mode is in force at Desktop");
+        for m in [M::Panadapter, M::Panel, M::Controls] {
+            assert!(app.ui_settings.is_detached(m), "{m:?} undocked by the mode");
+        }
+        assert!(
+            !app.center_has_content(app.state.rx[0].mode),
+            "the centre is MAIN now, and the hub draws there"
+        );
+
+        // The operator docks SP1 by hand. The mode must not spring it back.
+        app.ui_settings.set_detached(M::Panadapter, false);
+        frame(&mut app);
+        assert!(!app.ui_settings.is_detached(M::Panadapter), "docked on purpose, and it stays");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The mode is a way of arranging OS windows, so it is off anywhere there
+    /// is no desk: the setting may say yes and it still does nothing.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn the_sdruno_workstation_is_desktop_only() {
+        let dir = std::env::temp_dir().join(format!("sdroxide-sdruno-tier-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        unsafe { std::env::set_var("SDROXIDE_CONFIG_DIR", &dir) };
+        let controller: Box<dyn RadioController> = Box::new(RecordingController::default());
+        let ctx = egui::Context::default();
+        let mut app = SdroxideApp::new_tab(&ctx, None, None, controller, 0, true);
+        app.ui_settings.sdruno = true;
+
+        for tier in [crate::layout::Tier::Phone] {
+            app.tier = tier;
+            assert!(!app.sdruno_active(), "{tier:?} has no desk to arrange");
+        }
+        app.tier = crate::layout::Tier::Desktop;
+        assert!(app.sdruno_active());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     /// Another sdroxide on the same machine is the cause of a broken-up stream
     /// that nothing on screen used to name. The warning is drawn on the banner,
     /// survives the engine clearing its own notice (which it does with

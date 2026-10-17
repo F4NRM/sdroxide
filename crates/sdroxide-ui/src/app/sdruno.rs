@@ -67,13 +67,18 @@ pub(in crate::app) fn active() -> bool {
     ACTIVE.load(Ordering::Relaxed)
 }
 
-/// Whether the mode can be used **here**: the installed program, on a desktop.
+/// Whether the mode can be used **here**: the installed program, on a screen
+/// with a desk.
 ///
 /// A browser has no second OS window, and a phone has no desk to arrange — so
-/// the mode is offered nowhere else, and the setting cannot turn anything on
-/// there even if a `config.toml` were copied across.
+/// the mode is off in both, and the setting cannot turn anything on there even
+/// if a `config.toml` were copied across. A tablet lives on this side of the
+/// line: it runs the installed program and it has windows to place, which is
+/// the sense of "desktop mode" the mode is gated on rather than the `Layout`
+/// picker's own value — an operator on `Auto` should not have to change a
+/// setting to try it.
 pub(in crate::app) fn available(tier: crate::layout::Tier) -> bool {
-    !cfg!(target_arch = "wasm32") && tier == crate::layout::Tier::Desktop
+    !cfg!(target_arch = "wasm32") && tier != crate::layout::Tier::Phone
 }
 
 /// Whether a window this mode opens should ask its window manager to float it.
@@ -422,10 +427,15 @@ mod tests {
 
     #[test]
     fn the_mode_is_unavailable_in_a_browser_and_off_a_desktop() {
-        assert!(!available(crate::layout::Tier::Phone));
-        assert!(!available(crate::layout::Tier::Tablet));
+        assert!(!available(crate::layout::Tier::Phone), "a phone has no desk");
         #[cfg(not(target_arch = "wasm32"))]
-        assert!(available(crate::layout::Tier::Desktop));
+        {
+            assert!(available(crate::layout::Tier::Desktop));
+            assert!(
+                available(crate::layout::Tier::Tablet),
+                "a tablet runs the installed program and has windows to place"
+            );
+        }
     }
 
     #[test]

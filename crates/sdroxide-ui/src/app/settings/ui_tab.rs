@@ -156,20 +156,13 @@ pub(in crate::app) fn settings_ui_tab(
                  Switching this on opens that window set once; move the windows \
                  where you want them and the arrangement is kept. Switching it \
                  off leaves them where they are.\n\n\
-                 Desktop only — it is a way of arranging windows, so it does \
-                 nothing on a phone or tablet. It is kept on this machine and is \
-                 not carried with a profile, so a remote client never inherits \
-                 it.",
+                 The installed program only — it is a way of arranging windows, \
+                 so it does nothing in a browser, and nothing on a phone. It is \
+                 kept on this machine and is not carried with a profile, so a \
+                 remote client never inherits it.",
             );
             ui.horizontal(|ui| {
                 crate::chrome::checkbox(ui, &mut cfg.sdruno, "SDRuno window set");
-                if cfg.sdruno && cfg.layout != LayoutMode::Desktop {
-                    ui.label(
-                        RichText::new("set Layout to Desktop for it to apply")
-                            .small()
-                            .color(crate::theme::YELLOW()),
-                    );
-                }
             });
             ui.end_row();
         }
