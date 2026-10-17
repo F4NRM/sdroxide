@@ -12783,6 +12783,75 @@ window-rule {
 On X11, Windows and macOS the position is honoured directly and no rule is
 needed.
 
+#### The SDRuno workstation
+
+Tick **SDRuno workstation** on this tab to arrange the whole program the way
+SDRuno arranges itself, and to see this program as one set of windows rather
+than one window with panels in it.
+
+Turning it on once does this:
+
+- the **spectrum** goes to its own window, **SDRuno MAIN SP**;
+- the **operating panel** goes to its own window, **SDRuno DECODER**;
+- the **control surface** goes to its own window, **SDRuno RX CONTROL**, with the
+  band keypad and the band and mode selector inside it;
+- what is left of the main window is **MAIN** — the hub, a stack of buttons that
+  open and close every window (**SP1 / SP2 / RX CONTROL / DECODER / BAND /
+  ROTATOR**) with the band keypad beside it. SDRuno's MAIN is exactly that: a
+  small surface whose buttons open the rest.
+
+The arrangement is applied **once**: move the windows where you want them and it
+stays that way. Turning the mode off leaves them where they are.
+
+Every window is renamed SDRuno-style — the program's name and the window's own
+role, on the window, so a desk full of them reads as one program rather than as
+a set of anonymous panels. The tool windows join in: **SDRuno SCANNER**,
+**SDRuno LOGBOOK**, and so on.
+
+**RX CONTROL is the dense page.** Under the usual strip it adds the half SDRuno
+shows from the first pixel and this program keeps in menus: **MODE** and
+**DIGITAL** as two grids of buttons, **FILTER** at the presets the mode is
+actually worked at, **AGC**, **STEP**, and **NR / NB / AN** — one press each, no
+menu to open. The strip stays at the top of the window because it is the working
+surface: the frequency readout, the PTT and the level controls are on it, and a
+second copy of them would be a second thing to keep in step.
+
+The mode wears SDRuno's own look — the steel and the bevel — while it is on, so
+the Theme, Button style and Window style pickers on this tab are greyed and say
+so. Turn the workstation off to choose from them again.
+
+**It is the installed program's, on a computer.** It is a way of arranging OS
+windows, so it does nothing in a browser and nothing on a phone, and it is kept
+on this machine rather than with a profile — a remote client of a station never
+inherits someone else's desk.
+
+**Asking a tiling window manager to float.** On **X11** the workstation tells the
+window manager that each of its windows is a utility window
+(`_NET_WM_WINDOW_TYPE_UTILITY`), which i3, sway, bspwm, awesome and the rest all
+honour by floating it instead of tiling it. That is the only call a program can
+make, and it is made only by this mode — an ordinary undocked window is left to
+tile as before.
+
+On **Wayland** there is no such call, so the window tiles and you give it a rule
+of your own as above, with `open-floating true`. Two rules are all a SDRuno desk
+needs:
+
+```kdl
+window-rule {
+    match app-id="sdroxide-panadapter"
+    open-floating true
+    open-on-output "HDMI-A-1"
+    default-column-width { fixed 1100; }
+    default-window-height { fixed 620; }
+}
+window-rule {
+    match app-id="sdroxide-controls"
+    open-floating true
+    open-on-output "HDMI-A-1"
+    default-column-width { fixed 1400; }
+}
+```
+
 #### Voice announcements
 
 The last section of the UI tab reads the radio out loud, so it can be operated

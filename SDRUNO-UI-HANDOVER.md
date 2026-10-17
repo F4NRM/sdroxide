@@ -11,6 +11,21 @@ when the work reaches MAIN SP** — so note the split below.
 the next item is MAIN SP — the model-switch seam. Nothing has been started past
 it, deliberately.**
 
+> **Update, 2026-10-17 — the direction changed, and the whole of it is below.**
+> The operator asked for a **clone, not a cheap ripoff**, desktop-only, on a
+> branch: *"I want a clone. That should not be available for the server version
+> but only for desktop mode. If that means rewriting the complete ui engine for
+> desktop we have to do that."* And on the "look or structure" question above,
+> the answer stands: **it is the structure**. So the window set is now one mode —
+> **the SDRuno workstation** (`UiSettings::sdruno`,
+> `crates/sdroxide-ui/src/app/sdruno.rs`) — which opens SP1 / RX CONTROL / the
+> decoder window at once, names every window as SDRuno does, draws a **MAIN**
+> hub, gives RX CONTROL a **dense captioned control page**, wears SDRuno's steel
+> and bevel, and **asks the window manager to float its windows on X11**. Read
+> **"The SDRuno workstation as built"** near the end of this file before adding
+> anything to the SDRuno direction; the remainder it leaves is listed there.
+
+
 ## SDRuno's windows, from the manual (v1.4, ICAS)
 
 Source: `https://icas.to/sdrplay/SDRuno/sdruno-usermanual-jpn-1a-140.htm`
@@ -374,6 +389,97 @@ them:
 **Do not build all five.** Ask which. The handover's own TODO is complete, so
 this is a new direction on top of finished work, and the difference between
 "denser controls" and "every window announces itself" is a session each.
+
+## The SDRuno workstation as built (2026-10-17) — the whole window set as a mode
+
+Branch `fork/sdruno-clone` (off `fork/sdruno-look`, which carries the steel
+theme). The operator's brief, and the answer to the "look or structure" question
+above:
+
+> *"I want a clone behaviour of sdruno, not a cheap ripoff. I want a clone. That
+> should not be available for the server version but only for desktop mode. If
+> that means rewriting the complete ui engine for desktop we have to do that and
+> that's why I want you to work on a branch so nothing breaks the main. Also I
+> want to know if there is a way for a program to tell a tiling window manager it
+> needs to float, then this UI version should do so."*
+
+**A mode, not a rewrite.** `crates/sdroxide-ui/src/app/sdruno.rs`.
+`UiSettings::sdruno` — local `config.toml`, deliberately **not** `ClientScreen`,
+so a remote client of a station never inherits an arrangement (that is what "not
+for the server version" means). Applied on a native build off the Phone tier:
+`sdruno::available(tier)` is *the installed program on a machine with a desk*,
+which is the sense of "desktop mode" intended — the `Layout` picker's own value
+would have meant an operator on the default `Auto` had to change a setting
+before the mode did anything.
+
+**What it does:**
+
+1. **The window set opens on the rising edge** (`apply_sdruno_arrangement`, from
+   the top of `frame.rs`'s `ui`). Panadapter, Panel and Controls are undocked, so
+   the main window's centre is empty — and `center_empty` now draws
+   `sdruno_main_hub` there instead of the plain face. **Once**, not every frame:
+   the operator then moves the windows, and a rule re-asserted each frame would
+   drag a deliberately docked window back out.
+2. **Window identity.** `sdruno::window_title` / `module_role` — `SDRuno MAIN
+   SP`, `SDRuno AUX SP`, `SDRuno RX CONTROL`, and the tools as `SDRuno SCANNER`
+   (`tool_spec` upper-cases the program's own lower-case titles). SDRuno puts the
+   program's name *and* the window's role on the window; ours carried a role
+   only, so a desk of them did not read as one program.
+3. **The look follows the mode.** `frame.rs`'s `look` is forced to
+   `(SdrUno, Bevel, Bevel)` while it is on, and the three look pickers on
+   Settings → UI are disabled with `SDRUNO_LOOK_NOTE` on hover, so they explain
+   themselves rather than appearing broken.
+4. **The float request — the answer to the third question.** `detached_viewport`
+   sets `ViewportBuilder::with_window_type(X11WindowType::Utility)` when
+   `sdruno::float_hint()` is `Some`, which is `_NET_WM_WINDOW_TYPE_UTILITY` on
+   X11 and is honoured by i3, sway, bspwm, awesome and the rest. It is **X11
+   only**: Wayland has no equivalent call, and `egui-winit` maps
+   `X11WindowType` under `#[cfg(target_os = "linux")]` + `feature = "x11"` even
+   on a Wayland session, where winit simply does not reach the X11 backend. On
+   niri the route stays the operator's `window-rule` on the app-id, which the
+   manual now gives for the workstation.
+
+**RX CONTROL** (`sdruno_rx_control`) is the dense page: the captioned `group`
+boxes SDRuno's control pages are made of, carrying MODE, DIGITAL, FILTER, AGC,
+STEP, NR/NB/AN and BANDS — everything our strip hides in menus, promoted to a
+visible matrix. The strip stays above it; the readout, the PTT and the level
+controls live there, and a second copy would be a second thing to keep in step.
+
+**A bug the render test caught, worth keeping.** `group` first called
+`ui.set_min_width(ui.available_width())`, which reads like the way to make each
+box fill its share and inside a `horizontal_wrapped` row **silently ate every
+sibling after the first** — FILTER drew, AGC/STEP/NR did not exist at all. A
+wrapped row and a child that demands the whole row do not mix.
+`the_sdruno_pages_draw_their_captions` fails on that version with *"RX CONTROL is
+missing the AGC group"*, and its message prints the whole page, which is what
+found it.
+
+### What is left, in the order it matters
+
+1. **The strip itself, and this is the honest gap.** Our RX CONTROL is a strip
+   of wide chips *plus* a dense page; SDRuno is a page of small rectangles
+   throughout (`MODE` over AM/SAM/FM…, `FILTER` over 6000/5000/…, `VOLUME`,
+   `RF GAIN`, `SQ`, `MEM PAD`). Closing it means re-drawing the readout, the VFO
+   box, the PTT and the level controls in the dense idiom — the one piece of this
+   that is a rework rather than a re-arrangement, and what the operator's *"if
+   that means rewriting the complete ui engine for desktop we have to do that"*
+   is aimed at. `top_bar.rs` is 11 700 lines and `plan_top_strip` is
+   load-bearing, so **do it in slices**, keeping the strip drawable beside the
+   new page exactly as this does.
+2. **MAIN as SDRuno's MAIN.** Ours is the window stack plus the band keypad.
+   SDRuno's carries tabs across the top (**SETT / MISC / MAIN**), a version line
+   and a **SCHEDULER** table under the spectrum. The tabs are a different thing
+   from our radio tabs and are a slice of their own.
+3. **A PLUGINS window.** Our decoders are modes, so there is nothing to load and
+   unload — but a window listing what the current mode offers, with its setup,
+   would read as SDRuno's does.
+4. **Workspaces on MAIN.** We have them (Settings → UI, Ctrl+W); SDRuno puts the
+   dropdown on the window that owns the arrangement, which is the hub.
+5. **Verified only as far as a headless harness can.** The detached windows
+   no-op under `ctx.embed_viewports()`, so the arms are covered by their pure
+   halves: role names, titles, the float hint, the availability gate, the rising
+   edge, and the two pages' captions. **Nobody has looked at the window set on a
+   screen.**
 
 ## House notes for whoever picks this up
 

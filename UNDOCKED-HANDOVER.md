@@ -314,6 +314,12 @@ arithmetic (`waterfall_h == 0`).
   something a Wayland client can assert. The app's contribution is the
   **app-id** the rule matches on. Worth a short manual section; not an app
   feature.
+  **Update (2026-10-17): the X11 half is now an app feature.** The **SDRuno
+  workstation** (`SDRUNO-UI-HANDOVER.md`) sets
+  `ViewportBuilder::with_window_type(X11WindowType::Utility)` on every window it
+  opens, which is `_NET_WM_WINDOW_TYPE_UTILITY` and is honoured by i3, sway,
+  bspwm, awesome and the rest — a program *can* ask to float, on X11. Wayland
+  still has no call for it, so niri remains the operator's rule.
 - **Whether the detached geometry travels** on `ClientScreen` (a remote client
   that wants its own arrangement) — a decision, not a default.
 

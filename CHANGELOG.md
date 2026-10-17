@@ -14,6 +14,8 @@ and the [README](https://github.com/madmedicnl/sdroxide-brown#readme).
 ## [Unreleased]
 
 ### Added
+- **The SDRuno workstation** — one tick on Settings → UI arranges the program as SDRuno does: **MAIN SP**, **RX CONTROL** and the decoder each in a window of its own, a **MAIN** hub with the window buttons and the band keypad, every window named SDRuno-style, and RX CONTROL's dense page of captioned matrices (MODE, DIGITAL, FILTER, AGC, STEP, NR/NB/AN, BANDS). The installed program on a computer only.
+- **SDRuno's windows ask the window manager to float them** on X11, so a tiling window manager stops tiling them. Wayland has no such call; the manual has the rule.
 - **An SDRuno theme** — SDRuno's steel blue-grey panels, cyan readouts and amber active states, meant to be worn with the **Bevel** button style. Settings → UI, Theme.
 
 ### Added
