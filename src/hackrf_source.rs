@@ -385,16 +385,6 @@ impl IqSource for HackRfSource {
             )),
             _ => {}
         }
-        if self.tx_enabled {
-            // A standing reminder, because the setting is persisted and
-            // survives a restart with nothing else on screen to indicate it.
-            parts.push(
-                "transmit is ARMED — this radio's harmonics need an external low-pass \
-                 filter for the band you are on, and it is half duplex, so receive \
-                 stops for the length of every over"
-                    .to_string(),
-            );
-        }
         if let Some(from) = self.handle.snapped_from {
             let (min, max) = self.handle.rate_range;
             parts.push(format!(
