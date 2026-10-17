@@ -6670,18 +6670,48 @@ arrangement they already know, not fewer features.
 **The rule that keeps it honest: the sections reuse the strip's own bodies.**
 The `Radio` section *is* `rx_controls` (the RX menu, inlined with `narrow =
 true`, the same flag the compact strip uses because a popup cannot open inside a
-popup); `Mode` *is* `mode_chip_grid`; `Source` reads the published state and puts
-the route to Settings → Radio beside the values. **A second implementation of
-TUNE or of the squelch would be a second thing to fix twice** — do not add one
-when a section is extended.
+popup); `Mode` *is* `mode_chip_grid`; `Bands` *is* `band_menu_body` (so the docked
+column, the detached band window and this one are one body in one place); and
+`Tuning` / `Transmit` / `Display` / `Windows & tools` are `vfo_rit_module`,
+`rx_filter_module`, `tx_condensed`, `display_condensed` and `windows_condensed`
+called with the column's width. `Source` reads the published state and puts the
+route to Settings → Radio beside the values. **A second implementation of TUNE or
+of the squelch would be a second thing to fix twice** — do not add one when a
+section is extended. When the column is in use the strip draws **only the readout,
+the S-meter and the fold chip** (`desktop_strip`'s early branch): the two things
+that belong beside the picture, and the one control that has to be reachable from
+the folded arrangement.
 
-**The column yields to the picture** (`classic::classic_column_width`, pure and
-tested): offered only where the panadapter keeps its floor, its ceiling is the
-room that is left rather than a fixed number, and below that it is left out and
-the strip is drawn as usual. That is the #643 shape — a column that grows past
-what it was given takes the thing beside it off the screen. Native only.
+**One decision, asked once.** `classic_column_this_frame(tier, width)` is whether
+the arrangement is in use *and* the column is drawn, and both the frame and the
+strip ask it. Two copies of that decision is how the pair drifts, and it did: the
+strip folded while the column was left out for want of room (592 pt = 232 for the
+column + 360 for the picture), leaving the bands, the VFO and the tools in neither
+place. Where the column is not drawn, the strip keeps its own controls.
 
-**Left to do**: the rest of the sections (Display/Spectrum, Recorder, Band plan,
-Rigs — SDR++'s order is Source, Radio, Recorder, …), a skinned section header
-rather than egui's default, and the vertical Zoom/Max/Min rails SDR++ puts beside
-the waterfall. Nothing has been looked at on a screen yet.
+**The handle works, and the mechanism is the scroll area.** egui's note on
+`resizable` — the ui must use the space it was given — is necessary and **not
+sufficient**: a row wider than the column still drags the panel out to its own
+width and the handle springs back. `ScrollArea::both` is what fixes it, measured
+in `the_column_keeps_its_width_when_a_row_does_not_fit` (240 pt where it was asked
+for 240, against ~600 unscrolled). The ceiling is 640, not 420: a drag that stops
+reads as a drag that does not work, and the operator's first report was exactly
+that.
+
+**Two traps around the setting itself, both found by using it.** The strip's
+layout override folds the *strip* into fewer rows, and the classic strip has no
+rows to fold — left to the override, a `Small` setting would draw the compact
+strip's chips beside a column carrying the same controls, so Classic UI is drawn
+by the desktop strip at every tier but the phone. And the classic strip is mostly
+bare ground, where the strip's **double-click layout switch** was registered and
+*persisted*: an invisible target that changes the arrangement for good. Neither is
+reachable now, and `unchecking_classic_ui_gives_the_strip_back` drives the frames
+the operator's report was about — the boxes leave with the setting, the fold chip
+is drawn only with the column, and the picture's left edge goes back to where it
+was (8 pt, against 280 with the column).
+
+**Left to do**: a skinned section header rather than egui's default, SDR++'s
+vertical Zoom/Max/Min rails beside the waterfall, and the Recorder/Rigs sections
+if the four folds prove thin. It has been looked at on the operator's own screen
+(2026-10-17), which is how the missing sections and the stuck handle were found;
+nothing has been rendered here.
