@@ -2543,6 +2543,26 @@ impl SdroxideApp {
         }
     }
 
+    /// **Classic UI** is in use *and* its column is drawn this frame — which the
+    /// strip has to know, because wherever the column is not drawn the strip
+    /// keeps its own controls. One place answers it so the two cannot disagree;
+    /// the column is native only, so the browser answers `false`.
+    pub(in crate::app) fn classic_column_this_frame(
+        &self,
+        tier: crate::layout::Tier,
+        window_w: f32,
+    ) -> bool {
+        #[cfg(target_arch = "wasm32")]
+        {
+            let _ = (tier, window_w);
+            false
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.ui_settings.classic_ui && super::classic::classic_column_shown(tier, window_w)
+        }
+    }
+
     /// The panadapter's window should exist this frame: undocked on the focused
     /// radio *and* there is a panadapter to show (its layers are on). This is the
     /// same rule the frame loop reserves space by, so the two cannot disagree.

@@ -58,6 +58,16 @@ pub(in crate::app) fn classic_column_width(window_w: f32) -> Option<(f32, f32)> 
     Some((CLASSIC_MIN_W, max))
 }
 
+/// Whether the column is drawn for a window this wide — **the same decision the
+/// frame makes**, asked in one place so the strip and the column cannot disagree
+/// about whether the arrangement is in use. The strip must keep its own controls
+/// anywhere the column is not drawn: a window whose room has run out has to look
+/// exactly like a window with the setting off, not like one with its controls
+/// folded into a column that is not there.
+pub(in crate::app) fn classic_column_shown(tier: crate::layout::Tier, window_w: f32) -> bool {
+    tier != crate::layout::Tier::Phone && classic_column_width(window_w).is_some()
+}
+
 impl super::SdroxideApp {
     /// The column: a scroll area of sections, each folding away.
     ///
@@ -293,6 +303,23 @@ mod tests {
             "the unscrolled column did not widen with its content ({without} against {with}), \
              so this test is not measuring what it claims"
         );
+    }
+
+    /// **Where the column is not drawn, the strip keeps its controls.** The
+    /// room runs out at 592 pt — 232 for the column, 360 for the picture — and
+    /// the band between there and the phone tier is narrow, which is exactly why
+    /// it would have gone unnoticed: the strip would have folded away to the
+    /// readout and the meter with the controls in neither place.
+    #[test]
+    fn the_strip_keeps_its_controls_where_the_column_is_not_drawn() {
+        use crate::layout::tier_for;
+        use sdroxide_types::LayoutMode;
+        let shown =
+            |w: f32| classic_column_shown(tier_for(egui::vec2(w, 900.0), LayoutMode::Auto), w);
+        assert!(shown(1400.0), "a desktop window has room for the column");
+        assert!(shown(640.0), "so has a narrow one, down to the floor");
+        assert!(!shown(596.0), "596 pt has room for neither a 232 pt column nor the picture");
+        assert!(!shown(360.0), "and a phone is never given one");
     }
 
     /// **The column never eats the picture.** It is offered only where the

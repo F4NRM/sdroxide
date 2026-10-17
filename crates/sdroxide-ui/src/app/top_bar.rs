@@ -684,7 +684,8 @@ impl SdroxideApp {
         // (and *persists* it) on a double click. An operator clearing a stuck
         // column would find the strip folded into another arrangement with
         // nothing on screen to say what did it.
-        if tier != crate::layout::Tier::Phone && !self.ui_settings.classic_ui {
+        let classic = self.classic_column_this_frame(tier, ui.available_width());
+        if tier != crate::layout::Tier::Phone && !classic {
             let toggle = ui.interact(
                 ui.max_rect(),
                 crate::layout::salted_id(ui.ctx(), "strip-layout-toggle"),
@@ -706,7 +707,7 @@ impl SdroxideApp {
         // override, a Small setting would draw the compact strip's own chips
         // beside a column carrying the same controls, which is the duplication
         // this arrangement exists to remove.
-        if !tier.compact() || (self.ui_settings.classic_ui && tier != crate::layout::Tier::Phone) {
+        if !tier.compact() || classic {
             self.desktop_strip(ui, cmds);
             return;
         }
@@ -842,7 +843,10 @@ impl SdroxideApp {
         // drawn as a section of the column instead. Same modules, same commands:
         // `classic_column` calls the very methods the match below calls, so
         // there is no second implementation of any of them.
-        if self.ui_settings.classic_ui {
+        // Only where the column is actually drawn: the strip must keep its own
+        // controls wherever it is not, or a window too narrow for the column
+        // would lose them entirely.
+        if self.classic_column_this_frame(tier, avail) {
             ui.horizontal(|ui| {
                 self.freq_module_at(ui, cmds, &freq);
                 // The fold lives here because this row is what is *left* when
