@@ -6446,6 +6446,13 @@ about 2.7:1 — fine for a lamp, not for a caption.
   rule was written down somewhere and still got broken, so it lives where a
   session starts. Markdown is for the *repository* — commit messages, the manual,
   this file. A reply in an issue, a discussion or a chat is prose.
+- **Ask a reporter one thing, not three.** The operator, 2026-10-17: *"don't
+  overask Kevin please.. you have a tendency to keep asking like you did now"* —
+  after a reply that carried three questions, one of which (whether the sound went
+  to a Bluetooth device) he had already ruled out. **A report is usually enough to
+  work from**, and the questions are the cheapest part to cut: ask the one that
+  decides the fix, and leave the others until that one is answered. Same failure
+  as the release notes — a rule about being short, broken by adding.
 - **A contributor's PR that is sensible and merges cleanly is approved and
   merged without waiting.** In particular **Kevin's PRs (kevin2008-01, from
   Claude sessions) are auto-merged** — see "Pull requests to this fork" for what
