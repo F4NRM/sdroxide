@@ -6812,6 +6812,45 @@ the stored order rather than the shipped one.
 — worth knowing, because "it is `Copy`" is the reason a `Vec` field looks
 impossible at first.
 
+**Three egui defaults that cost this column a round each**, all found on the
+operator's screen and all worth knowing before the next arrangement:
+
+- **A section's applicability is asked *before* its heading.** `Transmit` was
+  gated inside its body, so SWL mode drew the heading with nothing under it — *"in
+  SWL transmit has nothing to do in that menu"*. A control that does not apply
+  takes its heading with it, and the question is asked of the app once so the
+  column and the strip's own transmit box cannot disagree.
+- **`Frame`'s content layout defaults to `top_down(Center)`**, and **`add_sized`
+  centres what it is given**. Together they put every caption in the middle of its
+  own gutter and every section name in the middle of its bar, and made a row
+  wider than the column hang out of *both* edges at once — which reads as missing
+  padding and is neither. `classic_column` pins `top_down(Align::Min)` and
+  captions go through `gutter_label`; `the_column_fits_the_width_it_is_given`
+  now asserts a heading and a control are in the left gutter, and that nothing
+  hangs out of the left edge either.
+- **egui clips a too-long *right-aligned* text at its left.** The Source rows
+  right-aligned their values, so at 250 points `SDRplay RSP1 (serial 0000000001)
+  @ 3.000 Msps` read `RSP1 (serial 0000000001) @ 3.000 Msps` — the wrong end
+  lost. Long values wrap under their caption and elide at the end now, with the
+  whole value on the hover.
+
+**A bar that is not a strip has no boxes.** `chrome::module_plain_h` is
+`module_bare_h` without its fill and border, and `smeter::show` takes whether to
+draw its own outline — the Classic UI bar's readout and meter use them. The
+operator asked for the accent background and the border on the frequency block to
+go and the meter's border with them: a boxed module in the middle of an open bar
+reads as a leftover from the arrangement it replaced. The **scroll bar floats**
+for the same reason — one that allocates takes its width off every row it appears
+beside, which he saw as *"it takes a lot of realestate and the padding is non
+existent with the chips"*: one complaint, not two, and the fix is one setting
+(`spacing.scroll.floating`) plus a content margin.
+
+**It opens at 300 points**, and changing that needed the panel's id bumped:
+egui remembers a panel's width, so a new default is hidden behind whatever the
+last drag left there. The **section order** is not egui memory — it is
+`UiSettings::classic_sections` in `config.toml`, written on every drop, so it
+survives a restart.
+
 **Left to do**: a skinned section header rather than egui's default, SDR++'s
 vertical Zoom/Max/Min rails beside the waterfall, and splitting the Receiver
 section — it currently carries the passband presets and the noise-reduction
