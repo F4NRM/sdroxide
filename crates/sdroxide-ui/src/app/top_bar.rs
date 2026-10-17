@@ -848,24 +848,25 @@ impl SdroxideApp {
         // would lose them entirely.
         if self.classic_column_this_frame(tier, avail) {
             ui.horizontal(|ui| {
-                self.freq_module_at(ui, cmds, &freq);
-                // The fold lives here because this row is what is *left* when
-                // the column is away: a control that put the column back has to
-                // be somewhere the folded arrangement still draws. SDR++ puts
-                // its ☰ in the same place for the same reason.
-                let label = if self.classic_collapsed { "☰ CONTROLS" } else { "◀" };
-                if crate::chrome::chip(ui, self.classic_collapsed, RichText::new(label).size(11.0))
+                // **The fold leads the row**, because that is where the thing it
+                // moves is: SDR++ puts its ☰ at the left of the toolbar, and the
+                // control that opens and closes a bar belongs beside the bar
+                // rather than in the middle of the readout. One glyph in both
+                // states, so the readout does not shift sideways under the press,
+                // and it is lit while the column is on screen.
+                if crate::chrome::chip(ui, !self.classic_collapsed, RichText::new("☰").size(12.0))
                     .on_hover_text(if self.classic_collapsed {
-                        "Bring the control column back. For the length of a session only — the \
-                         setting on Settings → UI decides whether this arrangement is used at all."
+                        "Classic UI: the control column is folded away. Click to bring it back \
+                         — the readout and the meter stay on the bar either way."
                     } else {
-                        "Fold the control column away and give the whole window to the picture. \
-                         The readout and the meter stay, and this chip brings it back."
+                        "Classic UI: every control in the column down the left, SDR++-style. \
+                         Click to fold it away and give the whole window to the picture."
                     })
                     .clicked()
                 {
                     self.classic_collapsed = !self.classic_collapsed;
                 }
+                self.freq_module_at(ui, cmds, &freq);
                 let used = ui.min_rect().width();
                 let meter = (avail - used - gap).clamp(120.0, SMETER_W);
                 self.smeter_box(ui, meter, crate::chrome::MODULE_TALL_H, false);
@@ -3550,10 +3551,16 @@ impl SdroxideApp {
                 let on = self.state.rx[0].binaural;
                 let sub = self.state.sub_rx_enabled;
                 let cw = self.state.rx[0].mode == Mode::Cw;
-                let chip = ui
-                    .add_enabled_ui(!sub, |ui| crate::chrome::chip(ui, on && !sub, "BIN"))
-                    .inner
-                    .on_hover_text(if sub {
+                // **A reserved chip, not one inside `add_enabled_ui`.** The
+                // scope it would create stops the row it is in from wrapping,
+                // so the chip lands past the container's edge instead of
+                // breaking at it — measured in the classic column, 33 points
+                // out at a 376 pt column. `chip_enabled` reserves the width
+                // first and greys the chip inside that reservation, which is
+                // what lets the row see it. Same reason `mode_band_chip` uses
+                // `chip_enabled_tinted`.
+                let chip = crate::chrome::chip_enabled(ui, !sub, on && !sub, "BIN").on_hover_text(
+                    if sub {
                         "Binaural audio — not while the sub receiver has the right ear"
                     } else if on {
                         "Binaural audio: the passband is spread across the two ears, so signals \
@@ -3569,7 +3576,8 @@ impl SdroxideApp {
                          noise spreads over the whole image while the station stays in the \
                          middle of it, which is easier to listen to for an hour — at the cost \
                          of the voice itself being spread out. Best on headphones"
-                    });
+                    },
+                );
                 if chip.clicked() {
                     self.state.rx[0].binaural = !on; // optimistic echo
                     cmds.push(Command::SetBinaural { rx: RxId::Main, on: !on });
@@ -4164,10 +4172,8 @@ impl SdroxideApp {
             // Channel layout is a property of the *next* recording — the
             // encoder is initialised with it — so it greys out while one runs.
             let mono = self.state.recording_mono;
-            let mono_chip = ui
-                .add_enabled_ui(!audio, |ui| crate::chrome::chip(ui, mono, "MONO"))
-                .inner
-                .on_hover_text(if mono {
+            let mono_chip =
+                crate::chrome::chip_enabled(ui, !audio, mono, "MONO").on_hover_text(if mono {
                     "Mixed to one channel — click for two"
                 } else {
                     "Two channels: RX left, TX right — click for one mixed channel"
@@ -4320,16 +4326,15 @@ impl SdroxideApp {
             ] {
                 let armed = self.rec_gate_s == secs;
                 let enabled = secs.is_none() || block.is_none();
-                let chip = ui
-                    .add_enabled_ui(enabled, |ui| crate::chrome::chip(ui, armed, label))
-                    .inner
-                    .on_hover_text(match secs {
+                let chip = crate::chrome::chip_enabled(ui, enabled, armed, label).on_hover_text(
+                    match secs {
                         None => "Stop following the squelch".to_string(),
                         Some(s) => format!(
                             "Record each transmission to its own file, closed after {s} seconds \
                              of silence"
                         ),
-                    });
+                    },
+                );
                 if chip.clicked() {
                     pick = Some(secs);
                 }
@@ -4372,24 +4377,23 @@ impl SdroxideApp {
         // it, not that sdroxide has not.
         let have_iq = self.state.sample_rate > 96_000.0;
         ui.horizontal_wrapped(|ui| {
-            let chip = ui
-                .add_enabled_ui(have_iq || iq, |ui| {
-                    crate::chrome::chip_accent(
-                        ui,
-                        iq,
-                        if iq { "● I/Q WAV" } else { "I/Q WAV" },
-                        crate::theme::ALERT(),
-                        Color32::WHITE,
-                    )
-                })
-                .inner
-                .on_hover_text(if have_iq || iq {
-                    "The raw spectrum the receiver is delivering, as a stereo 32-bit float WAV \
+            let iq_label = if iq { "● I/Q WAV" } else { "I/Q WAV" };
+            let chip = crate::chrome::chip_accent_enabled(
+                ui,
+                have_iq || iq,
+                iq,
+                iq_label,
+                None,
+                crate::theme::ALERT(),
+                Color32::WHITE,
+            )
+            .on_hover_text(if have_iq || iq {
+                "The raw spectrum the receiver is delivering, as a stereo 32-bit float WAV \
                      (RF64 past 4 GB) that SDR#, SDRuno, HDSDR and SDRangel open — and that \
                      sdroxide itself plays back with --file. Large: 8 bytes a sample."
-                } else {
-                    "This radio hands over demodulated audio, so there is no I/Q to record."
-                });
+            } else {
+                "This radio hands over demodulated audio, so there is no I/Q to record."
+            });
             if chip.clicked() {
                 cmds.push(Command::SetIqRecording(!iq));
             }
@@ -8198,6 +8202,14 @@ pub(in crate::app) fn mode_chip_grid(
         });
         return;
     }
+    // **Wrapped, not a plain horizontal**, and that is the difference between a
+    // column that fits and one chip hanging over its edge. `cols` is a *budget*
+    // — a cell is the widest label plus a slack for the frame the grid cannot
+    // measure in advance — and a budget that is a few points short put the row
+    // past the container (measured in the classic column: a four-wide row
+    // 409 points long inside 382). Wrapped, the grouping is still there and the
+    // row simply breaks one chip earlier when the arithmetic came up short,
+    // which is what the operator asked for in as many words.
     let mut start = 0;
     while start < modes.len() {
         ui.horizontal(|ui| {

@@ -77,29 +77,38 @@ impl super::SdroxideApp {
     /// sessions. A second implementation would be a second thing to get wrong
     /// for no gain.
     pub(in crate::app) fn classic_column(&mut self, ui: &mut egui::Ui, cmds: &mut Vec<Command>) {
-        // **Both axes, and that is what makes the handle work.** A vertical-only
-        // scroll area still lets a row wider than the column widen the column
-        // itself — the panel's width follows its content's minimum, so the
-        // handle springs back and reads as broken. Scrolled on both axes, the
-        // panel keeps the width it was given and a row that does not fit
-        // scrolls, which also *says* the column is too narrow rather than
-        // silently refusing to narrow.
-        egui::ScrollArea::both().auto_shrink([false, false]).id_salt("classic-column").show(
+        // **Vertical only, and the horizontal axis must stay bounded.** Scrolled
+        // on both axes, `ui.available_width()` is *infinite* — which is what a
+        // horizontal scroll area means — so every row here stretched to
+        // infinity and was then clipped at the viewport: every chip row ran to
+        // the edge and the last chip was cut. Measured on the operator's own
+        // screen (all seven rows ending at exactly the clip boundary, 356 of a
+        // 366 pt column). The width has to be a number for a row to fit in it.
+        egui::ScrollArea::vertical().auto_shrink([false, false]).id_salt("classic-column").show(
             ui,
             |ui| {
+                // **A ceiling on the whole column.** Rows inside the sections are
+                // written as strip rows — a few hundred points wide, with their
+                // trailing items pinned to the right where there is room to
+                // spare — and a right-aligned item measures "the room to spare"
+                // from the ui it is in. Without a ceiling the widest of those
+                // resolves against something wider than the column and paints
+                // past it: measured at 400 pt, 21 points over.
+                ui.set_max_width(ui.available_width());
                 self.classic_source_section(ui, cmds);
+                // No `Mode` section of its own: `band_menu_body` is the panel
+                // the modes belong to and it already carries them, so a second
+                // copy one fold above is the mode appearing twice in the column.
                 self.classic_bands_section(ui, cmds);
-                self.classic_mode_section(ui, cmds);
                 self.classic_radio_section(ui, cmds);
                 // The strip's own modules, one fold each — the very bodies the
                 // strip draws, called with the column's width. Nothing here is a
                 // second implementation, which is what keeps the two
                 // arrangements from drifting apart.
-                let w = ui.available_width();
-                self.classic_tuning_section(ui, cmds, w);
-                self.classic_tx_section(ui, cmds, w);
-                self.classic_display_section(ui, cmds, w);
-                self.classic_system_section(ui, cmds, w);
+                self.classic_tuning_section(ui, cmds);
+                self.classic_tx_section(ui, cmds);
+                self.classic_display_section(ui, cmds);
+                self.classic_system_section(ui, cmds);
             },
         );
     }
@@ -159,10 +168,16 @@ impl super::SdroxideApp {
 
     /// **Tuning** — the VFO, split and the RIT/XIT offsets: the strip's own
     /// module, drawn here.
-    fn classic_tuning_section(&mut self, ui: &mut egui::Ui, cmds: &mut Vec<Command>, w: f32) {
+    fn classic_tuning_section(&mut self, ui: &mut egui::Ui, cmds: &mut Vec<Command>) {
         egui::CollapsingHeader::new(RichText::new("Tuning").strong()).default_open(false).show(
             ui,
             |ui| {
+                // **The fold indents its body**, so the width a section may use
+                // is not the column's width but the width this closure was
+                // given. Measured here rather than passed down: measuring
+                // outside the fold is how every row came to overrun its own
+                // section by the indent.
+                let w = ui.available_width();
                 self.vfo_rit_module(ui, cmds, w);
                 ui.add_space(4.0);
                 self.rx_filter_module(ui, cmds, w);
@@ -173,49 +188,33 @@ impl super::SdroxideApp {
     /// **Transmit**, **Display**, **System** — the strip's own modules again,
     /// one fold each. The System fold is where the windows and the tools live,
     /// which is what SDR++ calls its plugin list.
-    fn classic_tx_section(&mut self, ui: &mut egui::Ui, cmds: &mut Vec<Command>, w: f32) {
+    fn classic_tx_section(&mut self, ui: &mut egui::Ui, cmds: &mut Vec<Command>) {
         egui::CollapsingHeader::new(RichText::new("Transmit").strong()).default_open(false).show(
             ui,
             |ui| {
+                let w = ui.available_width();
                 self.tx_condensed(ui, cmds, w);
             },
         );
     }
 
-    fn classic_display_section(&mut self, ui: &mut egui::Ui, cmds: &mut Vec<Command>, w: f32) {
+    fn classic_display_section(&mut self, ui: &mut egui::Ui, cmds: &mut Vec<Command>) {
         egui::CollapsingHeader::new(RichText::new("Display").strong()).default_open(false).show(
             ui,
             |ui| {
+                let w = ui.available_width();
                 self.display_condensed(ui, cmds, w);
             },
         );
     }
 
-    fn classic_system_section(&mut self, ui: &mut egui::Ui, cmds: &mut Vec<Command>, w: f32) {
+    fn classic_system_section(&mut self, ui: &mut egui::Ui, cmds: &mut Vec<Command>) {
         egui::CollapsingHeader::new(RichText::new("Windows & tools").strong())
             .default_open(false)
             .show(ui, |ui| {
+                let w = ui.available_width();
                 self.windows_condensed(ui, w, cmds);
             });
-    }
-
-    /// **Mode** — the same matrix the band menu draws, in the column where an
-    /// SDR++ hand looks for it.
-    fn classic_mode_section(&mut self, ui: &mut egui::Ui, cmds: &mut Vec<Command>) {
-        egui::CollapsingHeader::new(RichText::new("Mode").strong()).default_open(true).show(
-            ui,
-            |ui| {
-                super::top_bar::mode_chip_grid(
-                    ui,
-                    self.state.rx[0].mode,
-                    &super::top_bar::OPERATE_MODES,
-                    self.state.band,
-                    &self.state,
-                    false,
-                    cmds,
-                );
-            },
-        );
     }
 
     /// **Radio** — the receiver's controls, which is the strip's RX menu body
@@ -229,6 +228,14 @@ impl super::SdroxideApp {
                 // popup, so it lays its sub-menus out flat instead of opening
                 // them — a popup cannot open from inside a popup, which is the
                 // same reason the compact strip inlines its picker.
+                //
+                // **The width is pinned here**, and that is not decoration: the
+                // RX body is the strip's widest row and it wraps against the
+                // width *it is handed*. Inside a fold, some of its own rows are
+                // composed at their natural width, so without a ceiling the last
+                // chip of the receive row lands at a fixed x (463 at every
+                // column from 470 to 490) and paints up to 29 points past the
+                // fold's edge. Measured in `the_column_fits_the_width_it_is_given`.
                 self.rx_controls(ui, cmds, true);
             },
         );

@@ -4037,6 +4037,12 @@ mod tests {
             "the strip draws its System box to begin with; it drew: {before}"
         );
         app.ui_settings.classic_ui = true;
+        if std::env::var("CLASSIC_SWL").is_ok() {
+            app.ui_settings.swl = true;
+        }
+        if std::env::var("CLASSIC_SIMPLE").is_ok() {
+            app.ui_settings.simple_ui = true;
+        }
         frame(&mut app);
         let (during, left_during, big_during) = frame(&mut app);
         assert!(
@@ -4044,7 +4050,7 @@ mod tests {
             "the strip's System box left with the setting; it drew: {during}"
         );
         assert!(
-            during.contains('◀') || during.contains("CONTROLS"),
+            during.contains('☰'),
             "the fold chip is how the column is folded, so it is drawn with it"
         );
         assert!(
@@ -4064,10 +4070,7 @@ mod tests {
             "the picture did not go back to the left edge: {left_after} against {left_before}; \
              the big rects were {big_after:?}"
         );
-        assert!(
-            !after.contains('◀') && !after.contains("CONTROLS"),
-            "the fold chip stayed after the column was turned off"
-        );
+        assert!(!after.contains('☰'), "the fold chip stayed after the column was turned off");
         // **And the layout override must not put the arrangement out of reach.**
         // The override folds the *strip* into fewer rows; the classic strip has
         // no rows to fold, so it is drawn whatever the override says. Left to
@@ -4075,16 +4078,114 @@ mod tests {
         // chips beside a column carrying the same controls.
         app.ui_settings.layout = sdroxide_types::LayoutMode::Small;
         app.ui_settings.classic_ui = true;
+        if std::env::var("CLASSIC_SWL").is_ok() {
+            app.ui_settings.swl = true;
+        }
+        if std::env::var("CLASSIC_SIMPLE").is_ok() {
+            app.ui_settings.simple_ui = true;
+        }
         frame(&mut app);
         let (overridden, _, _) = frame(&mut app);
         assert!(
-            overridden.contains('◀') || overridden.contains("CONTROLS"),
+            overridden.contains('☰'),
             "the classic strip is drawn even with the strip folded to Small"
         );
         assert!(
             !overridden.contains("PUBLIC SDR"),
             "the compact strip's own boxes are not drawn beside the column: {overridden}"
         );
+    }
+
+    /// **The column fits the width it is given.** Draws the column itself at
+    /// each width it may be dragged to and asks what ink crosses the edge it was
+    /// handed — the #643 shape, asked of the column rather than of the dock.
+    ///
+    /// It exists because the first version of the column did *not* fit and
+    /// looked fine in a screenshot check: a horizontal scroll area makes
+    /// `available_width` infinite, so every chip row stretched to infinity and
+    /// was clipped at the viewport edge — all of them ending at exactly the
+    /// same last pixel, which reads as "the chips need wrapping" rather than as
+    /// "nothing was given a width". A probe that measures ink against the width
+    /// is what tells those two apart.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn the_column_fits_the_width_it_is_given() {
+        use crate::multi::frame_test_lock;
+        let _guard = frame_test_lock();
+        fn ink(shape: &egui::Shape, out: &mut Vec<egui::Rect>) {
+            match shape {
+                egui::Shape::Vec(v) => v.iter().for_each(|s| ink(s, out)),
+                _ => {
+                    let r = shape.visual_bounding_rect();
+                    if r.is_finite() && r.width() > 0.0 {
+                        out.push(r);
+                    }
+                }
+            }
+        }
+        let dir = std::env::temp_dir().join(format!("sdroxide-classicfit-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        unsafe { std::env::set_var("SDROXIDE_CONFIG_DIR", &dir) };
+        let controller: Box<dyn RadioController> = Box::new(RecordingController::default());
+        let ctx = egui::Context::default();
+        let mut app = SdroxideApp::new_tab(&ctx, None, None, controller, 0, true);
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(1280.0, 900.0),
+            )),
+            ..Default::default()
+        };
+        // **A sweep, not a handful of spot widths.** The defect this test was
+        // written for lived only in a band about thirty points wide (465 to 495
+        // — the receive row's last chip), so three or four spot readings across
+        // the whole range step straight over it. `CLASSIC_WIDTHS` overrides the
+        // list for a one-off reading.
+        let widths: Vec<f32> = std::env::var("CLASSIC_WIDTHS")
+            .ok()
+            .map(|s| s.split(',').filter_map(|v| v.trim().parse().ok()).collect())
+            .unwrap_or_else(|| (0..=17).map(|i| 232.0 + i as f32 * 24.0).collect());
+        for w in widths {
+            let mut cmds: Vec<Command> = Vec::new();
+            let mut worst: Option<(f32, egui::Rect)> = None;
+            for _ in 0..3 {
+                let full = ctx.run_ui(input.clone(), |ui| {
+                    egui::Panel::left(egui::Id::new(("classic-fit", w as i32)))
+                        .resizable(false)
+                        .exact_size(w)
+                        .show(ui, |ui| {
+                            app.classic_column(ui, &mut cmds);
+                        });
+                });
+                let mut all = Vec::new();
+                for cs in &full.shapes {
+                    ink(&cs.shape, &mut all);
+                }
+                // The panel's *own* background is the one thing that legitimately
+                // overhangs: egui fills a panel's frame a couple of points past
+                // its edge, the same 2 pt that cost a session on the top bar
+                // (discussion #16, item 1b). Ink that starts inside the column
+                // and crosses it is what this is for.
+                let cross: Vec<egui::Rect> = all
+                    .iter()
+                    .filter(|r| r.left() > 1.0 && r.left() < w && r.right() > w + 2.0)
+                    .copied()
+                    .collect();
+                worst =
+                    cross.iter().map(|r| (r.right() - w, *r)).max_by(|a, b| a.0.total_cmp(&b.0));
+            }
+            if let Some((over, r)) = worst {
+                panic!(
+                    "the column at {w} pt draws {over:.0} pt past its edge \
+                     (x {:.0}..{:.0}, y {:.0}..{:.0})",
+                    r.left(),
+                    r.right(),
+                    r.top(),
+                    r.bottom()
+                );
+            }
+        }
     }
 
     /// #643: drive one frame at a chosen window width (env `DOCK_W`, default
